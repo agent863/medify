@@ -2,10 +2,12 @@
 """
 send_report_email.py
 週報發信腳本 — 在 git push 後呼叫，通知收件人最新週報已更新。
+發信服務：Resend (smtp.resend.com)
 
 設定方式：
-  1. 在環境變數或 .env 填入 SMTP_USER / SMTP_PASSWORD
-  2. 修改下方 CONFIG 的 REPORT_URL 和 RECIPIENTS
+  1. 在環境變數設定 RESEND_API_KEY（Resend 控制台 → API Keys 產生）
+  2. 確認 Resend 已完成網域驗證（Domains → iclarityvision.com → Verified）
+  3. 修改下方 CONFIG 的 REPORT_URL 和 RECIPIENTS（如需異動）
 
 用法：
   python send_report_email.py                     # 自動偵測本週週次
@@ -24,15 +26,19 @@ from email.mime.text import MIMEText
 # ─── 設定區 ────────────────────────────────────────────────────────────────────
 
 CONFIG = {
-    # SMTP 設定（使用 Gmail App Password）
-    # 至 https://myaccount.google.com/apppasswords 產生專屬密碼
+    # Gmail SMTP 設定（使用個人 Gmail + App Password）
+    # 至 https://myaccount.google.com/apppasswords 產生 App Password，存入環境變數：
+    #   export SMTP_PASSWORD="你的16碼AppPassword"
     "SMTP_HOST": "smtp.gmail.com",
     "SMTP_PORT": 587,
-    "SMTP_USER": os.environ.get("SMTP_USER", "agent@iclarityvision.com"),
-    "SMTP_PASSWORD": os.environ.get("SMTP_PASSWORD", ""),  # 填入 App Password
+    "SMTP_USER": "medify.agent@gmail.com",
+    "SMTP_PASSWORD": os.environ.get("SMTP_PASSWORD", ""),
+
+    # 寄件人地址
+    "SENDER_EMAIL": "medify.agent@gmail.com",
 
     # 報告設定
-    "REPORT_URL": "https://YOUR_REPORT_URL_HERE",  # ← 填入部署後的網頁網址
+    "REPORT_URL": "https://agent863.github.io/data/%E9%80%B1%E5%A0%B1_2026-W21_May17-23.html",
     "REPORT_PASSWORD": "9053",
 
     # 收件人列表
@@ -94,7 +100,7 @@ def build_email(week_label: str, period: str) -> tuple[str, str, str]:
   .header .eye {{ font-size:11px; letter-spacing:.15em; text-transform:uppercase; opacity:.8; margin-bottom:6px; }}
   .header h1 {{ margin:0; font-size:22px; font-weight:700; }}
   .card {{ background:#fff; border:1px solid #e6ebf2; border-radius:12px; padding:24px 28px; margin-bottom:16px; }}
-  .btn {{ display:inline-block; background:#0f6fff; color:#fff; text-decoration:none;
+  .btn {{ display:inline-block; background:#0f6fff; color:#ffffff !important; text-decoration:none;
     padding:12px 28px; border-radius:8px; font-weight:600; font-size:15px; margin:12px 0 4px; }}
   .pwd {{ display:inline-block; background:#f0f7ff; color:#0f6fff; font-family:monospace;
     font-size:20px; font-weight:700; letter-spacing:.15em; padding:8px 20px;
@@ -138,7 +144,7 @@ def build_email(week_label: str, period: str) -> tuple[str, str, str]:
 
 def send_email(subject: str, plain: str, html: str, dry_run: bool = False) -> None:
     recipients = CONFIG["RECIPIENTS"]
-    sender = f"{CONFIG['SENDER_NAME']} <{CONFIG['SMTP_USER']}>"
+    sender = f"{CONFIG['SENDER_NAME']} <{CONFIG['SENDER_EMAIL']}>"
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -157,7 +163,7 @@ def send_email(subject: str, plain: str, html: str, dry_run: bool = False) -> No
         return
 
     if not CONFIG["SMTP_PASSWORD"]:
-        print("❌ 錯誤：SMTP_PASSWORD 未設定。請設定環境變數或在 CONFIG 中填入 App Password。", file=sys.stderr)
+        print("❌ 錯誤：SMTP_PASSWORD 未設定。請執行：export SMTP_PASSWORD='你的16碼AppPassword'", file=sys.stderr)
         sys.exit(1)
 
     print(f"📤 寄送週報通知給：{msg['To']}")
@@ -165,7 +171,7 @@ def send_email(subject: str, plain: str, html: str, dry_run: bool = False) -> No
         server.ehlo()
         server.starttls()
         server.login(CONFIG["SMTP_USER"], CONFIG["SMTP_PASSWORD"])
-        server.sendmail(CONFIG["SMTP_USER"], recipients, msg.as_string())
+        server.sendmail(CONFIG["SENDER_EMAIL"], recipients, msg.as_string())
     print(f"✅ 發信成功！主旨：{subject}")
 
 

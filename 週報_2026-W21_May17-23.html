@@ -4,6 +4,20 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>全站醫師表現週報 — W21 (2026/05/17–05/23)</title>
+<script>
+(function(){
+  var PASS = "9053";
+  var key = "weekly_report_auth";
+  if (sessionStorage.getItem(key) !== PASS) {
+    var input = prompt("請輸入瀏覽密碼：");
+    if (input !== PASS) {
+      document.documentElement.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;color:#4a5670;font-size:18px;">密碼錯誤，請重新整理頁面再試。</div>';
+      return;
+    }
+    sessionStorage.setItem(key, PASS);
+  }
+})();
+</script>
 <style>
   :root {
     --bg: #f6f8fb; --surface: #ffffff; --ink: #1a2433; --ink-soft: #4a5670;
