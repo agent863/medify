@@ -238,6 +238,107 @@
         <li><strong>「整合式睡眠手術」</strong>參與率高達 85.71%，雖瀏覽次不多，但使用者黏著度最強。</li>
       </ul>
     </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         1.4  熱門文章排行（post_view 事件）
+         資料來源：GA4 自訂事件 post_view，event_params 內含 post_id / content_id
+         填入方式：執行 post_view_queries.sql → Query 2，將結果貼入下表
+    ═══════════════════════════════════════════════════════ -->
+    <h3 style="margin-top:28px;">1.4 熱門文章排行
+      <span style="font-weight:400;font-size:13px;color:var(--muted);">post_view 事件 · group by post_id</span>
+    </h3>
+    <div class="callout" style="margin-bottom:12px;">
+      <strong>事件說明：</strong>
+      此節統計 GA4 自訂事件 <code style="background:var(--brand-soft);padding:2px 6px;border-radius:4px;font-size:12px;font-family:monospace;">post_view</code>（有別於一般 page_view），
+      僅在使用者實際進入文章頁時觸發，能更精準反映「文章閱讀行為」。
+      事件參數需包含 <code style="background:var(--brand-soft);padding:2px 6px;border-radius:4px;font-size:12px;font-family:monospace;">post_id</code>（或 <code style="background:var(--brand-soft);padding:2px 6px;border-radius:4px;font-size:12px;font-family:monospace;">content_id</code>）及 <code style="background:var(--brand-soft);padding:2px 6px;border-radius:4px;font-size:12px;font-family:monospace;">doctor_id</code>。
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>post_id / content_id</th>
+            <th>文章標題</th>
+            <th class="num">post_view 次數</th>
+            <th>所屬 doctor_id</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- ↓ 以下為示範佔位資料，請以 post_view_queries.sql Query 2 的查詢結果替換 ↓ -->
+          <tr style="background:#fffbea;">
+            <td colspan="5" style="text-align:center;font-size:12px;color:var(--warn);padding:8px 14px;">
+              ⚠️ 以下為示範佔位資料 — 請執行 <code style="font-family:monospace;">post_view_queries.sql</code>（Query 2）並以實際查詢結果替換
+            </td>
+          </tr>
+          <tr><td>1</td><td><code style="font-size:12px;font-family:monospace;">lbv-lasik-presbyopia</code></td><td>LBV裸視美老花雷射</td><td class="num">19</td><td><code style="font-size:12px;font-family:monospace;">doctor-10</code></td></tr>
+          <tr><td>2</td><td><code style="font-size:12px;font-family:monospace;">myopia-dry-eye-care</code></td><td>近視雷射術後乾眼症保養</td><td class="num">16</td><td><code style="font-size:12px;font-family:monospace;">doctor-10</code></td></tr>
+          <tr><td>3</td><td><code style="font-size:12px;font-family:monospace;">dry-eye-treatment</code></td><td>乾眼症會好嗎？治療與保養</td><td class="num">14</td><td><code style="font-size:12px;font-family:monospace;">doctor-10</code></td></tr>
+          <tr><td>4</td><td><code style="font-size:12px;font-family:monospace;">kids-myopia-3c</code></td><td>3C傷眼？兒童近視失控</td><td class="num">8</td><td><code style="font-size:12px;font-family:monospace;">doctor-10</code></td></tr>
+          <tr><td>5</td><td><code style="font-size:12px;font-family:monospace;">sleep-surgery</code></td><td>整合式睡眠手術</td><td class="num">9</td><td><code style="font-size:12px;font-family:monospace;">doctor-97</code></td></tr>
+          <!-- ↑ 示範佔位資料結束 ↑ -->
+        </tbody>
+      </table>
+    </div>
+    <div class="callout warn" style="margin-top:10px;">
+      <strong>前置確認：</strong> 請先執行 <code style="background:#fff4e0;padding:2px 6px;border-radius:4px;font-size:12px;font-family:monospace;">post_view_queries.sql</code> 的 <strong>Query 1（欄位探索）</strong>，
+      確認 GA4 BigQuery export 中 post_view 事件實際使用的 event_params key 名稱（可能是 <code style="font-family:monospace;font-size:12px;">post_id</code>、<code style="font-family:monospace;font-size:12px;">content_id</code>、或 <code style="font-family:monospace;font-size:12px;">article_id</code>），
+      再以對應欄位名稱執行 Query 2。
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         1.5  醫師文章總瀏覽排行（post_view by doctor_id）
+         資料來源：GA4 自訂事件 post_view，event_params 內含 doctor_id
+         填入方式：執行 post_view_queries.sql → Query 3，將結果貼入下表
+    ═══════════════════════════════════════════════════════ -->
+    <h3 style="margin-top:28px;">1.5 醫師文章總瀏覽排行
+      <span style="font-weight:400;font-size:13px;color:var(--muted);">post_view 事件 · group by doctor_id</span>
+    </h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>doctor_id</th>
+            <th>醫師姓名</th>
+            <th class="num">post_view 總次數</th>
+            <th class="num">文章篇數（有瀏覽）</th>
+            <th>WoW 變化</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- ↓ 以下為示範佔位資料，請以 post_view_queries.sql Query 3 的查詢結果替換 ↓ -->
+          <tr style="background:#fffbea;">
+            <td colspan="6" style="text-align:center;font-size:12px;color:var(--warn);padding:8px 14px;">
+              ⚠️ 以下為示範佔位資料 — 請執行 <code style="font-family:monospace;">post_view_queries.sql</code>（Query 3）並以實際查詢結果替換
+            </td>
+          </tr>
+          <tr>
+            <td>1</td>
+            <td><code style="font-size:12px;font-family:monospace;">doctor-10</code></td>
+            <td>何宜儒醫師</td>
+            <td class="num">57</td>
+            <td class="num">4</td>
+            <td><span class="pill up">↑ 待計算</span></td>
+          </tr>
+          <tr>
+            <td>2</td>
+            <td><code style="font-size:12px;font-family:monospace;">doctor-97</code></td>
+            <td>pojen 醫師</td>
+            <td class="num">9</td>
+            <td class="num">1</td>
+            <td><span class="pill neutral">—</span></td>
+          </tr>
+          <!-- ↑ 示範佔位資料結束 ↑ -->
+        </tbody>
+      </table>
+    </div>
+    <div class="callout" style="margin-top:10px;">
+      <strong>WoW 計算方式：</strong>
+      執行 <code style="background:var(--brand-soft);padding:2px 6px;border-radius:4px;font-size:12px;font-family:monospace;">post_view_queries.sql</code> 的 <strong>Query 4（WoW 比較）</strong>，
+      分別以本週（W21：20260517–20260523）與上週（W20：20260510–20260516）的 date range 各執行一次 Query 3，
+      計算 <code style="font-family:monospace;font-size:12px;">(本週 − 上週) / 上週 × 100%</code>。
+    </div>
   </section>
 
   <!-- SECTION 2: 重點醫師個別追蹤 -->

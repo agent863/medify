@@ -4,8 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "週報_*.html"
-      - "週報_*.html"   # Unicode fallback
+      - "report-*.html"
 
 jobs:
   send-notification:
@@ -19,13 +18,13 @@ jobs:
         id: report
         run: |
           # 找出最新的週報 HTML
-          REPORT_FILE=$(ls -t 週報_*.html 2>/dev/null | head -1)
+          REPORT_FILE=$(ls -t report-*.html 2>/dev/null | head -1)
           if [[ -z "$REPORT_FILE" ]]; then
             echo "找不到週報 HTML，跳過"
             exit 0
           fi
 
-          # 從檔名解析週次與日期範圍（e.g. 週報_2026-W21_May17-23.html）
+          # 從檔名解析週次與日期範圍（e.g. report-2026-W21-May17-23.html）
           BASENAME=$(basename "$REPORT_FILE" .html)
           WEEK_LABEL=$(echo "$BASENAME" | grep -oE 'W[0-9]+')
           DATE_RANGE=$(echo "$BASENAME" | grep -oE '[A-Za-z]+[0-9]+-[0-9]+' || echo "")

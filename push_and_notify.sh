@@ -16,11 +16,13 @@ set -euo pipefail
 # ─── 參數解析 ──────────────────────────────────────────────────────────────────
 WEEK_ARG=""
 DRY_RUN=false
+SKIP_BQ=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --week)   WEEK_ARG="$2"; shift 2 ;;
+    --week)    WEEK_ARG="$2"; shift 2 ;;
     --dry-run) DRY_RUN=true; shift ;;
+    --skip-bq) SKIP_BQ=true; shift ;;    # 略過 BQ 查詢（BQ 未設定時使用）
     *) echo "未知參數：$1"; exit 1 ;;
   esac
 done
@@ -28,6 +30,27 @@ done
 # ─── 路徑設定 ─────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EMAIL_SCRIPT="$SCRIPT_DIR/send_report_email.py"
+BQ_SCRIPT="$SCRIPT_DIR/run_post_view_queries.py"
+
+# ─── 步驟 0：執行 post_view BigQuery 查詢 ─────────────────────────────────────
+if $SKIP_BQ; then
+  echo "⏭️  略過 BigQuery 查詢（--skip-bq）"
+elif [[ -z "${BQ_PROJECT:-}" ]]; then
+  echo "⚠️  BQ_PROJECT 未設定，略過 post_view 查詢。"
+  echo "   若要啟用，請先執行："
+  echo "   export BQ_PROJECT='your-gcp-project-id'"
+  echo "   export BQ_DATASET='analytics_XXXXXXXXX'"
+else
+  echo "📊 執行 post_view 查詢..."
+  BQ_ARGS=()
+  [[ -n "$WEEK_ARG" ]] && BQ_ARGS+=("--week" "$WEEK_ARG")
+  $DRY_RUN && BQ_ARGS+=("--dry-run")
+
+  python3 "$BQ_SCRIPT" "${BQ_ARGS[@]}" || {
+    echo "⚠️  post_view 查詢失敗（見上方錯誤），繼續執行發布流程..."
+  }
+  echo ""
+fi
 
 # ─── 確認 git repo ────────────────────────────────────────────────────────────
 cd "$SCRIPT_DIR"
@@ -38,7 +61,7 @@ if ! git rev-parse --is-inside-work-tree &>/dev/null; then
 fi
 
 # ─── 確認有可提交的週報 HTML ──────────────────────────────────────────────────
-HTML_FILES=$(git status --short | grep '週報_.*\.html' | wc -l | tr -d ' ')
+HTML_FILES=$(git status --short | grep 'report-.*\.html' | wc -l | tr -d ' ')
 
 if [[ "$HTML_FILES" -eq 0 ]]; then
   echo "ℹ️  沒有新的週報 HTML 檔案需要提交，檢查是否已推送？"
@@ -52,7 +75,7 @@ if $DRY_RUN; then
   echo "── DRY RUN MODE ── 跳過 git 操作"
 else
   # 僅 stage 週報相關檔案（避免意外提交其他變更）
-  git add 週報_*.html 週報_*.md 2>/dev/null || true
+  git add report-*.html report-*.md 2>/dev/null || true
 
   # 取得本週次 label（Python 腳本相同邏輯）
   WEEK_LABEL="${WEEK_ARG:-$(python3 -c "

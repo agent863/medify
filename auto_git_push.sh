@@ -23,7 +23,7 @@ if ! git rev-parse --is-inside-work-tree &>/dev/null; then
 fi
 
 # ── 確認有未 commit 或 untracked 的週報 HTML ─────────────────────────────────
-CHANGED=$(git status --porcelain | grep -E '週報_.*\.html' || true)
+CHANGED=$(git status --porcelain | grep -E 'report-.*\.html' || true)
 
 if [[ -z "$CHANGED" ]]; then
   # 靜默結束，什麼都不做
@@ -37,7 +37,7 @@ git config user.email 2>/dev/null || git config user.email "agent@iclarityvision
 git config user.name  2>/dev/null || git config user.name  "Claude Agent"
 
 # ── Stage 週報檔案 ───────────────────────────────────────────────────────────
-git add 週報_*.html 週報_*.md 2>/dev/null || true
+git add report-*.html report-*.md 2>/dev/null || true
 
 if git diff --cached --quiet; then
   log "無 staged 內容（可能已 commit），直接嘗試 push"
