@@ -9,14 +9,14 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>/Users/medify_tofu/Documents/Claude/Projects/數據週報_全站醫師表現/auto_git_push.sh</string>
+    <string>/Users/medify_tofu/Documents/Claude/Projects/doctor-report/auto_git_push.sh</string>
   </array>
 
-  <!-- 每 5 分鐘執行一次 -->
+  <!-- Run every 5 minutes -->
   <key>StartInterval</key>
   <integer>300</integer>
 
-  <!-- 登入後立即啟動 -->
+  <!-- Start on login -->
   <key>RunAtLoad</key>
   <true/>
 
@@ -24,9 +24,9 @@
   <integer>60</integer>
 
   <key>StandardOutPath</key>
-  <string>/Users/medify_tofu/Documents/Claude/Projects/數據週報_全站醫師表現/auto_push.log</string>
+  <string>/Users/medify_tofu/Documents/Claude/Projects/doctor-report/auto_push.log</string>
 
   <key>StandardErrorPath</key>
-  <string>/Users/medify_tofu/Documents/Claude/Projects/數據週報_全站醫師表現/auto_push.log</string>
+  <string>/Users/medify_tofu/Documents/Claude/Projects/doctor-report/auto_push.log</string>
 </dict>
 </plist>
