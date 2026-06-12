@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Medify AI｜實踐性研究設計</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Archivo:wght@500;600;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* CI Guideline */
+  --accent:#44BDDB;   /* Primary 1 */
+  --deep:#0683AA;     /* Sky Blue 1 */
+  --mid:#1793BA;      /* Sky Blue 2 */
+  --pale:#CDEBF1;     /* Sky Blue 8 */
+  --paler:#EDF7F9;    /* Sky Blue 9 */
+  --ink:#2C2C2C;      /* Gray 1 */
+  --gray-2:#424242;
+  --gray-3:#636363;
+  --gray-4:#959595;
+  --gray-6:#BFBFBF;
+  --gray-7:#E8E8E8;
+  --gray-8:#F7F7F7;
+  --white:#FFFFFF;
+  --line:1px solid var(--ink);
+  --line-2:2px solid var(--ink);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  font-family:'Noto Sans TC',-apple-system,sans-serif;
+  color:var(--ink);background:var(--white);
+  line-height:1.7;-webkit-font-smoothing:antialiased;
+}
+.mono{font-family:'IBM Plex Mono',monospace}
+.num{font-family:'Archivo','Noto Sans TC',sans-serif}
+.wrap{max-width:1200px;margin:0 auto;padding:0 28px}
+@media(max-width:640px){.wrap{padding:0 18px}}
+
+/* reveal */
+.reveal{opacity:0;transform:translateY(18px);transition:opacity .6s ease,transform .6s ease}
+.reveal.in{opacity:1;transform:none}
+
+/* ---------- Nav ---------- */
+nav{
+  position:sticky;top:0;z-index:100;background:var(--white);
+  border-bottom:var(--line-2);
+}
+.nav-inner{
+  max-width:1200px;margin:0 auto;padding:0 28px;
+  display:flex;align-items:stretch;justify-content:space-between;height:58px;
+}
+.brand{
+  display:flex;align-items:center;gap:12px;
+  font-weight:900;font-size:1.05rem;letter-spacing:.02em;
+}
+.brand .sq{width:12px;height:12px;background:var(--accent)}
+.nav-links{display:flex;list-style:none;align-items:stretch}
+.nav-links li{display:flex;border-left:var(--line)}
+.nav-links a{
+  display:flex;align-items:center;padding:0 18px;
+  text-decoration:none;color:var(--ink);
+  font-family:'IBM Plex Mono',monospace;font-size:.72rem;letter-spacing:.06em;
+  transition:background .15s;
+}
+.nav-links a:hover{background:var(--paler)}
+@media(max-width:980px){.nav-links{display:none}}
+
+/* ---------- Hero ---------- */
+.hero{border-bottom:var(--line-2)}
+.hero .meta{
+  border-bottom:var(--line);
+  display:flex;justify-content:space-between;gap:16px;
+  padding:10px 0;
+  font-family:'IBM Plex Mono',monospace;font-size:.72rem;letter-spacing:.08em;
+  color:var(--gray-3);
+}
+.hero .meta .wrap{display:contents}
+.hero-main{padding:84px 0 72px}
+.hero h1{
+  font-weight:900;letter-spacing:.02em;line-height:1.18;
+  font-size:clamp(2.6rem,7.2vw,5.2rem);
+}
+.hero h1 .hl{
+  background:var(--accent);color:var(--white);
+  padding:0 .12em;
+}
+.hero .sub{
+  margin-top:34px;font-size:clamp(1.05rem,2.2vw,1.5rem);
+  font-weight:700;display:flex;align-items:center;gap:18px;
+}
+.hero .sub::before{content:"";width:56px;height:4px;background:var(--ink);flex:none}
+.hero-cells{display:grid;grid-template-columns:repeat(3,1fr);border-top:var(--line-2)}
+@media(max-width:760px){.hero-cells{grid-template-columns:1fr}}
+.hero-cell{
+  padding:22px 28px;border-right:var(--line);
+  transition:background .15s;
+}
+.hero-cell:last-child{border-right:none}
+@media(max-width:760px){.hero-cell{border-right:none;border-bottom:var(--line)}.hero-cell:last-child{border-bottom:none}}
+.hero-cell:hover{background:var(--paler)}
+.hero-cell .k{
+  font-family:'IBM Plex Mono',monospace;font-size:.68rem;letter-spacing:.12em;
+  color:var(--deep);margin-bottom:4px;
+}
+.hero-cell .v{font-weight:700;font-size:1.02rem}
+
+/* ---------- Section header ---------- */
+section{border-bottom:var(--line-2)}
+.sec-head{
+  display:grid;grid-template-columns:150px 1fr auto;align-items:end;
+  padding:30px 0 26px;border-bottom:var(--line);gap:20px;
+}
+@media(max-width:760px){.sec-head{grid-template-columns:1fr;align-items:start;gap:6px;padding:24px 0 20px}}
+.sec-head .idx{
+  font-family:'Archivo',sans-serif;font-weight:900;
+  font-size:clamp(3rem,6vw,4.6rem);line-height:.85;
+  color:var(--accent);letter-spacing:-.02em;
+}
+.sec-head h2{
+  font-size:clamp(1.5rem,3vw,2.1rem);font-weight:900;letter-spacing:.03em;line-height:1.25;
+}
+.sec-head .lede{color:var(--gray-3);font-size:.95rem;margin-top:2px}
+.sec-head .en{
+  font-family:'IBM Plex Mono',monospace;font-size:.72rem;letter-spacing:.12em;
+  color:var(--gray-4);padding-bottom:8px;text-align:right;
+}
+@media(max-width:760px){.sec-head .en{text-align:left;padding-bottom:0}}
+
+/* ---------- 01 Overview ---------- */
+.ov-grid{display:grid;grid-template-columns:1fr 1fr}
+@media(max-width:860px){.ov-grid{grid-template-columns:1fr}}
+.ov-col{padding:40px 44px 36px;border-right:var(--line)}
+.ov-col:last-child{border-right:none}
+@media(max-width:860px){.ov-col{border-right:none;border-bottom:var(--line);padding:32px 0}
+.ov-col:last-child{border-bottom:none}}
+.ov-col .tag{
+  display:inline-block;font-family:'IBM Plex Mono',monospace;
+  font-size:.7rem;letter-spacing:.12em;
+  background:var(--ink);color:var(--white);padding:4px 12px;margin-bottom:18px;
+}
+.ov-col h3{font-size:1.7rem;font-weight:900;letter-spacing:.04em;margin-bottom:26px}
+.ov-label{
+  font-family:'IBM Plex Mono',monospace;font-size:.7rem;letter-spacing:.12em;
+  color:var(--deep);border-bottom:var(--line);padding-bottom:6px;margin-bottom:12px;
+  display:flex;justify-content:space-between;
+}
+.ov-col p{color:var(--gray-2);font-size:.96rem;margin-bottom:26px}
+.ov-col ul{list-style:none;margin-bottom:26px}
+.ov-col li{
+  font-size:.96rem;color:var(--gray-2);
+  padding:7px 0 7px 26px;position:relative;
+}
+.ov-col li::before{
+  content:"";position:absolute;left:2px;top:16px;
+  width:10px;height:10px;background:var(--accent);
+}
+.ov-metric{
+  border:var(--line);padding:12px 18px;
+  display:flex;gap:14px;align-items:baseline;
+  font-weight:700;font-size:.95rem;
+}
+.ov-metric .m{
+  font-family:'IBM Plex Mono',monospace;font-size:.68rem;letter-spacing:.1em;
+  color:var(--deep);flex:none;
+}
+
+/* ---------- 02 Prep ---------- */
+.steps{display:grid;grid-template-columns:repeat(3,1fr)}
+@media(max-width:860px){.steps{grid-template-columns:1fr}}
+.step{
+  padding:40px 40px 44px;border-right:var(--line);
+  transition:background .15s;
+}
+.step:last-child{border-right:none}
+@media(max-width:860px){.step{border-right:none;border-bottom:var(--line);padding:30px 0}
+.step:last-child{border-bottom:none}}
+.step:hover{background:var(--paler)}
+.step .n{
+  font-family:'Archivo',sans-serif;font-weight:900;font-size:3.6rem;line-height:1;
+  color:var(--white);-webkit-text-stroke:2px var(--ink);
+  margin-bottom:18px;
+}
+.step h3{font-size:1.2rem;font-weight:900;margin-bottom:10px;letter-spacing:.04em}
+.step p{font-size:.93rem;color:var(--gray-2)}
+.prep-note{
+  border-top:var(--line);background:var(--accent);
+}
+.prep-note .wrap{
+  padding-top:16px;padding-bottom:16px;
+  color:var(--white);font-weight:700;font-size:.95rem;
+  display:flex;gap:14px;align-items:baseline;
+}
+.prep-note .mono{font-size:.7rem;letter-spacing:.12em;flex:none}
+
+/* ---------- Experiments ---------- */
+.hyp{border-bottom:var(--line);display:grid;grid-template-columns:150px 1fr}
+@media(max-width:760px){.hyp{grid-template-columns:1fr}}
+.hyp .h-label{
+  font-family:'IBM Plex Mono',monospace;font-size:.7rem;letter-spacing:.12em;
+  color:var(--deep);padding:26px 0;
+}
+.hyp .h-text{
+  padding:22px 0 26px;
+  font-size:clamp(1.05rem,2vw,1.35rem);font-weight:700;line-height:1.6;
+}
+@media(max-width:760px){.hyp .h-label{padding:20px 0 0}.hyp .h-text{padding:6px 0 22px}}
+.hyp .h-text mark{background:var(--pale);color:var(--ink);padding:0 .1em}
+.ab{display:grid;grid-template-columns:1fr 1fr;position:relative}
+@media(max-width:860px){.ab{grid-template-columns:1fr}}
+.arm{display:flex;flex-direction:column;border-right:var(--line)}
+.arm:last-child{border-right:none}
+@media(max-width:860px){.arm{border-right:none;border-bottom:var(--line)}.arm:last-child{border-bottom:none}}
+.arm-head{
+  padding:14px 44px;display:flex;justify-content:space-between;align-items:center;
+  border-bottom:var(--line);
+}
+@media(max-width:860px){.arm-head{padding:14px 0 14px 18px}}
+.arm-a .arm-head{background:var(--deep);color:var(--white)}
+.arm-b .arm-head{background:var(--gray-7);color:var(--ink)}
+.arm-head .g{font-weight:900;font-size:1.02rem;letter-spacing:.04em}
+.arm-head .e{font-family:'IBM Plex Mono',monospace;font-size:.68rem;letter-spacing:.1em;opacity:.75}
+.arm-body{padding:34px 44px 30px;flex:1;display:flex;flex-direction:column}
+@media(max-width:860px){.arm-body{padding:26px 0}}
+.arm h3{font-size:1.35rem;font-weight:900;margin-bottom:22px;letter-spacing:.03em}
+.arm ol{list-style:none;flex:1}
+.arm ol li{
+  display:flex;gap:16px;align-items:baseline;
+  padding:12px 0;border-top:1px solid var(--gray-7);
+  font-size:.96rem;color:var(--gray-2);
+}
+.arm ol li .s{
+  font-family:'IBM Plex Mono',monospace;font-size:.72rem;font-weight:600;
+  color:var(--deep);flex:none;
+}
+.arm .note{
+  margin-top:20px;padding-top:14px;border-top:var(--line);
+  font-family:'IBM Plex Mono',monospace;font-size:.74rem;letter-spacing:.04em;
+  color:var(--gray-3);
+}
+.vs{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:52px;height:52px;background:var(--ink);color:var(--white);
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Archivo',sans-serif;font-weight:900;font-size:.95rem;
+  z-index:2;
+}
+@media(max-width:860px){.vs{display:none}}
+.exp-metric{border-top:var(--line);display:grid;grid-template-columns:150px 1fr}
+@media(max-width:760px){.exp-metric{grid-template-columns:1fr}}
+.exp-metric .m-label{
+  font-family:'IBM Plex Mono',monospace;font-size:.7rem;letter-spacing:.12em;
+  color:var(--white);background:var(--ink);
+  display:flex;align-items:center;padding:14px 16px;
+}
+.exp-metric .m-text{
+  padding:14px 0 14px 28px;font-weight:700;font-size:.98rem;
+  display:flex;align-items:center;
+}
+@media(max-width:760px){.exp-metric .m-text{padding:12px 0}}
+
+/* ---------- 05 Stats ---------- */
+.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);border-bottom:var(--line)}
+@media(max-width:860px){.stat-grid{grid-template-columns:1fr}}
+.stat{
+  padding:44px 44px 40px;border-right:var(--line);transition:background .15s;
+}
+.stat:last-child{border-right:none}
+@media(max-width:860px){.stat{border-right:none;border-bottom:var(--line);padding:30px 0}
+.stat:last-child{border-bottom:none}}
+.stat:hover{background:var(--paler)}
+.stat .big{
+  font-family:'Archivo',sans-serif;font-weight:900;letter-spacing:-.02em;
+  font-size:clamp(3rem,5.4vw,4.4rem);line-height:1;color:var(--ink);
+}
+.stat .big b{color:var(--accent)}
+.stat .t{font-weight:900;font-size:1.05rem;margin-top:16px}
+.stat .d{font-size:.86rem;color:var(--gray-3);margin-top:4px}
+.methods{padding:0 0 0}
+.methods .m-title{
+  font-family:'IBM Plex Mono',monospace;font-size:.7rem;letter-spacing:.12em;
+  color:var(--deep);padding:22px 0 14px;
+}
+table{width:100%;border-collapse:collapse;margin-bottom:48px}
+th{
+  font-family:'IBM Plex Mono',monospace;font-size:.68rem;letter-spacing:.12em;
+  color:var(--gray-4);font-weight:500;text-align:left;
+  padding:0 0 10px;border-bottom:var(--line-2);
+}
+td{
+  padding:16px 0;border-bottom:1px solid var(--gray-7);
+  font-size:.96rem;color:var(--gray-2);vertical-align:top;
+}
+tr:last-child td{border-bottom:none}
+td:first-child{font-weight:900;color:var(--ink);width:34%;padding-right:24px}
+@media(max-width:640px){td:first-child{width:46%}}
+
+/* ---------- 06 Results ---------- */
+.chart-grid{display:grid;grid-template-columns:1fr 1fr}
+@media(max-width:860px){.chart-grid{grid-template-columns:1fr}}
+.chart{padding:38px 44px 44px;border-right:var(--line)}
+.chart:last-child{border-right:none}
+@media(max-width:860px){.chart{border-right:none;border-bottom:var(--line);padding:30px 0}
+.chart:last-child{border-bottom:none}}
+.chart h3{font-size:1.15rem;font-weight:900;letter-spacing:.03em}
+.chart .unit{
+  font-family:'IBM Plex Mono',monospace;font-size:.7rem;letter-spacing:.1em;
+  color:var(--gray-4);margin:4px 0 30px;
+}
+.bar-row{margin-bottom:26px}
+.bar-row:last-child{margin-bottom:0}
+.bar-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.bar-top .g{font-size:.9rem;font-weight:700}
+.bar-top .v{font-family:'Archivo',sans-serif;font-weight:900;font-size:2rem;line-height:1}
+.bar-row.a .v{color:var(--deep)}
+.bar-row.b .v{color:var(--gray-4)}
+.bar-track{height:30px;background:var(--paler);position:relative}
+.bar-fill{height:100%;width:0;transition:width 1.1s cubic-bezier(.3,.8,.3,1)}
+.bar-row.a .bar-fill{background:var(--accent)}
+.bar-row.b .bar-fill{background:var(--gray-6)}
+.results-note{
+  border-top:var(--line);
+}
+.results-note .wrap{
+  padding-top:14px;padding-bottom:14px;
+  font-family:'IBM Plex Mono',monospace;font-size:.74rem;letter-spacing:.06em;
+  color:var(--gray-3);
+}
+
+/* ---------- 07 Summary ---------- */
+.summary{background:var(--ink);color:var(--white);border-bottom:none}
+.summary .sec-head{border-bottom-color:var(--gray-2)}
+.summary .sec-head .idx{color:var(--accent)}
+.summary .sec-head .lede{color:var(--gray-6)}
+.summary .sec-head .en{color:var(--gray-4)}
+.sum-state{padding:54px 0 0}
+.sum-state h3{
+  font-size:clamp(1.8rem,4.4vw,3.2rem);font-weight:900;letter-spacing:.03em;line-height:1.3;
+}
+.sum-state h3 .hl{background:var(--accent);color:var(--ink);padding:0 .12em}
+.sum-state .lede{color:var(--gray-6);margin-top:18px;font-size:1.02rem;max-width:680px}
+.value-rows{margin:48px 0 64px;border-top:2px solid var(--white)}
+.value-row{
+  display:flex;gap:20px;align-items:center;
+  padding:16px 0;border-bottom:1px solid var(--gray-2);
+  font-size:1.05rem;font-weight:700;
+}
+.value-row .c{
+  flex:none;width:26px;height:26px;background:var(--accent);
+  color:var(--ink);display:flex;align-items:center;justify-content:center;
+  font-weight:900;font-size:.85rem;
+}
+.coop{background:var(--white);color:var(--ink);border:2px solid var(--white)}
+.coop-head{
+  display:flex;justify-content:space-between;align-items:center;gap:16px;
+  padding:20px 36px;border-bottom:var(--line-2);background:var(--accent);
+}
+@media(max-width:640px){.coop-head{padding:16px 20px}}
+.coop-head h3{font-size:1.3rem;font-weight:900;letter-spacing:.06em;color:var(--white)}
+.coop-head .e{font-family:'IBM Plex Mono',monospace;font-size:.7rem;letter-spacing:.1em;color:var(--white);opacity:.85}
+.coop-grid{display:grid;grid-template-columns:1fr 1fr}
+@media(max-width:760px){.coop-grid{grid-template-columns:1fr}}
+.coop-item{
+  padding:28px 36px 30px;border-right:var(--line);border-bottom:var(--line);
+  transition:background .15s;
+}
+.coop-item:hover{background:var(--paler)}
+.coop-item:nth-child(2n){border-right:none}
+.coop-item:nth-child(n+3){border-bottom:none}
+@media(max-width:760px){
+  .coop-item{border-right:none!important;border-bottom:var(--line)!important;padding:22px 20px}
+  .coop-item:last-child{border-bottom:none!important}
+}
+.coop-item .ci{
+  font-family:'IBM Plex Mono',monospace;font-size:.7rem;letter-spacing:.12em;
+  color:var(--deep);margin-bottom:6px;
+}
+.coop-item h4{font-size:1.08rem;font-weight:900;margin-bottom:6px;letter-spacing:.04em}
+.coop-item p{font-size:.92rem;color:var(--gray-2)}
+.coop-foot{
+  border-top:var(--line-2);padding:16px 36px;
+  display:flex;flex-wrap:wrap;gap:8px 28px;
+  font-family:'IBM Plex Mono',monospace;font-size:.74rem;letter-spacing:.04em;
+  color:var(--gray-3);
+}
+@media(max-width:640px){.coop-foot{padding:14px 20px}}
+.coop-foot span{display:flex;align-items:center;gap:8px}
+.coop-foot span::before{content:"";width:8px;height:8px;background:var(--accent)}
+.summary .pad-b{padding-bottom:80px}
+
+footer{
+  background:var(--ink);color:var(--gray-4);
+  border-top:1px solid var(--gray-2);
+}
+footer .wrap{
+  padding-top:18px;padding-bottom:18px;
+  display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  font-family:'IBM Plex Mono',monospace;font-size:.72rem;letter-spacing:.08em;
+}
+footer b{color:var(--white)}
+
+.pad{padding-top:0;padding-bottom:0}
+.sec-body{padding:0}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <div class="brand"><span class="sq"></span>Medify AI</div>
+    <ul class="nav-links">
+      <li><a href="#overview">01 總覽</a></li>
+      <li><a href="#prep">02 準備</a></li>
+      <li><a href="#exp1">03 實驗一</a></li>
+      <li><a href="#exp2">04 實驗二</a></li>
+      <li><a href="#stats">05 統計</a></li>
+      <li><a href="#results">06 成果</a></li>
+      <li><a href="#summary">07 總結</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- Slide 1 -->
+<header class="hero">
+  <div class="meta"><div class="wrap"><span>MEDIFY AI — 實踐性研究設計</span><span>A/B CONTROLLED EXPERIMENT</span></div></div>
+  <div class="wrap hero-main">
+    <h1>驗證 <span class="hl">AI 衛教文章</span><br>的臨床效益</h1>
+    <p class="sub">兩項對照實驗：理解度提升 × 諮詢耗時縮短</p>
+  </div>
+  <div class="hero-cells">
+    <div class="hero-cell"><div class="k mono">DESIGN</div><div class="v">A/B 受控實驗設計</div></div>
+    <div class="hero-cell"><div class="k mono">SAMPLE</div><div class="v">各組 50–80 名受試者</div></div>
+    <div class="hero-cell"><div class="k mono">DATA</div><div class="v">匿名數據收集</div></div>
+  </div>
+</header>
+
+<!-- Slide 2 -->
+<section id="overview">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="idx num">01</span>
+      <div><h2>實驗總覽</h2><p class="lede">兩項量化指標，全面衡量 Medify AI 的臨床價值</p></div>
+      <span class="en">OVERVIEW</span>
+    </div>
+    <div class="ov-grid">
+      <div class="ov-col reveal">
+        <span class="tag">EXP.01</span>
+        <h3>理解度提升</h3>
+        <div class="ov-label"><span>核心問題</span><span>Q</span></div>
+        <p>病患在閱讀 AI 衛教文章後，對疾病的理解程度是否顯著提升？</p>
+        <div class="ov-label"><span>衡量方式</span><span>METHOD</span></div>
+        <ul>
+          <li>A 組:先讀 Medify → 再測驗</li>
+          <li>B 組:直接接受測驗</li>
+          <li>比較兩組平均答題分數</li>
+        </ul>
+        <div class="ov-metric"><span class="m">指標</span>平均測驗分數差異</div>
+      </div>
+      <div class="ov-col reveal">
+        <span class="tag">EXP.02</span>
+        <h3>諮詢耗時縮短</h3>
+        <div class="ov-label"><span>核心問題</span><span>Q</span></div>
+        <p>病患事先閱讀後，醫護人員在診間說明的時間是否顯著減少？</p>
+        <div class="ov-label"><span>衡量方式</span><span>METHOD</span></div>
+        <ul>
+          <li>A 組:先讀 Medify → 再諮詢</li>
+          <li>B 組:直接進入諮詢</li>
+          <li>比較兩組平均諮詢總時長</li>
+        </ul>
+        <div class="ov-metric"><span class="m">指標</span>平均諮詢時間差異（分鐘）</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Slide 3 -->
+<section id="prep">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="idx num">02</span>
+      <div><h2>事前準備</h2><p class="lede">實驗啟動前的三步驟流程</p></div>
+      <span class="en">PREPARATION</span>
+    </div>
+    <div class="steps">
+      <div class="step reveal">
+        <div class="n num">1</div>
+        <h3>需求蒐集</h3>
+        <p>醫師與諮詢師向 Medify 說明最需重複講解的內容與病患常見問題，形成清單。</p>
+      </div>
+      <div class="step reveal">
+        <div class="n num">2</div>
+        <h3>AI 生成文章</h3>
+        <p>Medify AI 根據需求，快速為醫師與諮詢師產製結構化、易讀的衛教文章。</p>
+      </div>
+      <div class="step reveal">
+        <div class="n num">3</div>
+        <h3>QR Code 部署</h3>
+        <p>Medify 製作 QR Code 立牌，放置候診區供病患掃描閱讀（或搭配診間平板）。</p>
+      </div>
+    </div>
+  </div>
+  <div class="prep-note">
+    <div class="wrap"><span class="mono">NOTE</span>實驗期間，Medify 提供人力協助：問卷發放、入組引導、計時紀錄等工作</div>
+  </div>
+</section>
+
+<!-- Slide 4 -->
+<section id="exp1">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="idx num">03</span>
+      <div><h2>實驗一｜理解度提升</h2></div>
+      <span class="en">HEALTH LITERACY IMPROVEMENT</span>
+    </div>
+    <div class="hyp reveal">
+      <div class="h-label">研究假說<br>HYPOTHESIS</div>
+      <div class="h-text">閱讀 Medify AI 生成的衛教文章後，病患對相關醫療知識的理解測驗分數，將<mark>顯著高於</mark>未閱讀對照組（p &lt; 0.05）</div>
+    </div>
+    <div class="ab reveal">
+      <div class="arm arm-a">
+        <div class="arm-head"><span class="g">A 組（實驗組）</span><span class="e">TREATMENT</span></div>
+        <div class="arm-body">
+          <h3>先讀 Medify，再測驗</h3>
+          <ol>
+            <li><span class="s">01</span>掃描 QR Code，閱讀 Medify 衛教文章</li>
+            <li><span class="s">02</span>完成標準化理解度測驗</li>
+          </ol>
+          <div class="note">等候期間自行閱讀，無人工介入</div>
+        </div>
+      </div>
+      <div class="vs num">VS</div>
+      <div class="arm arm-b">
+        <div class="arm-head"><span class="g">B 組（對照組）</span><span class="e">CONTROL</span></div>
+        <div class="arm-body">
+          <h3>直接測驗</h3>
+          <ol>
+            <li><span class="s">01</span>直接完成標準化理解度測驗（未接觸 Medify 文章）</li>
+          </ol>
+          <div class="note">代表一般門診的基準狀態</div>
+        </div>
+      </div>
+    </div>
+    <div class="exp-metric reveal">
+      <div class="m-label">主要量測指標</div>
+      <div class="m-text">兩組標準化測驗平均分數差異（獨立樣本 t 檢定）</div>
+    </div>
+  </div>
+</section>
+
+<!-- Slide 5 -->
+<section id="exp2">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="idx num">04</span>
+      <div><h2>實驗二｜諮詢耗時縮短</h2></div>
+      <span class="en">CONSULTATION TIME REDUCTION</span>
+    </div>
+    <div class="hyp reveal">
+      <div class="h-label">研究假說<br>HYPOTHESIS</div>
+      <div class="h-text">事先閱讀 Medify 衛教文章的病患，其醫護諮詢所需時間，將<mark>顯著短於</mark>未閱讀的對照組（p &lt; 0.05）</div>
+    </div>
+    <div class="ab reveal">
+      <div class="arm arm-a">
+        <div class="arm-head"><span class="g">A 組（實驗組）</span><span class="e">TREATMENT</span></div>
+        <div class="arm-body">
+          <h3>先讀 Medify，再諮詢</h3>
+          <ol>
+            <li><span class="s">01</span>掃描 QR Code，閱讀 Medify 衛教文章</li>
+            <li><span class="s">02</span>進入醫護人員諮詢環節</li>
+          </ol>
+          <div class="note">計時從病患進入診間起至離開為止</div>
+        </div>
+      </div>
+      <div class="vs num">VS</div>
+      <div class="arm arm-b">
+        <div class="arm-head"><span class="g">B 組（對照組）</span><span class="e">CONTROL</span></div>
+        <div class="arm-body">
+          <h3>直接諮詢</h3>
+          <ol>
+            <li><span class="s">01</span>直接進入醫護人員諮詢環節（未接觸 Medify 文章）</li>
+          </ol>
+          <div class="note">反映診間原有的平均諮詢時長</div>
+        </div>
+      </div>
+    </div>
+    <div class="exp-metric reveal">
+      <div class="m-label">主要量測指標</div>
+      <div class="m-text">兩組平均諮詢時長差異，單位：分鐘（獨立樣本 t 檢定）</div>
+    </div>
+  </div>
+</section>
+
+<!-- Slide 6 -->
+<section id="stats">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="idx num">05</span>
+      <div><h2>樣本規模與統計方法</h2></div>
+      <span class="en">METHODOLOGY</span>
+    </div>
+    <div class="stat-grid">
+      <div class="stat reveal">
+        <div class="big num">50<b>–</b>80</div>
+        <div class="t">每組受試者人數</div>
+        <div class="d">建議各實驗獨立蒐集</div>
+      </div>
+      <div class="stat reveal">
+        <div class="big num">n<b>≥</b>50</div>
+        <div class="t">統計最低門檻</div>
+        <div class="d">確保中等效應量之檢定力 ≥ 80%</div>
+      </div>
+      <div class="stat reveal">
+        <div class="big num">p<b>&lt;</b>0.05</div>
+        <div class="t">顯著水準</div>
+        <div class="d">雙尾獨立樣本 t 檢定</div>
+      </div>
+    </div>
+    <div class="methods reveal">
+      <div class="m-title">分析方法說明 / STATISTICAL METHODS</div>
+      <table>
+        <thead><tr><th>分析方式</th><th>適用情境</th></tr></thead>
+        <tbody>
+          <tr><td>獨立樣本 t 檢定</td><td>比較 A/B 兩組平均分數與平均時長</td></tr>
+          <tr><td>Cohen's d 效應量</td><td>衡量差異的實務意義大小</td></tr>
+          <tr><td>Levene's Test</td><td>檢驗兩組變異數齊性（t 檢定前提）</td></tr>
+          <tr><td>95% 信賴區間</td><td>呈現差異估計的精確度</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- Slide 7 -->
+<section id="results">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="idx num">06</span>
+      <div><h2>預期成果展示</h2></div>
+      <span class="en">EXPECTED RESULTS</span>
+    </div>
+    <div class="chart-grid">
+      <div class="chart reveal">
+        <h3>實驗一：理解度測驗分數</h3>
+        <div class="unit">AVG. TEST SCORE</div>
+        <div class="bar-row a">
+          <div class="bar-top"><span class="g">A 組（Medify）</span><span class="v num">82</span></div>
+          <div class="bar-track"><div class="bar-fill" data-w="82%"></div></div>
+        </div>
+        <div class="bar-row b">
+          <div class="bar-top"><span class="g">B 組（對照）</span><span class="v num">63</span></div>
+          <div class="bar-track"><div class="bar-fill" data-w="63%"></div></div>
+        </div>
+      </div>
+      <div class="chart reveal">
+        <h3>實驗二：醫護諮詢時長</h3>
+        <div class="unit">AVG. CONSULTATION TIME (MIN)</div>
+        <div class="bar-row a">
+          <div class="bar-top"><span class="g">A 組（Medify）</span><span class="v num">7.5</span></div>
+          <div class="bar-track"><div class="bar-fill" data-w="53%"></div></div>
+        </div>
+        <div class="bar-row b">
+          <div class="bar-top"><span class="g">B 組（對照）</span><span class="v num">12.3</span></div>
+          <div class="bar-track"><div class="bar-fill" data-w="87%"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="results-note">
+    <div class="wrap">※ 示意數據（實際數值依實驗結果呈現）</div>
+  </div>
+</section>
+
+<!-- Slide 8 + 期望醫院方配合 -->
+<section id="summary" class="summary">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="idx num">07</span>
+      <div><h2>總結</h2></div>
+      <span class="en">SUMMARY</span>
+    </div>
+    <div class="sum-state reveal">
+      <h3>用數據，說明 <span class="hl">AI 的臨床價值</span></h3>
+      <p class="lede">兩項嚴謹設計的對照實驗，量化 AI 衛教文章在「理解度」與「效率」上的真實效益</p>
+    </div>
+    <div class="value-rows reveal">
+      <div class="value-row"><span class="c">✓</span>理解度提升 → 更好的衛教成效</div>
+      <div class="value-row"><span class="c">✓</span>諮詢時間縮短 → 醫護效率優化</div>
+      <div class="value-row"><span class="c">✓</span>數據驅動 → 可信服的實踐證明</div>
+    </div>
+    <div class="coop reveal">
+      <div class="coop-head">
+        <h3>期望醫院方配合事項</h3>
+        <span class="e">REQUESTS</span>
+      </div>
+      <div class="coop-grid">
+        <div class="coop-item">
+          <div class="ci">REQ.01</div>
+          <h4>需求蒐集</h4>
+          <p>醫師與諮詢師向 Medify 說明最需重複講解的內容與病患常見問題。</p>
+        </div>
+        <div class="coop-item">
+          <div class="ci">REQ.02</div>
+          <h4>QR Code 部署</h4>
+          <p>同意於候診區放置 QR Code 立牌（或搭配診間平板）。</p>
+        </div>
+        <div class="coop-item">
+          <div class="ci">REQ.03</div>
+          <h4>受試者入組</h4>
+          <p>各組 50–80 名受試者，建議各實驗獨立蒐集。</p>
+        </div>
+        <div class="coop-item">
+          <div class="ci">REQ.04</div>
+          <h4>諮詢計時</h4>
+          <p>計時從病患進入診間起至離開為止。</p>
+        </div>
+      </div>
+      <div class="coop-foot">
+        <span>合計樣本：100–160 名受試者</span>
+        <span>匿名收集</span>
+        <span>問卷發放、入組引導、計時紀錄由 Medify 協助</span>
+      </div>
+    </div>
+    <div class="pad-b"></div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap"><span><b>MEDIFY AI</b> — 實踐性研究設計</span><span>A/B CONTROLLED EXPERIMENT</span></div>
+</footer>
+
+<script>
+const io = new IntersectionObserver((entries)=>{
+  entries.forEach(e=>{
+    if(e.isIntersecting){
+      e.target.classList.add('in');
+      e.target.querySelectorAll('.bar-fill').forEach(b=>{ b.style.width = b.dataset.w; });
+      io.unobserve(e.target);
+    }
+  });
+},{threshold:.15});
+document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+</script>
+</body>
+</html>
