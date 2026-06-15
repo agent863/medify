@@ -43,7 +43,13 @@ CONFIG = {
 
     # 收件人列表
     "RECIPIENTS": [
-        "robin@iclarityvision.com"
+        "robin@iclarityvision.com",
+        "harry@iclarityvision.com",
+        "james@jlilaw.tw",
+        "brook@iclarityvision.com",
+        "belle@iclarityvision.com",
+        "mia@iclarityvision.com",
+        "ainia@iclarityvision.com",
     ],
 
     # 寄件人顯示名稱
