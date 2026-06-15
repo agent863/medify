@@ -17,26 +17,31 @@ jobs:
       - name: 取得本週週報資訊
         id: report
         run: |
-          # 找出最新的週報 HTML
-          REPORT_FILE=$(ls -t report-*.html 2>/dev/null | head -1)
+          # 取得此次 push 實際改動的 report-*.html 檔案
+          REPORT_FILE=$(git diff-tree --no-commit-id -r --name-only $GITHUB_SHA | grep '^report-.*\.html$' | head -1)
+
+          # fallback: 若找不到，取字母序最新的
+          if [[ -z "$REPORT_FILE" ]]; then
+            REPORT_FILE=$(ls report-*.html 2>/dev/null | sort -V | tail -1)
+          fi
+
           if [[ -z "$REPORT_FILE" ]]; then
             echo "找不到週報 HTML，跳過"
             exit 0
           fi
 
-          # 從檔名解析週次與日期範圍（e.g. report-2026-W21-May17-23.html）
+          # 從檔名解析週次與日期範圍（e.g. report-2026-W24-Jun08-14.html）
           BASENAME=$(basename "$REPORT_FILE" .html)
           WEEK_LABEL=$(echo "$BASENAME" | grep -oE 'W[0-9]+')
           DATE_RANGE=$(echo "$BASENAME" | grep -oE '[A-Za-z]+[0-9]+-[0-9]+' || echo "")
 
           # 組成 GitHub Pages URL
-          ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$REPORT_FILE'))")
-          REPORT_URL="https://agent863.github.io/data/${ENCODED}"
+          REPORT_URL="https://agent863.github.io/medify/$REPORT_FILE"
 
           echo "report_file=$REPORT_FILE" >> $GITHUB_OUTPUT
-          echo "week_label=$WEEK_LABEL"   >> $GITHUB_OUTPUT
-          echo "date_range=$DATE_RANGE"   >> $GITHUB_OUTPUT
-          echo "report_url=$REPORT_URL"   >> $GITHUB_OUTPUT
+          echo "week_label=$WEEK_LABEL" >> $GITHUB_OUTPUT
+          echo "date_range=$DATE_RANGE" >> $GITHUB_OUTPUT
+          echo "report_url=$REPORT_URL" >> $GITHUB_OUTPUT
 
       - name: 寄送通知信
         if: steps.report.outputs.report_file != ''
@@ -59,7 +64,7 @@ jobs:
               <div style="background:linear-gradient(135deg,#0f6fff,#1f4cdb);color:#fff;border-radius:12px;padding:28px 32px;margin-bottom:20px;">
                 <div style="font-size:11px;letter-spacing:.15em;text-transform:uppercase;opacity:.8;margin-bottom:6px;">Weekly Performance Report · ${{ steps.report.outputs.week_label }}</div>
                 <h1 style="margin:0;font-size:22px;font-weight:700;">全站醫師表現週報</h1>
-                <div style="font-size:13px;opacity:.9;margin-top:10px;">報告週期：${{ steps.report.outputs.date_range }}　·　數據來源：GA4 ＋ Looker Studio</div>
+                <div style="font-size:13px;opacity:.9;margin-top:10px;">報告週期：${{ steps.report.outputs.date_range }} · 數據來源：GA4 ＋ Looker Studio</div>
               </div>
               <div style="background:#fff;border:1px solid #e6ebf2;border-radius:12px;padding:24px 28px;margin-bottom:16px;">
                 <p style="margin:0 0 16px;color:#4a5670;">Hi，本週全站醫師表現週報已產出並更新，請點擊下方按鈕查閱。</p>
