@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Medify 數據週報 W24（2026/06/08–14）</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: #f0f4f8; color: #1a202c; }
+
+  /* ── Password Gate ── */
+  #gate {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%);
+  }
+  .gate-box {
+    background: #fff; border-radius: 16px; padding: 48px 40px; text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3); max-width: 360px; width: 90%;
+  }
+  .gate-box h1 { font-size: 22px; color: #1a73e8; margin-bottom: 8px; }
+  .gate-box p { color: #666; font-size: 14px; margin-bottom: 28px; }
+  .gate-box input {
+    width: 100%; padding: 14px 16px; border: 2px solid #e0e0e0; border-radius: 8px;
+    font-size: 18px; text-align: center; letter-spacing: 6px; margin-bottom: 12px;
+    transition: border-color 0.2s;
+  }
+  .gate-box input:focus { outline: none; border-color: #1a73e8; }
+  .gate-btn {
+    width: 100%; padding: 14px; background: #1a73e8; color: #fff; border: none;
+    border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;
+    transition: background 0.2s;
+  }
+  .gate-btn:hover { background: #1557b0; }
+  .pw-error { color: #e53e3e; font-size: 13px; margin-top: 8px; display: none; }
+
+  /* ── Report ── */
+  #report { display: none; }
+  .report-header {
+    background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%);
+    padding: 32px 40px; color: #fff;
+  }
+  .report-header h1 { font-size: 26px; font-weight: 700; }
+  .report-header p { font-size: 14px; color: #d0e4ff; margin-top: 6px; }
+  .report-meta { font-size: 13px; color: #a8c8ff; margin-top: 4px; }
+
+  .container { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+
+  .section { margin-bottom: 40px; }
+  .section-title {
+    font-size: 18px; font-weight: 700; color: #1a202c;
+    border-left: 4px solid #1a73e8; padding-left: 12px; margin-bottom: 20px;
+  }
+
+  /* ── KPI Grid ── */
+  .kpi-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
+  }
+  @media (max-width: 800px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+  .kpi-card {
+    background: #fff; border-radius: 12px; padding: 20px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06); border-top: 4px solid #1a73e8;
+  }
+  .kpi-label { font-size: 12px; color: #718096; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .kpi-value { font-size: 28px; font-weight: 700; color: #1a202c; line-height: 1; }
+  .kpi-prev { font-size: 13px; color: #718096; margin-top: 6px; }
+  .kpi-change { font-size: 13px; font-weight: 600; margin-top: 4px; }
+  .kpi-change.up { color: #38a169; }
+  .kpi-change.down { color: #e53e3e; }
+
+  /* ── Table ── */
+  .data-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+  .data-table th { background: #f7fafc; padding: 12px 16px; text-align: left; font-size: 12px; color: #718096; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; }
+  .data-table td { padding: 12px 16px; border-bottom: 1px solid #f0f4f8; font-size: 14px; }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table tr:hover td { background: #f7fafc; }
+  .rank-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 50%; background: #e2e8f0;
+    font-size: 11px; font-weight: 700; color: #4a5568;
+  }
+  .rank-badge.top3 { background: #1a73e8; color: #fff; }
+  .events-bar-bg { background: #e2e8f0; border-radius: 4px; height: 6px; min-width: 80px; }
+  .events-bar { background: #1a73e8; border-radius: 4px; height: 6px; }
+
+  /* ── Doctor Cards ── */
+  .doctor-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+  @media (max-width: 700px) { .doctor-grid { grid-template-columns: 1fr; } }
+  .doctor-card {
+    background: #fff; border-radius: 12px; padding: 20px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  }
+  .doctor-card-header {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+    padding-bottom: 14px; border-bottom: 1px solid #f0f4f8;
+  }
+  .doctor-avatar {
+    width: 42px; height: 42px; border-radius: 50%; background: #e8f0fe;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 700; color: #1a73e8; flex-shrink: 0;
+  }
+  .doctor-name { font-size: 15px; font-weight: 700; color: #1a202c; }
+  .doctor-id { font-size: 12px; color: #718096; margin-top: 2px; }
+  .doctor-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 14px; }
+  .stat-item { background: #f7fafc; border-radius: 8px; padding: 10px 12px; }
+  .stat-label { font-size: 11px; color: #718096; margin-bottom: 3px; }
+  .stat-val { font-size: 20px; font-weight: 700; color: #1a202c; }
+  .qr-section { margin-top: 12px; }
+  .qr-title { font-size: 12px; color: #718096; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .qr-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f0f4f8; font-size: 13px; }
+  .qr-row:last-child { border-bottom: none; }
+  .qr-source { color: #4a5568; }
+  .qr-count { font-weight: 600; color: #1a202c; }
+  .no-data { color: #a0aec0; font-size: 13px; font-style: italic; padding: 12px 0; }
+
+  /* ── Insights ── */
+  .insights-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  @media (max-width: 700px) { .insights-grid { grid-template-columns: 1fr; } }
+  .insight-card {
+    background: #fff; border-radius: 12px; padding: 18px 20px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    border-left: 4px solid #1a73e8;
+  }
+  .insight-icon { font-size: 22px; margin-bottom: 8px; }
+  .insight-title { font-size: 14px; font-weight: 700; color: #1a202c; margin-bottom: 6px; }
+  .insight-text { font-size: 13px; color: #4a5568; line-height: 1.6; }
+
+  /* ── Site Stats ── */
+  .site-stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  @media (max-width: 900px) { .site-stats-grid { grid-template-columns: repeat(3, 1fr); } }
+  .site-stat {
+    background: #fff; border-radius: 10px; padding: 16px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05); text-align: center;
+  }
+  .site-stat-val { font-size: 22px; font-weight: 700; color: #1a73e8; }
+  .site-stat-label { font-size: 11px; color: #718096; margin-top: 4px; }
+
+  .footer { text-align: center; padding: 24px; color: #a0aec0; font-size: 12px; margin-top: 16px; }
+  .data-source { font-size: 11px; color: #b0bec5; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<!-- ── Password Gate ── -->
+<div id="gate">
+  <div class="gate-box">
+    <div style="font-size:36px;margin-bottom:12px;">📊</div>
+    <h1>Medify 數據週報</h1>
+    <p>W24（2026/06/08–14）<br>請輸入密碼以查看報告</p>
+    <input type="password" id="pw" placeholder="● ● ● ●" maxlength="10" autofocus>
+    <button class="gate-btn" onclick="checkPw()">進入報告</button>
+    <div class="pw-error" id="pw-error">密碼錯誤，請再試一次</div>
+  </div>
+</div>
+
+<!-- ── Report ── -->
+<div id="report">
+  <div class="report-header">
+    <h1>📊 數據週報 W24</h1>
+    <p>Medify 全站醫師表現週報</p>
+    <div class="report-meta">📅 本週：2026/06/08–14　｜　比較週：2026/06/01–07　｜　資料來源：GA4 + Looker Studio</div>
+  </div>
+
+  <div class="container">
+
+    <!-- ── Section 1: GA4 KPIs ── -->
+    <div class="section">
+      <div class="section-title">全站 GA4 關鍵指標</div>
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label">活躍使用者</div>
+          <div class="kpi-value">67</div>
+          <div class="kpi-prev">上週：91</div>
+          <div class="kpi-change down">▼ 26.4%</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">新使用者</div>
+          <div class="kpi-value">49</div>
+          <div class="kpi-prev">上週：74</div>
+          <div class="kpi-change down">▼ 33.8%</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">平均參與時間</div>
+          <div class="kpi-value" style="font-size:22px;">2分37秒</div>
+          <div class="kpi-prev">上週：2分18秒</div>
+          <div class="kpi-change up">▲ 13.6%</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">事件計數</div>
+          <div class="kpi-value">2,367</div>
+          <div class="kpi-prev">上週：3,099</div>
+          <div class="kpi-change down">▼ 23.6%</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Section 1-B: Looker 全站 ── -->
+    <div class="section">
+      <div class="section-title">全站數據（Looker Studio）</div>
+      <div class="site-stats-grid">
+        <div class="site-stat">
+          <div class="site-stat-val">691</div>
+          <div class="site-stat-label">總瀏覽量</div>
+        </div>
+        <div class="site-stat">
+          <div class="site-stat-val">72</div>
+          <div class="site-stat-label">使用者數</div>
+        </div>
+        <div class="site-stat">
+          <div class="site-stat-val">49</div>
+          <div class="site-stat-label">新使用者</div>
+        </div>
+        <div class="site-stat">
+          <div class="site-stat-val">1.88</div>
+          <div class="site-stat-label">Sessions / 人</div>
+        </div>
+        <div class="site-stat">
+          <div class="site-stat-val" style="font-size:18px;">11:18</div>
+          <div class="site-stat-label">平均工作階段時長</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Section: Top Articles ── -->
+    <div class="section">
+      <div class="section-title">熱門文章瀏覽（post_view 事件，W24）</div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>文章標題</th>
+            <th>事件計數</th>
+            <th>比例</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="rank-badge top3">1</span></td>
+            <td>人工水晶體怎麼選？先看有沒有散光，再看生活用眼距離！</td>
+            <td>14</td>
+            <td><div class="events-bar-bg"><div class="events-bar" style="width:100%"></div></div></td>
+          </tr>
+          <tr>
+            <td><span class="rank-badge top3">2</span></td>
+            <td>近視雷射手術怎麼選？醫師解說各種術式優缺點</td>
+            <td>12</td>
+            <td><div class="events-bar-bg"><div class="events-bar" style="width:86%"></div></div></td>
+          </tr>
+          <tr>
+            <td><span class="rank-badge top3">3</span></td>
+            <td>青光眼會失明嗎？常見類型與治療方式完整說明</td>
+            <td>8</td>
+            <td><div class="events-bar-bg"><div class="events-bar" style="width:57%"></div></div></td>
+          </tr>
+          <tr>
+            <td><span class="rank-badge">4</span></td>
+            <td>測試 youtube 連結 – MEDIFY 醫病關係平台</td>
+            <td>6</td>
+            <td><div class="events-bar-bg"><div class="events-bar" style="width:43%"></div></div></td>
+          </tr>
+          <tr>
+            <td><span class="rank-badge">5</span></td>
+            <td>獨創整合式睡眠手術 還你好眠</td>
+            <td>6</td>
+            <td><div class="events-bar-bg"><div class="events-bar" style="width:43%"></div></div></td>
+          </tr>
+          <tr>
+            <td><span class="rank-badge">6</span></td>
+            <td>近視雷射誰都能做嗎？醫師說明適合條件</td>
+            <td>6</td>
+            <td><div class="events-bar-bg"><div class="events-bar" style="width:43%"></div></div></td>
+          </tr>
+          <tr>
+            <td><span class="rank-badge">7</span></td>
+            <td>這樣的眼睛也能做近視雷射？醫師解答</td>
+            <td>6</td>
+            <td><div class="events-bar-bg"><div class="events-bar" style="width:43%"></div></div></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="data-source">* 資料來源：Looker Studio 文章互動分析（post_view + post_card_click 合計）</div>
+    </div>
+
+    <!-- ── Section 2: Doctor Cards ── -->
+    <div class="section">
+      <div class="section-title">醫師表現（Looker Studio，W24）</div>
+      <div class="doctor-grid">
+
+        <!-- Doctor-10 -->
+        <div class="doctor-card">
+          <div class="doctor-card-header">
+            <div class="doctor-avatar">10</div>
+            <div>
+              <div class="doctor-name">何宜儒醫師</div>
+              <div class="doctor-id">Doctor-10</div>
+            </div>
+          </div>
+          <div class="doctor-stats">
+            <div class="stat-item">
+              <div class="stat-label">主頁瀏覽量</div>
+              <div class="stat-val">55</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">使用者數</div>
+              <div class="stat-val">26</div>
+            </div>
+          </div>
+          <div class="qr-section">
+            <div class="qr-title">🔲 QR Code 各場景瀏覽</div>
+            <div class="qr-row">
+              <span class="qr-source">🏥 掛號櫃檯</span>
+              <span class="qr-count">87 次</span>
+            </div>
+            <div class="qr-row">
+              <span class="qr-source">🔬 手術等候區</span>
+              <span class="qr-count">64 次</span>
+            </div>
+            <div class="qr-row">
+              <span class="qr-source">💺 候診區</span>
+              <span class="qr-count">28 次</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Doctor-43 -->
+        <div class="doctor-card">
+          <div class="doctor-card-header">
+            <div class="doctor-avatar" style="background:#fef3c7;color:#d97706;">43</div>
+            <div>
+              <div class="doctor-name">Doctor-43</div>
+              <div class="doctor-id">本週無 QR 流量記錄</div>
+            </div>
+          </div>
+          <div class="doctor-stats">
+            <div class="stat-item">
+              <div class="stat-label">主頁瀏覽量</div>
+              <div class="stat-val" style="color:#a0aec0;">—</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">使用者數</div>
+              <div class="stat-val" style="color:#a0aec0;">—</div>
+            </div>
+          </div>
+          <div class="qr-section">
+            <div class="qr-title">🔲 QR Code 各場景瀏覽</div>
+            <div class="no-data">本週 Looker Studio 無此醫師 QR 數據</div>
+          </div>
+        </div>
+
+        <!-- Doctor-44 -->
+        <div class="doctor-card">
+          <div class="doctor-card-header">
+            <div class="doctor-avatar" style="background:#fef3c7;color:#d97706;">44</div>
+            <div>
+              <div class="doctor-name">Doctor-44</div>
+              <div class="doctor-id">本週無 QR 流量記錄</div>
+            </div>
+          </div>
+          <div class="doctor-stats">
+            <div class="stat-item">
+              <div class="stat-label">主頁瀏覽量</div>
+              <div class="stat-val" style="color:#a0aec0;">—</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">使用者數</div>
+              <div class="stat-val" style="color:#a0aec0;">—</div>
+            </div>
+          </div>
+          <div class="qr-section">
+            <div class="qr-title">🔲 QR Code 各場景瀏覽</div>
+            <div class="no-data">本週 Looker Studio 無此醫師 QR 數據</div>
+          </div>
+        </div>
+
+        <!-- Doctor-76 -->
+        <div class="doctor-card">
+          <div class="doctor-card-header">
+            <div class="doctor-avatar" style="background:#fef3c7;color:#d97706;">76</div>
+            <div>
+              <div class="doctor-name">Doctor-76</div>
+              <div class="doctor-id">本週無 QR 流量記錄</div>
+            </div>
+          </div>
+          <div class="doctor-stats">
+            <div class="stat-item">
+              <div class="stat-label">主頁瀏覽量</div>
+              <div class="stat-val" style="color:#a0aec0;">—</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">使用者數</div>
+              <div class="stat-val" style="color:#a0aec0;">—</div>
+            </div>
+          </div>
+          <div class="qr-section">
+            <div class="qr-title">🔲 QR Code 各場景瀏覽</div>
+            <div class="no-data">本週 Looker Studio 無此醫師 QR 數據</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Section 6: Weekly Insights ── -->
+    <div class="section">
+      <div class="section-title">本週洞察</div>
+      <div class="insights-grid">
+        <div class="insight-card">
+          <div class="insight-icon">📉</div>
+          <div class="insight-title">整體流量較上週明顯下滑</div>
+          <div class="insight-text">W24 活躍使用者 67 人，較上週 91 人減少 26.4%；新使用者同步下降 33.8%。事件計數從 3,099 降至 2,367（↓23.6%）。建議確認是否為假期因素或推廣活動暫停所致。</div>
+        </div>
+        <div class="insight-card">
+          <div class="insight-icon">⏱️</div>
+          <div class="insight-title">參與深度逆勢提升</div>
+          <div class="insight-text">儘管人數減少，每位活躍使用者平均參與時間從 2分18秒 提升至 2分37秒（↑13.6%），顯示本週到訪的使用者品質較高，閱讀行為更深入。</div>
+        </div>
+        <div class="insight-card">
+          <div class="insight-icon">👁️</div>
+          <div class="insight-title">人工水晶體文章奪下週冠</div>
+          <div class="insight-text">「人工水晶體怎麼選？先看有沒有散光，再看生活用眼距離！」以 14 個 post_view 事件居冠，上週未進榜，屬於新興熱門文章，值得加強推廣。</div>
+        </div>
+        <div class="insight-card">
+          <div class="insight-icon">🔲</div>
+          <div class="insight-title">Doctor-10 掛號 QR 仍是最強流量來源</div>
+          <div class="insight-text">Doctor-10 掛號櫃檯 QR 帶來 87 次掃描（59 人），佔其三場景總計 179 次的 48.6%，是本週最大單一 QR 流量來源。手術等候區 64 次、候診區 28 次，整體表現穩定。</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /container -->
+
+  <div class="footer">
+    Medify 數據週報 W24 ｜ 2026/06/08–14<br>
+    <span class="data-source">自動生成 by Claude Agent · 資料來源：GA4 Property 456665733 + Looker Studio</span>
+  </div>
+</div><!-- /report -->
+
+<script>
+const CORRECT = '9053';
+function checkPw() {
+  if (document.getElementById('pw').value === CORRECT) {
+    document.getElementById('gate').style.display = 'none';
+    document.getElementById('report').style.display = 'block';
+  } else {
+    document.getElementById('pw-error').style.display = 'block';
+    document.getElementById('pw').value = '';
+    document.getElementById('pw').focus();
+  }
+}
+document.getElementById('pw').addEventListener('keypress', e => { if (e.key === 'Enter') checkPw(); });
+</script>
+</body>
+</html>
