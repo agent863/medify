@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Medify 週報 W25 | 2026-06-15 ~ 06-21</title>
+<title>å¨ç«é«å¸«è¡¨ç¾é±å ± â W25 (2026/06/15â06/21)</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, 'Noto Sans TC', sans-serif; background: #f5f6fa; color: #1a1a2e; }
@@ -62,7 +62,7 @@
   .section-title span { font-size: 20px; }
 
   /* ===== KPI CARDS ===== */
-  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px; }
   .kpi-card {
     background: white; border-radius: 14px; padding: 24px 20px;
     box-shadow: 0 2px 12px rgba(0,0,0,.06); border-top: 4px solid #0f3460;
@@ -74,7 +74,7 @@
   .down { color: #e74c3c; }
   .kpi-prev { font-size: 11px; color: #aaa; margin-top: 4px; }
 
-  /* ===== ARTICLE TABLE ===== */
+  /* ===== TABLES ===== */
   .table-wrap { background: white; border-radius: 14px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,.06); margin-bottom: 32px; }
   table { width: 100%; border-collapse: collapse; }
   th { background: #0f3460; color: white; padding: 13px 16px; font-size: 12px; text-align: left; font-weight: 600; letter-spacing: .5px; }
@@ -93,6 +93,20 @@
     background: #f0faf5; color: #27ae60; border-radius: 20px;
     padding: 3px 12px; font-size: 12px; font-weight: 700; white-space: nowrap;
   }
+  .change-up { color: #27ae60; font-size: 12px; font-weight: 600; }
+  .change-down { color: #e74c3c; font-size: 12px; font-weight: 600; }
+  .change-new { color: #9b59b6; font-size: 12px; font-weight: 600; background: #f5eeff; padding: 1px 6px; border-radius: 10px; }
+  .wow-up { color: #27ae60; font-weight: 700; }
+  .wow-down { color: #e74c3c; font-weight: 700; }
+
+  /* ===== LOOKER CARDS ===== */
+  .looker-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 32px; }
+  .looker-card {
+    background: white; border-radius: 12px; padding: 20px 16px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.06); text-align: center; border-top: 4px solid #9b59b6;
+  }
+  .looker-value { font-size: 28px; font-weight: 800; color: #1a1a2e; }
+  .looker-label { font-size: 12px; color: #888; margin-top: 6px; font-weight: 600; }
 
   /* ===== DOCTOR CARDS ===== */
   .doctor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 32px; }
@@ -105,17 +119,24 @@
   .doctor-card.d44 { border-color: #27ae60; }
   .doctor-card.d76 { border-color: #e67e22; }
   .doctor-id { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; opacity: .6; margin-bottom: 4px; }
-  .doctor-name { font-size: 20px; font-weight: 800; margin-bottom: 16px; }
+  .doctor-name { font-size: 20px; font-weight: 800; margin-bottom: 4px; }
+  .doctor-org { font-size: 12px; color: #888; margin-bottom: 16px; }
+  .doctor-status { display: inline-block; font-size: 11px; padding: 2px 10px; border-radius: 20px; font-weight: 600; margin-bottom: 12px; }
+  .status-active { background: #eafaf1; color: #27ae60; }
+  .status-new { background: #f5eeff; color: #9b59b6; }
+  .status-zero { background: #fff3f3; color: #e74c3c; }
   .doctor-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .d-metric { background: #f8f9fc; border-radius: 10px; padding: 12px; }
   .d-metric-label { font-size: 11px; color: #888; font-weight: 600; margin-bottom: 4px; }
   .d-metric-value { font-size: 22px; font-weight: 800; color: #1a1a2e; }
   .qr-section { margin-top: 16px; padding-top: 16px; border-top: 1px solid #f0f2f7; }
   .qr-title { font-size: 12px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: .8px; margin-bottom: 10px; }
-  .qr-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; }
+  .qr-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px dashed #f0f2f7; }
+  .qr-row:last-child { border-bottom: none; }
   .qr-row-label { font-size: 13px; color: #555; }
   .qr-row-val { font-size: 13px; font-weight: 700; color: #0f3460; }
   .no-data { font-size: 13px; color: #bbb; font-style: italic; padding: 8px 0; }
+  .doctor-note { font-size: 12px; color: #888; margin-top: 12px; line-height: 1.6; }
 
   /* ===== INSIGHTS ===== */
   .insights-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 32px; }
@@ -127,10 +148,7 @@
   .insight-title { font-size: 15px; font-weight: 700; color: #0f3460; margin-bottom: 8px; }
   .insight-body { font-size: 13px; color: #555; line-height: 1.7; }
 
-  /* ===== PAGES TABLE ===== */
-  .change-up { color: #27ae60; font-size: 12px; font-weight: 600; }
-  .change-down { color: #e74c3c; font-size: 12px; font-weight: 600; }
-  .change-new { color: #9b59b6; font-size: 12px; font-weight: 600; background: #f5eeff; padding: 1px 6px; border-radius: 10px; }
+  .note-box { background: #fffbf0; border-left: 4px solid #f39c12; padding: 12px 16px; border-radius: 8px; font-size: 13px; color: #888; margin-bottom: 24px; line-height: 1.6; }
 
   .footer { text-align: center; color: #aaa; font-size: 12px; padding: 32px 24px; }
 </style>
@@ -140,12 +158,12 @@
 <!-- PASSWORD GATE -->
 <div id="gate">
   <div class="gate-box">
-    <div class="gate-logo">🏥</div>
-    <div class="gate-title">Medify 週報</div>
-    <div class="gate-sub">W25 · 2026/06/15 – 06/21</div>
-    <input type="password" id="pw" placeholder="請輸入密碼" autofocus>
-    <button onclick="checkPw()">進入報告</button>
-    <div id="pw-error">密碼錯誤，請再試一次</div>
+    <div class="gate-logo">ð</div>
+    <div class="gate-title">Medify é±å ±</div>
+    <div class="gate-sub">W25 Â· 2026/06/15 â 06/21</div>
+    <input type="password" id="pw" placeholder="è«è¼¸å¥å¯ç¢¼" autofocus>
+    <button onclick="checkPw()">é²å¥å ±å</button>
+    <div id="pw-error">å¯ç¢¼é¯èª¤ï¼è«åè©¦ä¸æ¬¡</div>
   </div>
 </div>
 
@@ -154,87 +172,292 @@
 
   <div class="header">
     <div class="header-top">
-      <div class="header-brand">🏥 Medify 醫病關係平台</div>
-      <div class="header-period">資料來源：GA4 + Looker Studio</div>
+      <div class="header-brand">ð¥ Medify é«çéä¿å¹³å°</div>
+      <div class="header-period">è³æä¾æºï¼GA4 ï¼ Looker Studio</div>
     </div>
-    <h1>週報 W25</h1>
-    <div class="header-badge">📅 2026 年 6 月 15 日（一）– 6 月 21 日（日）｜對比 W24（6/8–6/14）</div>
+    <h1>å¨ç«é«å¸«è¡¨ç¾é±å ± â W25</h1>
+    <div class="header-badge">ð å ±åé±æï¼2026/06/15ï¼ä¸ï¼â 06/21ï¼æ¥ï¼ ï½ ç¢çæéï¼2026/06/22 èªåå½æ´ ï½ å°æ¯é±æï¼W24ï¼6/8â6/14ï¼</div>
   </div>
 
   <div class="container">
 
-    <!-- SECTION 1: GA4 KPIs -->
-    <div class="section-title"><span>📊</span> Section 1｜全站 KPI 總覽</div>
+    <!-- ============================
+         SECTION 1: å¨ç«æ´é«è¡¨ç¾
+         ============================ -->
+    <div class="section-title"><span>ð</span> 1 å¨ç«æ´é«è¡¨ç¾ W25 vs W24</div>
 
+    <!-- KPI Cards -->
     <div class="kpi-grid">
       <div class="kpi-card">
-        <div class="kpi-label">活躍使用者</div>
+        <div class="kpi-label">æ´»èºä½¿ç¨è</div>
         <div class="kpi-value">96</div>
-        <div class="kpi-change up">▲ 43.3%</div>
-        <div class="kpi-prev">上週：67</div>
+        <div class="kpi-change up">â² +43.3%</div>
+        <div class="kpi-prev">W24ï¼67</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">新使用者</div>
+        <div class="kpi-label">æ°ä½¿ç¨è</div>
         <div class="kpi-value">81</div>
-        <div class="kpi-change up">▲ 65.3%</div>
-        <div class="kpi-prev">上週：49</div>
+        <div class="kpi-change up">â² +65.3%</div>
+        <div class="kpi-prev">W24ï¼49</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">總瀏覽量</div>
-        <div class="kpi-value">423</div>
-        <div class="kpi-change down">▼ 38.8%</div>
-        <div class="kpi-prev">上週：691</div>
+        <div class="kpi-label">å¹³ååèæé</div>
+        <div class="kpi-value" style="font-size:24px;">48 ç§</div>
+        <div class="kpi-change down">â¼ â69.1%</div>
+        <div class="kpi-prev">W24ï¼2 å 37 ç§</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">平均參與時間</div>
-        <div class="kpi-value" style="font-size:24px;">48 秒</div>
-        <div class="kpi-change down">▼ 69.1%</div>
-        <div class="kpi-prev">上週：2 分 37 秒</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">事件計數</div>
+        <div class="kpi-label">äºä»¶è¨æ¸</div>
         <div class="kpi-value" style="font-size:26px;">1,619</div>
-        <div class="kpi-change down">▼ 31.6%</div>
-        <div class="kpi-prev">上週：2,367</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Sessions / User</div>
-        <div class="kpi-value" style="font-size:26px;">1.72</div>
-        <div class="kpi-change">—</div>
-        <div class="kpi-prev">平均工作階段時長：5:26</div>
+        <div class="kpi-change down">â¼ â31.6%</div>
+        <div class="kpi-prev">W24ï¼2,367</div>
       </div>
     </div>
 
-    <!-- TOP PAGES TABLE -->
-    <div class="section-title"><span>📄</span> 熱門頁面 Top 10（瀏覽量排序）</div>
-    <div class="table-wrap" style="margin-bottom:32px;">
+    <!-- W25 vs W24 æ ¸å¿ææ¨å°æ¯è¡¨ -->
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ææ¨</th>
+            <th style="text-align:right;">W25ï¼æ¬é±ï¼</th>
+            <th style="text-align:right;">W24ï¼ä¸é±ï¼</th>
+            <th style="text-align:right;">è®å</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>æ´»èºä½¿ç¨è GA4</td>
+            <td style="text-align:right;font-weight:700;">96</td>
+            <td style="text-align:right;color:#888;">67</td>
+            <td style="text-align:right;" class="wow-up">â² +43.3%</td>
+          </tr>
+          <tr>
+            <td>æ°ä½¿ç¨è GA4</td>
+            <td style="text-align:right;font-weight:700;">81</td>
+            <td style="text-align:right;color:#888;">49</td>
+            <td style="text-align:right;" class="wow-up">â² +65.3%</td>
+          </tr>
+          <tr>
+            <td>å¹³ååèæé GA4</td>
+            <td style="text-align:right;font-weight:700;">48 ç§</td>
+            <td style="text-align:right;color:#888;">2 å 37 ç§</td>
+            <td style="text-align:right;" class="wow-down">â¼ â69.1%</td>
+          </tr>
+          <tr>
+            <td>äºä»¶è¨æ¸ GA4</td>
+            <td style="text-align:right;font-weight:700;">1,619</td>
+            <td style="text-align:right;color:#888;">2,367</td>
+            <td style="text-align:right;" class="wow-down">â¼ â31.6%</td>
+          </tr>
+          <tr>
+            <td>ç¸½çè¦½æ¬¡ Looker</td>
+            <td style="text-align:right;font-weight:700;">423</td>
+            <td style="text-align:right;color:#888;">691</td>
+            <td style="text-align:right;" class="wow-down">â¼ â38.8%</td>
+          </tr>
+          <tr>
+            <td>å¨ç«ä½¿ç¨è Looker</td>
+            <td style="text-align:right;font-weight:700;">100</td>
+            <td style="text-align:right;color:#888;">72</td>
+            <td style="text-align:right;" class="wow-up">â² +38.9%</td>
+          </tr>
+          <tr>
+            <td>æ¯äººå·¥ä½éæ®µæ¸ Looker</td>
+            <td style="text-align:right;font-weight:700;">1.72</td>
+            <td style="text-align:right;color:#888;">1.88</td>
+            <td style="text-align:right;" class="wow-down">â¼ â8.5%</td>
+          </tr>
+          <tr>
+            <td>å¹³åå·¥ä½éæ®µæé· Looker</td>
+            <td style="text-align:right;font-weight:700;">5 å 26 ç§</td>
+            <td style="text-align:right;color:#888;">11 å 18 ç§</td>
+            <td style="text-align:right;" class="wow-down">â¼ â51.9%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note-box">
+      ð <strong>è§£è®ï¼</strong>W25 ä½¿ç¨èäººæ¸ï¼96 ä½ï¼+43.3%ï¼èæ°ä½¿ç¨èï¼81 ä½ï¼+65.3%ï¼åé¡¯èååï¼é¡¯ç¤ºæ¬é±ææ°ææä½³ãç¶èç¸½çè¦½æ¬¡ï¼423ï¼â38.8%ï¼èå¹³åå·¥ä½éæ®µæé·ï¼5:26ï¼â51.9%ï¼å¤§å¹ä¸æ»ï¼é¡¯ç¤ºæ¬é±è¨ªå®¢å°è¨ªå¾ççè¦½æ·±åº¦æé¡¯ä½æ¼ W24ï¼å¯è½èè¨ªå®¢çµæï¼å¤§éé¦è¨ªæ°ä½¿ç¨èï¼æè¨ºæ QR Code å ´æ¯è®åæéãäºä»¶è¨æ¸ 1,619ï¼â31.6%ï¼åå¶æ¼ user_engagement å¤§å¹æ¸å°ï¼â53.97%ï¼ã
+    </div>
+
+    <!-- ============================
+         SECTION 1.1: Looker Studio
+         ============================ -->
+    <div class="section-title"><span>ð</span> 1.1 å¨ç«æ¸æï¼Looker Studioï¼W25ï¼</div>
+
+    <div class="looker-grid">
+      <div class="looker-card">
+        <div class="looker-value">423</div>
+        <div class="looker-label">ç¸½çè¦½æ¬¡</div>
+      </div>
+      <div class="looker-card">
+        <div class="looker-value">100</div>
+        <div class="looker-label">ä½¿ç¨èæ¸</div>
+      </div>
+      <div class="looker-card">
+        <div class="looker-value">81</div>
+        <div class="looker-label">æ°ä½¿ç¨è</div>
+      </div>
+      <div class="looker-card">
+        <div class="looker-value">1.72</div>
+        <div class="looker-label">Sessions / äºº</div>
+      </div>
+      <div class="looker-card">
+        <div class="looker-value" style="font-size:22px;">5:26</div>
+        <div class="looker-label">å¹³åéæ®µæé·</div>
+      </div>
+    </div>
+
+    <!-- ============================
+         SECTION 1.2: äºä»¶å°æ¯è¡¨ï¼å« scroll + é ç´ï¼
+         ============================ -->
+    <div class="section-title"><span>ð¯</span> 1.2 GA4 ééµäºä»¶ W25 vs W24ï¼å«æ²å ï¼ é ç´æéï¼</div>
+
+    <div class="table-wrap">
       <table>
         <thead>
           <tr>
             <th>#</th>
-            <th>網頁路徑</th>
-            <th style="text-align:right;">瀏覽</th>
-            <th style="text-align:right;">使用者</th>
-            <th style="text-align:right;">事件</th>
-            <th style="text-align:right;">週變化</th>
+            <th>äºä»¶åç¨±</th>
+            <th style="text-align:right;">W25 äºä»¶è¨æ¸</th>
+            <th style="text-align:right;">W24 äºä»¶è¨æ¸</th>
+            <th style="text-align:right;">é±è®å</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="rank">1</td>
+            <td>page_view</td>
+            <td style="text-align:right;font-weight:700;">423</td>
+            <td style="text-align:right;color:#888;">691</td>
+            <td style="text-align:right;" class="wow-down">â¼ â38.8%</td>
+          </tr>
+          <tr>
+            <td class="rank">2</td>
+            <td>user_engagement</td>
+            <td style="text-align:right;font-weight:700;">261</td>
+            <td style="text-align:right;color:#888;">567</td>
+            <td style="text-align:right;" class="wow-down">â¼ â53.97%</td>
+          </tr>
+          <tr>
+            <td class="rank">3</td>
+            <td>authorTracking</td>
+            <td style="text-align:right;font-weight:700;">226</td>
+            <td style="text-align:right;color:#888;">324</td>
+            <td style="text-align:right;" class="wow-down">â¼ â30.25%</td>
+          </tr>
+          <tr>
+            <td class="rank">4</td>
+            <td>session_start</td>
+            <td style="text-align:right;font-weight:700;">165</td>
+            <td style="text-align:right;color:#888;">126</td>
+            <td style="text-align:right;" class="wow-up">â² +30.95%</td>
+          </tr>
+          <tr style="background:#f8f5ff;">
+            <td class="rank">5</td>
+            <td><strong>scroll_25</strong> <span style="font-size:11px;color:#9b59b6;">ãæ²åäºä»¶ã</span></td>
+            <td style="text-align:right;font-weight:700;">134</td>
+            <td style="text-align:right;color:#888;">141</td>
+            <td style="text-align:right;" class="wow-down">â¼ â4.96%</td>
+          </tr>
+          <tr style="background:#f8f5ff;">
+            <td class="rank">6</td>
+            <td><strong>scroll_50</strong> <span style="font-size:11px;color:#9b59b6;">ãæ²åäºä»¶ã</span></td>
+            <td style="text-align:right;font-weight:700;">109</td>
+            <td style="text-align:right;color:#888;">121</td>
+            <td style="text-align:right;" class="wow-down">â¼ â9.92%</td>
+          </tr>
+          <tr style="background:#f8f5ff;">
+            <td class="rank">7</td>
+            <td><strong>scroll_75</strong> <span style="font-size:11px;color:#9b59b6;">ãæ²åäºä»¶ã</span></td>
+            <td style="text-align:right;font-weight:700;">96</td>
+            <td style="text-align:right;color:#888;">101</td>
+            <td style="text-align:right;" class="wow-down">â¼ â4.95%</td>
+          </tr>
+          <tr>
+            <td class="rank">8</td>
+            <td>first_visit</td>
+            <td style="text-align:right;font-weight:700;">81</td>
+            <td style="text-align:right;color:#888;">49</td>
+            <td style="text-align:right;" class="wow-up">â² +65.31%</td>
+          </tr>
+          <tr>
+            <td class="rank">9</td>
+            <td>post_view</td>
+            <td style="text-align:right;font-weight:700;">65</td>
+            <td style="text-align:right;color:#888;">119</td>
+            <td style="text-align:right;" class="wow-down">â¼ â45.38%</td>
+          </tr>
+          <tr>
+            <td class="rank">10</td>
+            <td>post_card_click</td>
+            <td style="text-align:right;font-weight:700;">27</td>
+            <td style="text-align:right;color:#888;">18</td>
+            <td style="text-align:right;" class="wow-up">â² +50%</td>
+          </tr>
+          <tr>
+            <td class="rank">11</td>
+            <td>form_start</td>
+            <td style="text-align:right;font-weight:700;">15</td>
+            <td style="text-align:right;color:#888;">66</td>
+            <td style="text-align:right;" class="wow-down">â¼ â77.27%</td>
+          </tr>
+          <tr>
+            <td class="rank">12</td>
+            <td>form_submit</td>
+            <td style="text-align:right;font-weight:700;">9</td>
+            <td style="text-align:right;color:#888;">36</td>
+            <td style="text-align:right;" class="wow-down">â¼ â75%</td>
+          </tr>
+          <tr style="background:#fff8f0;">
+            <td class="rank">13</td>
+            <td><strong>reserve_btn_click</strong> <span style="font-size:11px;color:#e67e22;">ãé ç´æéã</span></td>
+            <td style="text-align:right;font-weight:700;">2</td>
+            <td style="text-align:right;color:#888;">1</td>
+            <td style="text-align:right;" class="wow-up">â² +100%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note-box">
+      ðµ <strong>æ²åè¡çºï¼scroll_25/50/75ï¼è¡¨ç¾ç©©å®ï¼</strong>scroll_25ï¼134ï¼â5%ï¼ãscroll_50ï¼109ï¼â10%ï¼ãscroll_75ï¼96ï¼â5%ï¼ç¸è¼å¶ä»äºä»¶ï¼ä¸æ»å¹åº¦é ä½æ¼ page_viewï¼â38.8%ï¼ï¼é¡¯ç¤ºçæ­£é±è®æç« çè¨ªå®¢ï¼å¶é±è®æ·±åº¦ç¶­æç©©å®ã<br>
+      ð  <strong>é ç´æéé»æï¼reserve_btn_clickï¼ï¼</strong>W25 å± 2 æ¬¡é»æï¼W24ï¼1 æ¬¡ï¼ï¼éçµå°æ¸éä»ä½ï¼ä½ä»£è¡¨ç³»çµ±æè¢«ä½¿ç¨ãå»ºè­°æçºç£æ¸¬ä¸¦ç¢ºèªæéæåä½ç½®æ¯å¦è¶³å¤ ã
+    </div>
+
+    <!-- ============================
+         SECTION 1.3: ç±éé é¢ Top 10
+         ============================ -->
+    <div class="section-title"><span>ð</span> 1.3 ç±éé é¢ Top 10ï¼çè¦½éæåºï¼</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>ç¶²é è·¯å¾</th>
+            <th style="text-align:right;">çè¦½</th>
+            <th style="text-align:right;">ä½¿ç¨è</th>
+            <th style="text-align:right;">äºä»¶</th>
+            <th style="text-align:right;">é±è®å</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td class="rank rank-1">1</td>
-            <td>/doctor-10/ <span style="color:#888;font-size:12px;">（何宜儒醫師）</span></td>
+            <td>/doctor-10/ <span style="color:#888;font-size:12px;">ï¼ä½å®åé«å¸«ï¼</span></td>
             <td style="text-align:right;"><span class="page-badge">129</span></td>
             <td style="text-align:right;">49</td>
             <td style="text-align:right;">382</td>
-            <td style="text-align:right;"><span class="change-up">▲ 134.6%</span></td>
+            <td style="text-align:right;"><span class="change-up">â² +134.6%</span></td>
           </tr>
           <tr>
             <td class="rank rank-2">2</td>
-            <td>/ <span style="color:#888;font-size:12px;">（首頁）</span></td>
+            <td>/ <span style="color:#888;font-size:12px;">ï¼é¦é ï¼</span></td>
             <td style="text-align:right;"><span class="page-badge">96</span></td>
             <td style="text-align:right;">30</td>
             <td style="text-align:right;">341</td>
-            <td style="text-align:right;"><span class="change-down">▼ 27.3%</span></td>
+            <td style="text-align:right;"><span class="change-down">â¼ â27.3%</span></td>
           </tr>
           <tr>
             <td class="rank rank-3">3</td>
@@ -242,7 +465,7 @@
             <td style="text-align:right;"><span class="page-badge">31</span></td>
             <td style="text-align:right;">8</td>
             <td style="text-align:right;">118</td>
-            <td style="text-align:right;"><span class="change-down">▼ 76.7%</span></td>
+            <td style="text-align:right;"><span class="change-down">â¼ â76.7%</span></td>
           </tr>
           <tr>
             <td class="rank">4</td>
@@ -250,7 +473,7 @@
             <td style="text-align:right;"><span class="page-badge">23</span></td>
             <td style="text-align:right;">9</td>
             <td style="text-align:right;">91</td>
-            <td style="text-align:right;"><span class="change-down">▼ 50.0%</span></td>
+            <td style="text-align:right;"><span class="change-down">â¼ â50.0%</span></td>
           </tr>
           <tr>
             <td class="rank">5</td>
@@ -266,11 +489,11 @@
             <td style="text-align:right;"><span class="page-badge">14</span></td>
             <td style="text-align:right;">3</td>
             <td style="text-align:right;">56</td>
-            <td style="text-align:right;"><span class="change-down">▼ 63.2%</span></td>
+            <td style="text-align:right;"><span class="change-down">â¼ â63.2%</span></td>
           </tr>
           <tr>
             <td class="rank">7</td>
-            <td>/doctor-44/ <span style="color:#888;font-size:12px;">（孫敬欽醫師）</span></td>
+            <td>/doctor-44/ <span style="color:#888;font-size:12px;">ï¼å­«åæ¬½é«å¸«ï¼</span></td>
             <td style="text-align:right;"><span class="page-badge">11</span></td>
             <td style="text-align:right;">7</td>
             <td style="text-align:right;">34</td>
@@ -278,7 +501,7 @@
           </tr>
           <tr>
             <td class="rank">8</td>
-            <td>/doctor-10/laser-eye-surgery/近視雷射-老花-白內障術後眼藥-2/</td>
+            <td>/doctor-10/laser-eye-surgery/è¿è¦é·å°-èè±-ç½å§éè¡å¾ç¼è¥-2/</td>
             <td style="text-align:right;"><span class="page-badge">9</span></td>
             <td style="text-align:right;">2</td>
             <td style="text-align:right;">45</td>
@@ -290,213 +513,446 @@
             <td style="text-align:right;"><span class="page-badge">9</span></td>
             <td style="text-align:right;">3</td>
             <td style="text-align:right;">45</td>
-            <td style="text-align:right;"><span class="change-down">▼ 86.2%</span></td>
+            <td style="text-align:right;"><span class="change-down">â¼ â86.2%</span></td>
           </tr>
           <tr>
             <td class="rank">10</td>
-            <td>/uncategorized/測試-youtube-連結/</td>
+            <td>/uncategorized/æ¸¬è©¦-youtube-é£çµ/</td>
             <td style="text-align:right;"><span class="page-badge">9</span></td>
             <td style="text-align:right;">4</td>
             <td style="text-align:right;">46</td>
-            <td style="text-align:right;"><span class="change-up">▲ 50.0%</span></td>
+            <td style="text-align:right;"><span class="change-up">â² +50.0%</span></td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <!-- POST VIEW ARTICLES -->
-    <div class="section-title"><span>📰</span> 文章瀏覽排行 Top 10（post_view 事件）</div>
-    <div class="table-wrap" style="margin-bottom:40px;">
+    <!-- ============================
+         SECTION 1.4: æç«  post_view
+         ============================ -->
+    <div class="section-title"><span>ð°</span> 1.4 ç±éæç« æè¡ Looker Studio Â· post_view äºä»¶ Â· W25</div>
+    <div class="note-box">æç«  post_view äºä»¶æ¸ï¼å«é«å¸«æ­¸å±¬èåé¡ï¼</div>
+    <div class="table-wrap">
       <table>
         <thead>
           <tr>
             <th>#</th>
-            <th>文章標題</th>
-            <th style="text-align:right;">post_view 次數</th>
+            <th>æç« æ¨é¡</th>
+            <th>æ¨æ¸¬é«å¸«</th>
+            <th>åé¡</th>
+            <th style="text-align:right;">post_view äºä»¶</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td class="rank rank-1">1</td>
-            <td>test – MEDIFY 醫病關係平台</td>
+            <td>test â MEDIFY é«çéä¿å¹³å°</td>
+            <td style="color:#bbb;">âï¼æ¸¬è©¦ï¼</td>
+            <td style="color:#bbb;">å¶ä»/æ¸¬è©¦</td>
             <td style="text-align:right;"><span class="events-badge">16</span></td>
           </tr>
           <tr>
             <td class="rank rank-2">2</td>
-            <td>近視雷射、老花雷射、白內障術後為什麼要點眼藥水？自費眼藥水優點分析</td>
+            <td>è¿è¦é·å°ãèè±é·å°ãç½å§éè¡å¾çºä»éº¼è¦é»ç¼è¥æ°´ï¼èªè²»ç¼è¥æ°´åªé»åæ</td>
+            <td>doctor-10 ä½å®å</td>
+            <td>è¿è¦é·å°</td>
             <td style="text-align:right;"><span class="events-badge">9</span></td>
           </tr>
           <tr>
             <td class="rank rank-3">3</td>
-            <td>測試 youtube 連結 – MEDIFY 醫病關係平台</td>
+            <td>æ¸¬è©¦ youtube é£çµ â MEDIFY é«çéä¿å¹³å°</td>
+            <td style="color:#bbb;">âï¼æ¸¬è©¦ï¼</td>
+            <td style="color:#bbb;">å¶ä»/æ¸¬è©¦</td>
             <td style="text-align:right;"><span class="events-badge">7</span></td>
           </tr>
           <tr>
             <td class="rank">4</td>
-            <td>（表格）讓您一覺好眠的 5 種治療方式</td>
+            <td>ï¼è¡¨æ ¼ï¼è®æ¨ä¸è¦ºå¥½ç ç 5 ç¨®æ²»çæ¹å¼</td>
+            <td>doctor-43 è¡æå­</td>
+            <td>ç¡ç æè¡</td>
             <td style="text-align:right;"><span class="events-badge">3</span></td>
           </tr>
           <tr>
-            <td class="rank">5</td>
-            <td>3C 產品如何傷眼？兒童近視失控會怎樣？一次搞懂矯正與預防</td>
+            <td class="rank">4</td>
+            <td>3C ç¢åå¦ä½å·ç¼ï¼åç«¥è¿è¦å¤±æ§æææ¨£ï¼ä¸æ¬¡ææç¯æ­£èé é²</td>
+            <td>doctor-10 ä½å®å</td>
+            <td>è¦åä¿å¥</td>
             <td style="text-align:right;"><span class="events-badge">3</span></td>
           </tr>
           <tr>
-            <td class="rank">6</td>
-            <td>常見Q&A｜SMILE 近視雷射 術後要休息多久，我才能恢復正常生活？</td>
+            <td class="rank">4</td>
+            <td>å¸¸è¦Q&Aï½SMILE è¿è¦é·å° è¡å¾è¦ä¼æ¯å¤ä¹ï¼ææè½æ¢å¾©æ­£å¸¸çæ´»ï¼</td>
+            <td>doctor-10 ä½å®å</td>
+            <td>è¿è¦é·å°</td>
             <td style="text-align:right;"><span class="events-badge">3</span></td>
           </tr>
           <tr>
-            <td class="rank">7</td>
-            <td>營養保健｜預防黃斑部病變，哪些成分的保健食品才有效？（引用）</td>
+            <td class="rank">4</td>
+            <td>çé¤ä¿å¥ï½é é²é»æé¨çè®ï¼åªäºæåçä¿å¥é£åæææï¼ï¼å¼ç¨ï¼</td>
+            <td>doctor-10 ä½å®å</td>
+            <td>ç¼ç§ä¿å¥</td>
             <td style="text-align:right;"><span class="events-badge">3</span></td>
           </tr>
           <tr>
-            <td class="rank">8</td>
-            <td>眼睛常常好乾！我的乾眼症會好嗎？乾眼症常見原因、成因</td>
+            <td class="rank">4</td>
+            <td>ç¼çå¸¸å¸¸å¥½ä¹¾ï¼æçä¹¾ç¼çæå¥½åï¼ä¹¾ç¼çå¸¸è¦åå ãæå </td>
+            <td>doctor-10 ä½å®å</td>
+            <td>ä¹¾ç¼ç</td>
             <td style="text-align:right;"><span class="events-badge">3</span></td>
           </tr>
           <tr>
             <td class="rank">9</td>
-            <td>abc – MEDIFY 醫病關係平台</td>
+            <td>abc â MEDIFY é«çéä¿å¹³å°</td>
+            <td style="color:#bbb;">âï¼æ¸¬è©¦ï¼</td>
+            <td style="color:#bbb;">å¶ä»/æ¸¬è©¦</td>
             <td style="text-align:right;"><span class="events-badge">2</span></td>
           </tr>
           <tr>
-            <td class="rank">10</td>
-            <td>健康保健｜吃哪種魚對眼睛最好？深海魚營養排行榜一次看懂</td>
+            <td class="rank">9</td>
+            <td>å¥åº·ä¿å¥ï½ååªç¨®é­å°ç¼çæå¥½ï¼æ·±æµ·é­çé¤æè¡æ¦ä¸æ¬¡çæ</td>
+            <td>doctor-10 ä½å®å</td>
+            <td>ç¼ç§ä¿å¥</td>
             <td style="text-align:right;"><span class="events-badge">2</span></td>
           </tr>
         </tbody>
       </table>
     </div>
+    <div class="note-box">
+      post_view ç±åå° JS è§¸ç¼ï¼ä»£è¡¨ä½¿ç¨èå¯¦ééåä¸¦è¼å¥å®æ´æç« é é¢ãW25 ç¸½è¨ post_view 65 æ¬¡ï¼Top 10 åè¨ 51 æ¬¡ï¼å¶é¤ 14 æ¬¡æ£ä½å¨å¶ä»æç« ï¼ãæ¸¬è©¦æç« ï¼testãyoutube æ¸¬è©¦ãabcï¼å± 25 æ¬¡ï¼ä¸è¨å¥é«å¸«çµ±è¨ã
+    </div>
 
-    <!-- SECTION 2: DOCTOR CARDS -->
-    <div class="section-title"><span>👨‍⚕️</span> Section 2｜醫師表現卡</div>
+    <!-- ============================
+         SECTION 1.5: é«å¸« post_view æè¡
+         ============================ -->
+    <div class="section-title"><span>ð¨ââï¸</span> 1.5 é«å¸«æç« ç¸½çè¦½æè¡ GA4 post_view äºä»¶ Â· by doctor_id Â· W25</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>é«å¸«</th>
+            <th>æ©æ§</th>
+            <th style="text-align:right;">post_view ç¸½æ¬¡æ¸ï¼ä¼°ï¼</th>
+            <th>åè¨»</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="rank rank-1">1</td>
+            <td>ä½å®å / doctor-10</td>
+            <td>æ¾æ¸ç¼ç§</td>
+            <td style="text-align:right;"><span class="events-badge">23</span></td>
+            <td style="font-size:12px;">ç¼è¥æ°´(9)+SMILE(3)+3Cè¦å(3)+é»æé¨(3)+ä¹¾ç¼ç(3)+é­æ²¹(2)</td>
+          </tr>
+          <tr>
+            <td class="rank rank-2">2</td>
+            <td>è¡æå­ / doctor-43</td>
+            <td>é èªé«å¸«</td>
+            <td style="text-align:right;"><span class="events-badge">3</span></td>
+            <td style="font-size:12px;">ä¸è¦ºå¥½ç  Ã 1 ç¯</td>
+          </tr>
+          <tr>
+            <td class="rank rank-3">3</td>
+            <td>å­«åæ¬½ / doctor-44</td>
+            <td>é èªé«å¸«</td>
+            <td style="text-align:right;"><span class="events-badge">0</span></td>
+            <td style="font-size:12px;color:#e74c3c;">æ¬é±ç¡ä»»ä½ post_view ç´é</td>
+          </tr>
+          <tr>
+            <td class="rank rank-3">3</td>
+            <td>å¾é¦ç / doctor-76</td>
+            <td>é èªé«å¸«</td>
+            <td style="text-align:right;"><span class="events-badge">0</span></td>
+            <td style="font-size:12px;color:#e74c3c;">æ¬é±ç¡ä»»ä½ post_view ç´é</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note-box">æç« âé«å¸«å°æä¾ URL è·¯å¾åæç« åé¡æ¨ç®ãæ¸¬è©¦æç« ï¼test/youtube/abcï¼å± 25 æ¬¡ï¼æªè¨å¥é«å¸«æè¡ãW25 ææ post_viewï¼æé¤æ¸¬è©¦ï¼å± 40 æ¬¡ï¼å¨æ¸éä¸­å¨ doctor-10ï¼58%ï¼è doctor-43ï¼7.5%ï¼ã</div>
+
+    <!-- ============================
+         SECTION 1.6: æç« åé¡ç±éåº¦
+         ============================ -->
+    <div class="section-title"><span>ð</span> 1.6 æç« åé¡ç±éåº¦ post_view äºä»¶ Â· by category Â· W25</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>æç« åé¡</th>
+            <th style="text-align:right;">post_view æ¬¡æ¸</th>
+            <th style="text-align:right;">ç¯æ¸</th>
+            <th style="text-align:right;">ä½æ¯ï¼ææï¼</th>
+            <th>æ¨æ¸¬ä¸»åé«å¸«</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="rank rank-1">1</td>
+            <td>è¿è¦é·å°</td>
+            <td style="text-align:right;">12</td>
+            <td style="text-align:right;">2 ç¯</td>
+            <td style="text-align:right;font-weight:700;">30.0%</td>
+            <td>doctor-10 ä½å®å</td>
+          </tr>
+          <tr>
+            <td class="rank rank-2">2</td>
+            <td>ç¼ç§ä¿å¥</td>
+            <td style="text-align:right;">8</td>
+            <td style="text-align:right;">3 ç¯</td>
+            <td style="text-align:right;font-weight:700;">20.0%</td>
+            <td>doctor-10 ä½å®å</td>
+          </tr>
+          <tr>
+            <td class="rank rank-3">3</td>
+            <td>è¦åä¿å¥</td>
+            <td style="text-align:right;">3</td>
+            <td style="text-align:right;">1 ç¯</td>
+            <td style="text-align:right;font-weight:700;">7.5%</td>
+            <td>doctor-10 ä½å®åï¼æ¨æ¸¬ï¼</td>
+          </tr>
+          <tr>
+            <td class="rank rank-3">3</td>
+            <td>ä¹¾ç¼ç</td>
+            <td style="text-align:right;">3</td>
+            <td style="text-align:right;">1 ç¯</td>
+            <td style="text-align:right;font-weight:700;">7.5%</td>
+            <td>doctor-10 ä½å®åï¼æ¨æ¸¬ï¼</td>
+          </tr>
+          <tr>
+            <td class="rank rank-3">3</td>
+            <td>ç¡ç æè¡ / å¼å¸ä¸­æ­¢ç</td>
+            <td style="text-align:right;">3</td>
+            <td style="text-align:right;">1 ç¯</td>
+            <td style="text-align:right;font-weight:700;">7.5%</td>
+            <td>doctor-43 è¡æå­</td>
+          </tr>
+          <tr>
+            <td class="rank">6</td>
+            <td>å¶ä» / æ¸¬è©¦</td>
+            <td style="text-align:right;color:#bbb;">25</td>
+            <td style="text-align:right;color:#bbb;">3 ç¯</td>
+            <td style="text-align:right;color:#bbb;">â</td>
+            <td style="color:#bbb;">ï¼æ¸¬è©¦å§å®¹ï¼ä¸è¨å¥ï¼</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note-box">
+      <strong>åé¡è§£è®ï¼</strong>W25 è¿è¦é·å°ä»æ¯æç±éåé¡ï¼12 æ¬¡ï¼2 ç¯ï¼ï¼ç¼ç§ä¿å¥ç·è¿½ï¼8 æ¬¡ï¼3 ç¯ï¼ãç¸è¼ W24ï¼è¿è¦é·å° 24 æ¬¡ï¼ï¼W25 ä¸æ»å¹åº¦æé¡¯ï¼â50%ï¼ï¼ä¸»è¦å  W24 æ ¸å¿æç« ï¼ãè¿è¦é·å°æéº¼é¸ãÃ12 æ¬¡ï¼æ¬é±æªåºç¾å¨åæãç¡ç æè¡ç¶­æ 3 æ¬¡ï¼doctor-43 è¡æå­æç©©å®çå°ç¾åç¾ã
+    </div>
+
+    <!-- ============================
+         SECTION 2: é èªé«å¸«è¿½è¹¤
+         ============================ -->
+    <div class="section-title"><span>ð</span> 2 é èªé«å¸«è¿½è¹¤ Doctor-43 è¡æå­ Â· Doctor-44 å­«åæ¬½ Â· Doctor-76 å¾é¦ç</div>
+
     <div class="doctor-grid">
 
-      <!-- Doctor-10 何宜儒醫師 -->
-      <div class="doctor-card d10">
-        <div class="doctor-id">Doctor-10</div>
-        <div class="doctor-name">何宜儒醫師</div>
-        <div class="doctor-metrics">
-          <div class="d-metric">
-            <div class="d-metric-label">主頁瀏覽量</div>
-            <div class="d-metric-value">129</div>
-          </div>
-          <div class="d-metric">
-            <div class="d-metric-label">使用者數</div>
-            <div class="d-metric-value">49</div>
-          </div>
-        </div>
-        <div class="qr-section">
-          <div class="qr-title">🔲 QR Code 來源分布</div>
-          <div class="qr-row">
-            <span class="qr-row-label">🏥 掛號櫃檯</span>
-            <span class="qr-row-val">107 views / 66 人</span>
-          </div>
-          <div class="qr-row">
-            <span class="qr-row-label">🔬 手術等候區</span>
-            <span class="qr-row-val">50 views / 28 人</span>
-          </div>
-          <div class="qr-row">
-            <span class="qr-row-label">💺 候診區</span>
-            <span class="qr-row-val">20 views / 12 人</span>
-          </div>
-          <div style="margin-top:10px;font-size:12px;color:#888;">主要來源：掛號櫃檯（60.5%）・手術等候區（28.2%）・候診區（11.3%）</div>
-        </div>
-      </div>
-
-      <!-- Doctor-43 -->
+      <!-- Doctor-43 è¡æå­ -->
       <div class="doctor-card d43">
         <div class="doctor-id">Doctor-43</div>
-        <div class="doctor-name">醫師資料待確認</div>
+        <div class="doctor-name">è¡æå­é«å¸«</div>
+        <div class="doctor-org">é èªé«å¸«</div>
+        <span class="doctor-status status-active">ææµé</span>
         <div class="doctor-metrics">
           <div class="d-metric">
-            <div class="d-metric-label">主頁瀏覽量</div>
-            <div class="d-metric-value" style="color:#bbb;">—</div>
+            <div class="d-metric-label">é¦é çè¦½</div>
+            <div class="d-metric-value" style="color:#bbb;font-size:16px;">æªå¥æ¦</div>
           </div>
           <div class="d-metric">
-            <div class="d-metric-label">使用者數</div>
-            <div class="d-metric-value" style="color:#bbb;">—</div>
+            <div class="d-metric-label">post_view äºä»¶</div>
+            <div class="d-metric-value">3</div>
           </div>
         </div>
         <div class="qr-section">
-          <div class="qr-title">🔲 QR Code 來源分布</div>
-          <div class="no-data">本週無資料（頁面尚未出現在 Top 10）</div>
+          <div class="qr-title">ð² QR Code æ¸æ</div>
+          <div class="no-data">æ¬é±ç¡ QR Code æææ¸æ</div>
         </div>
+        <div class="doctor-note">ãè®æ¨ä¸è¦ºå¥½ç ç 5 ç¨®æ²»çæ¹å¼ãæ¬é± 3 æ¬¡ post_view äºä»¶ã/doctor-43/ é¦é æ¬é±æªé²å¥ Top 10ï¼ç¡æ³ç¢ºèªä¸»é çè¦½æ¸ãå»ºè­°ç¢ºèª doctor-43 QR UTM åæ¸è¨­å®æ¯å¦æ­£ç¢ºã</div>
       </div>
 
-      <!-- Doctor-44 孫敬欽醫師 -->
+      <!-- Doctor-44 å­«åæ¬½ -->
       <div class="doctor-card d44">
         <div class="doctor-id">Doctor-44</div>
-        <div class="doctor-name">孫敬欽醫師</div>
+        <div class="doctor-name">å­«åæ¬½é«å¸«</div>
+        <div class="doctor-org">é èªé«å¸«</div>
+        <span class="doctor-status status-new">é¦æ¬¡ç»æ¦</span>
         <div class="doctor-metrics">
           <div class="d-metric">
-            <div class="d-metric-label">主頁瀏覽量</div>
+            <div class="d-metric-label">é¦é çè¦½</div>
             <div class="d-metric-value">11</div>
           </div>
           <div class="d-metric">
-            <div class="d-metric-label">使用者數</div>
+            <div class="d-metric-label">ä½¿ç¨èæ¸</div>
             <div class="d-metric-value">7</div>
           </div>
         </div>
         <div class="qr-section">
-          <div class="qr-title">🔲 QR Code 來源分布</div>
-          <div class="no-data">本週無 QR Code 掃描紀錄</div>
+          <div class="qr-title">ð² QR Code æ¸æ</div>
+          <div class="no-data">æ¬é±ç¡ QR Code ææç´é</div>
         </div>
+        <div class="doctor-note">/doctor-44/ æ¬é±é¦æ¬¡é²å¥çè¦½ Top 10ï¼11 æ¬¡ï¼7 ä½ä½¿ç¨èï¼ï¼ä¸ç¡ QR ç´éï¼é¡¯ç¤ºæµéä¾èªèªç¶æå°æç¤¾ç¾¤åäº«ãW24 / W23 åç¡é é¢çè¦½ç´éï¼æ¬é±çªç ´å¼å¾æçºè§å¯ãpost_view æ¬é± 0 æ¬¡ã</div>
       </div>
 
-      <!-- Doctor-76 -->
+      <!-- Doctor-76 å¾é¦ç -->
       <div class="doctor-card d76">
         <div class="doctor-id">Doctor-76</div>
-        <div class="doctor-name">醫師資料待確認</div>
+        <div class="doctor-name">å¾é¦çé«å¸«</div>
+        <div class="doctor-org">é èªé«å¸«</div>
+        <span class="doctor-status status-zero">æ¬é±é¶æµé</span>
         <div class="doctor-metrics">
           <div class="d-metric">
-            <div class="d-metric-label">主頁瀏覽量</div>
-            <div class="d-metric-value" style="color:#bbb;">—</div>
+            <div class="d-metric-label">é¦é çè¦½</div>
+            <div class="d-metric-value" style="color:#e74c3c;">0</div>
           </div>
           <div class="d-metric">
-            <div class="d-metric-label">使用者數</div>
-            <div class="d-metric-value" style="color:#bbb;">—</div>
+            <div class="d-metric-label">post_view</div>
+            <div class="d-metric-value" style="color:#e74c3c;">0</div>
           </div>
         </div>
         <div class="qr-section">
-          <div class="qr-title">🔲 QR Code 來源分布</div>
-          <div class="no-data">本週無資料（頁面尚未出現在 Top 10）</div>
+          <div class="qr-title">ð² QR Code æ¸æ</div>
+          <div class="no-data">æ¬é±ç¡ä»»ä½æµéç´é</div>
         </div>
+        <div class="doctor-note">W25 ç¡ä»»ä½é é¢çè¦½ç´éï¼GA4 æå° doctor-76 åå³ 0 ä½¿ç¨èï¼ãè«ç¢ºèª QR Code é¨ç½²çæå UTM åæ¸è¨­å®ï¼è¥å°æªé¨ç½²è«æç¨å®æã</div>
       </div>
 
     </div>
 
-    <!-- SECTION 6: INSIGHTS -->
-    <div class="section-title"><span>💡</span> Section 6｜本週洞察</div>
+    <!-- ============================
+         SECTION 3: Doctor-10 QR åæ
+         ============================ -->
+    <div class="section-title"><span>ð²</span> 3 æ¾æ¸ç¼ç§ â Doctor-10 ä½å®åé«å¸« QR Code å ´æ¯åæ</div>
+
+    <div class="doctor-grid" style="grid-template-columns:1fr;">
+      <div class="doctor-card d10">
+        <div class="doctor-id">Doctor-10</div>
+        <div class="doctor-name">ä½å®åé«å¸«</div>
+        <div class="doctor-org">æ¾æ¸ç¼ç§ï¼å°åæ¾æ¸ / æ¿æ©æ¾æ¸ï¼</div>
+        <span class="doctor-status status-active">æ¬é±ä¸»åé«å¸«</span>
+        <div class="doctor-metrics" style="grid-template-columns:1fr 1fr 1fr 1fr;">
+          <div class="d-metric">
+            <div class="d-metric-label">é¦é çè¦½ï¼GA4ï¼</div>
+            <div class="d-metric-value">129</div>
+          </div>
+          <div class="d-metric">
+            <div class="d-metric-label">ä½¿ç¨èï¼GA4ï¼</div>
+            <div class="d-metric-value">49</div>
+          </div>
+          <div class="d-metric">
+            <div class="d-metric-label">QR ææç¸½æ¬¡</div>
+            <div class="d-metric-value">177</div>
+          </div>
+          <div class="d-metric">
+            <div class="d-metric-label">QR ä½¿ç¨è</div>
+            <div class="d-metric-value">106</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>QR å°é»</th>
+            <th style="text-align:right;">çè¦½æ¬¡ï¼W25ï¼</th>
+            <th style="text-align:right;">ä½¿ç¨èï¼W25ï¼</th>
+            <th style="text-align:right;">çè¦½æ¬¡ï¼W24ï¼</th>
+            <th style="text-align:right;">WoW è®å</th>
+            <th style="text-align:right;">æ¯äººå¹³åçè¦½</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>ð¥ æèæ«æª¯</td>
+            <td style="text-align:right;font-weight:700;">107</td>
+            <td style="text-align:right;">66</td>
+            <td style="text-align:right;color:#888;">87</td>
+            <td style="text-align:right;" class="wow-up">â² +23.0%</td>
+            <td style="text-align:right;">1.62 é /äºº</td>
+          </tr>
+          <tr>
+            <td>ð¬ æè¡ç­åå</td>
+            <td style="text-align:right;font-weight:700;">50</td>
+            <td style="text-align:right;">28</td>
+            <td style="text-align:right;color:#888;">64</td>
+            <td style="text-align:right;" class="wow-down">â¼ â21.9%</td>
+            <td style="text-align:right;">1.79 é /äºº</td>
+          </tr>
+          <tr>
+            <td>ðº åè¨ºå</td>
+            <td style="text-align:right;font-weight:700;">20</td>
+            <td style="text-align:right;">12</td>
+            <td style="text-align:right;color:#888;">28</td>
+            <td style="text-align:right;" class="wow-down">â¼ â28.6%</td>
+            <td style="text-align:right;">1.67 é /äºº</td>
+          </tr>
+          <tr style="background:#f0f8ff;font-weight:700;">
+            <td>åè¨</td>
+            <td style="text-align:right;">177</td>
+            <td style="text-align:right;">106</td>
+            <td style="text-align:right;color:#888;">179</td>
+            <td style="text-align:right;" class="wow-down">â¼ â1.1%</td>
+            <td style="text-align:right;">1.67 é /äºº</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note-box">
+      ð <strong>QR å ´æ¯è§å¯ï¼</strong>æèæ«æª¯æ¬é±å¤§å¹æé·ï¼87â107ï¼+23%ï¼ï¼é¡¯ç¤ºæèåç·ç QR æåææå¢å¼·ææ­¤é±éè¨ºéæåï¼æè¡ç­åååä¸æ»ï¼64â50ï¼â22%ï¼ï¼å¯è½æ¬é±æè¡å ´æ¸è¼å°ï¼åè¨ºååæ­¥ä¸æ»ï¼28â20ï¼â29%ï¼ãæ´é« QR åè¨ 177 æ¬¡ï¼å¹¾ä¹è W24ï¼179 æ¬¡ï¼æå¹³ï¼â1.1%ï¼ï¼å¨å¨ç«çè¦½éä¸æ» 38.8% çèæ¯ä¸ï¼QR å ´æ¯çéæ§åæ¬¡é¡¯ç¾ã<br>
+      â ï¸ <strong>æ³¨æï¼</strong>QR ç¸½æ¬¡ï¼177ï¼vs GA4 doctor-10 ä¸»é çè¦½ï¼129ï¼ï¼å·®è· 48 æ¬¡ï¼å¯è½åå çºé¨å QR ææå¾è·³é¢æè·¨è£ç½®è¨ç®å·®ç°ï¼éç°å¸¸æ¸æã
+    </div>
+
+    <!-- ============================
+         SECTION 6: æ´å¯èå»ºè­°
+         ============================ -->
+    <div class="section-title"><span>ð¡</span> 6 æ´å¯èå»ºè­°</div>
     <div class="insights-grid">
+
       <div class="insight-card">
-        <div class="insight-icon">🚀</div>
-        <div class="insight-title">使用者顯著回升</div>
-        <div class="insight-body">本週活躍使用者達 96 人（↑43.3%）、新使用者 81 人（↑65.3%），顯示 W24 低谷後流量快速回彈，尤其新訪客比例大幅提升，代表平台拉新效果正在發酵。</div>
+        <div class="insight-icon">ð</div>
+        <div class="insight-title">Insight 01ï½ä½¿ç¨èååï¼ä½åèæ·±åº¦ä¸æ»</div>
+        <div class="insight-body">W25 æ´»èºä½¿ç¨è 96ï¼+43.3%ï¼ãæ°ä½¿ç¨è 81ï¼+65.3%ï¼ï¼é¡¯ç¤ºææ°ææé¡¯èãç¶èäºä»¶è¨æ¸ï¼1,619ï¼â31.6%ï¼èå¹³ååèæéï¼48 ç§ï¼â69%ï¼å¤§å¹ä¸æ»ï¼é¡¯ç¤ºæ¬é±å¤§éæ°è¨ªå®¢ççè¦½æ·±åº¦æ·ºï¼å°è¨ªå¾å¿«éé¢éãå»ºè­°è¿½è¹¤æ­¤æ¹æ°è¨ªå®¢çè½æè·¯å¾ï¼è©ä¼°æ¯å¦éåªåé¦é å¼å°è¨­è¨ã</div>
       </div>
+
       <div class="insight-card">
-        <div class="insight-icon">⭐</div>
-        <div class="insight-title">Doctor-10 主頁流量暴增</div>
-        <div class="insight-body">/doctor-10/ 本週瀏覽 129 次（↑134.6%），穩居全站最高，QR Code 亦帶來 177 次流量（掛號櫃檯佔 60.5%）。說明診間掃碼動線已建立穩定習慣。</div>
+        <div class="insight-icon">ð¥</div>
+        <div class="insight-title">Insight 02ï½æè QR å¼·å¢ååï¼æè¡åè¨ºä¸æ»</div>
+        <div class="insight-body">æèæ«æª¯ QR å¾ W24 ç 87 æ¬¡èºåè³ 107 æ¬¡ï¼+23%ï¼ï¼æ¯æ¬é±äº®é»ï¼æè¡ç­ååï¼â22%ï¼èåè¨ºåï¼â29%ï¼ååæ­¥ä¸æ»ãQR ç¸½è¨ 177 æ¬¡ï¼vs W24ï¼179ï¼â1.1%ï¼ï¼å¨å¨ç«çè¦½å¤§é 38.8% ä¸ç¶­æè¶ç©©å®ï¼åæ¬¡ç¢ºèªè¨ºæ QR æ¯æå·éæ§çæµéå¥å£ã</div>
       </div>
+
       <div class="insight-card">
-        <div class="insight-icon">📉</div>
-        <div class="insight-title">管理後台操作大幅下滑</div>
-        <div class="insight-body">後台相關頁面（post-list ↓77%、edit-post ↓86%）明顯減少，可能反映本週內容更新較少。建議確認是否有發文計畫延遲，維持穩定內容節奏有助於長期 SEO 排名。</div>
+        <div class="insight-icon">â±ï¸</div>
+        <div class="insight-title">Insight 03ï½å¹³åå·¥ä½éæ®µæé·å¤§å¹ä¸æ»è³ 5 å 26 ç§</div>
+        <div class="insight-body">W25 å¹³åå·¥ä½éæ®µæé· 5:26ï¼W24ï¼11:18ï¼â51.9%ï¼ï¼ä¸å¹³ååèæéå 48 ç§ï¼W24ï¼2:37ï¼â69%ï¼ãéåæ æ¬é±ä»¥å¤§éç­åççæ°è¨ªå®¢çºä¸»ï¼èæ°ä½¿ç¨è 81ï¼â65%ï¼å¼æãè¥ W26 ä»ç¶­ææ­¤æå¢ï¼éç¢ºèªæ¯å¦ææ°çå°æµä¾æºï¼å¦ç¤¾ç¾¤ãSEOï¼å¸¶å¥åè³ªä¸åçæµéã</div>
       </div>
+
       <div class="insight-card">
-        <div class="insight-icon">🆕</div>
-        <div class="insight-title">Doctor-44 首次出現 Top 10</div>
-        <div class="insight-body">孫敬欽醫師頁面（/doctor-44/）本週首次進入瀏覽 Top 10（11 views、7 人），且無 QR Code 掃描紀錄，顯示流量來自自然搜尋或分享，建議評估是否部署 QR Code。</div>
+        <div class="insight-icon">ð</div>
+        <div class="insight-title">Insight 04ï½æ²åäºä»¶ç©©å®ï¼é±è®åè³ªæªé</div>
+        <div class="insight-body">scroll_25ï¼134ï¼â5%ï¼ãscroll_50ï¼109ï¼â10%ï¼ãscroll_75ï¼96ï¼â5%ï¼ä¸åæ²åäºä»¶ç¸å° page_viewï¼â38.8%ï¼éå¹æ¥µå°ï¼é¡¯ç¤ºéç¶æ´é«æµéç¸®æ¸ï¼ä½å¯¦éé±è®æç« çè¨ªå®¢ï¼å¶é±è®å®æçç¶­æç©©å®ãscroll_75 é 96 æ¬¡ï¼ä»£è¡¨æ 96 æ¬¡æ·±åº¦é±è®ï¼è³å°è®å° 75% æç« ï¼ã</div>
       </div>
+
+      <div class="insight-card">
+        <div class="insight-icon">ð</div>
+        <div class="insight-title">Insight 05ï½Doctor-44 å­«åæ¬½é¦æ¬¡ç»æ¦ Top 10</div>
+        <div class="insight-body">/doctor-44/ï¼å­«åæ¬½é«å¸«ï¼æ¬é±é¦æ¬¡é²å¥å¨ç«çè¦½ Top 10ï¼11 æ¬¡ï¼7 ä½ä½¿ç¨èï¼ï¼ä¸ç¡ä»»ä½ QR Code ææç´éï¼é¡¯ç¤ºæµéå®å¨ä¾èªèªç¶æå°æç¤¾ç¾¤åäº«ãW24/W23 åç¡æ­¤é ç´éï¼å»ºè­°æçºè¿½è¹¤ï¼ä¸¦è©ä¼°æ¯å¦å éé¨ç½² QR Code ä»¥æ¾å¤§æ¢æèªç¶æµéã</div>
+      </div>
+
+      <div class="insight-card">
+        <div class="insight-icon">ð</div>
+        <div class="insight-title">Insight 06ï½é ç´æéé¦æ¬¡éæ¬¡é»æ + Doctor-43/76 å¾è¿½è¹¤</div>
+        <div class="insight-body">reserve_btn_clickï¼é ç´æéï¼æ¬é± 2 æ¬¡é»æï¼W24ï¼1 æ¬¡ï¼ï¼éä»æ¯å°æ¸å­ï¼ä½ W25 åºç¾éè¤ä½¿ç¨èè½æè¡çºï¼èªªæé ç´åè½æè¢«æ¢ç´¢ãå¦éè¿½è¹¤ï¼doctor-43ï¼è¡æå­ï¼QR æªé¡¯ç¤ºãdoctor-76ï¼å¾é¦çï¼é£çºé¶æµéï¼å»ºè­°æ¬é±å®æå¯¦å° QR æç¢¼æ¸¬è©¦ï¼ç¢ºèª UTM è¨­å®èé é¢å°åæ¯å¦æ­£å¸¸ã</div>
+      </div>
+
     </div>
 
   </div><!-- /container -->
 
   <div class="footer">
-    報告生成時間：2026-06-22 · 資料範圍：2026-06-15 ~ 2026-06-21 (W25) · 密碼保護文件，請勿外流
+    å¨ç«é«å¸«è¡¨ç¾é±å ± W25 ï½ 2026/06/15â21  èªåçæ by Claude Agent Â· è³æä¾æºï¼GA4 Property 456665733 + Looker Studio Â· é«å¸«å°ç§è¡¨ï¼Medify Others Notion
   </div>
 
 </div><!-- /report -->
