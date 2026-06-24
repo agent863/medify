@@ -53,7 +53,7 @@ jobs:
           username: ${{ secrets.SMTP_USER }}
           password: ${{ secrets.SMTP_PASSWORD }}
           subject: "【全站醫師表現週報】${{ steps.report.outputs.week_label }}（${{ steps.report.outputs.date_range }}）已更新"
-          to: robin@iclarityvision.com,harry@iclarityvision.com,james@jlilaw.tw,brook@iclarityvision.com,belle@iclarityvision.com,mia@iclarityvision.com,ainia@iclarityvision.com
+                    to: robin@iclarityvision.com
           from: "Medify 數據週報 <${{ secrets.SMTP_USER }}>"
           html_body: |
             <!DOCTYPE html>
