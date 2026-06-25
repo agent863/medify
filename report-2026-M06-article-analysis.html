@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>文章表現月報 | Doctor-10 | 2026 年 06 月</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", Arial, sans-serif;
+      background: #f6f8fb; color: #1a1a2e;
+    }
+
+    /* ===== PASSWORD GATE ===== */
+    #gate {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+    }
+    .gate-box {
+      background: white; border-radius: 16px; padding: 48px 40px;
+      text-align: center; max-width: 360px; width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,.4);
+    }
+    .gate-logo { font-size: 36px; margin-bottom: 8px; }
+    .gate-title { font-size: 22px; font-weight: 700; color: #0f3460; margin-bottom: 4px; }
+    .gate-sub { font-size: 13px; color: #888; margin-bottom: 28px; }
+    .gate-box input {
+      width: 100%; padding: 12px 16px; font-size: 18px; letter-spacing: 6px;
+      border: 2px solid #dde3ef; border-radius: 10px; text-align: center;
+      outline: none; transition: border .2s;
+    }
+    .gate-box input:focus { border-color: #0f3460; }
+    .gate-box button {
+      width: 100%; margin-top: 16px; padding: 13px; font-size: 16px; font-weight: 600;
+      background: #0f3460; color: white; border: none; border-radius: 10px;
+      cursor: pointer; transition: background .2s;
+    }
+    .gate-box button:hover { background: #1a4a80; }
+    #pw-error { display: none; color: #e74c3c; font-size: 13px; margin-top: 10px; }
+
+    /* ===== REPORT ===== */
+    #report { display: none; }
+
+    .header {
+      background: linear-gradient(135deg, #0f3460 0%, #1a4a80 100%);
+      color: white; padding: 32px 40px;
+    }
+    .header-top {
+      display: flex; justify-content: space-between; align-items: center;
+      flex-wrap: wrap; gap: 12px;
+    }
+    .header-brand { font-size: 22px; font-weight: 700; opacity: .9; }
+    .header-period { font-size: 14px; opacity: .75; }
+    .header h1 { font-size: 28px; font-weight: 800; margin-top: 16px; }
+    .header-badge {
+      display: inline-block; margin-top: 8px; padding: 4px 14px;
+      background: rgba(255,255,255,.15); border-radius: 20px;
+      font-size: 13px; letter-spacing: .5px;
+    }
+
+    .container { max-width: 960px; margin: 0 auto; padding: 32px 24px; }
+
+    .summary-bar {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 14px; margin-bottom: 32px;
+    }
+    .summary-card {
+      background: white; border-radius: 12px; padding: 20px 18px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.06); border-top: 4px solid #0f3460;
+      text-align: center;
+    }
+    .summary-label {
+      font-size: 11px; color: #888; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .8px; margin-bottom: 8px;
+    }
+    .summary-value { font-size: 30px; font-weight: 800; color: #1a1a2e; line-height: 1; }
+    .summary-sub { font-size: 12px; color: #aaa; margin-top: 6px; }
+
+    .section-label {
+      font-size: 18px; font-weight: 700; color: #0f3460;
+      margin-bottom: 20px; padding-bottom: 10px;
+      border-bottom: 3px solid #0f3460;
+    }
+
+    .footer {
+      text-align: center; color: #aaa; font-size: 12px;
+      padding: 28px 24px;
+      border-top: 1px solid #e6ebf2; margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- PASSWORD GATE -->
+<div id="gate">
+  <div class="gate-box">
+    <div class="gate-logo">📖</div>
+    <div class="gate-title">Medify 月報</div>
+    <div class="gate-sub">Doctor-10 文章分析 · 2026 年 06 月</div>
+    <input type="password" id="pw" placeholder="請輸入密碼" autofocus>
+    <button onclick="checkPw()">進入報告</button>
+    <div id="pw-error">密碼錯誤，請再試一次</div>
+  </div>
+</div>
+
+<!-- REPORT -->
+<div id="report">
+
+  <div class="header">
+    <div class="header-top">
+      <div class="header-brand">🏥 Medify 醫病關係平台</div>
+      <div class="header-period">資料來源：GA4 BigQuery</div>
+    </div>
+    <h1>Doctor-10 文章表現月報 — M06</h1>
+    <div class="header-badge">
+      📅 分析期間：2026/05/26 – 2026/06/25 ｜ 產生時間：2026/06/25 04:21
+    </div>
+  </div>
+
+  <div class="container">
+
+    <div class="summary-bar">
+      <div class="summary-card">
+        <div class="summary-label">分析文章數</div>
+        <div class="summary-value">12</div>
+        <div class="summary-sub">近 30 天</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">流量中位數</div>
+        <div class="summary-value">37</div>
+        <div class="summary-sub">高低流量分界</div>
+      </div>
+      <div class="summary-card" style="border-top-color:#27ae60;">
+        <div class="summary-label">高流量文章</div>
+        <div class="summary-value" style="color:#27ae60;">6</div>
+        <div class="summary-sub">瀏覽 &gt; 37</div>
+      </div>
+      <div class="summary-card" style="border-top-color:#2980b9;">
+        <div class="summary-label">低流量文章</div>
+        <div class="summary-value" style="color:#2980b9;">6</div>
+        <div class="summary-sub">瀏覽 &le; 37</div>
+      </div>
+    </div>
+
+    <div class="section-label">📊 Doctor-10 文章分析（近 30 天）</div>
+
+
+      <div style="margin-bottom:32px;">
+        <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px;">
+          <h3 style="font-size:16px;font-weight:700;color:#1a1a2e;margin:0;">🔥 高流量 × 高符合預期（表現最佳）</h3>
+          <span style="background:#27ae60;color:#fff;font-size:11px;font-weight:700;
+                       padding:2px 10px;border-radius:20px;">6 篇</span>
+        </div>
+        <p style="margin:0 0 10px;font-size:12px;color:#666;">瀏覽數 &gt; 37，符合預期度由高到低排列</p>
+        <div style="background:#fff;border-radius:12px;overflow:hidden;
+                    box-shadow:0 2px 10px rgba(0,0,0,.07);border:1px solid #e6ebf2;">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="background:#27ae60;color:#fff;">
+                <th style="width:44px;padding:10px 4px;font-weight:600;text-align:center;">排名</th>
+                <th style="padding:10px 8px;font-weight:600;text-align:left;">文章標題</th>
+                <th style="width:72px;padding:10px 4px;font-weight:600;text-align:center;">瀏覽數</th>
+                <th style="width:90px;padding:10px 4px;font-weight:600;text-align:center;">閱讀完成數</th>
+                <th style="width:110px;padding:10px 4px;font-weight:600;text-align:center;">符合預期度(%)</th>
+              </tr>
+            </thead>
+            <tbody>
+        <tr style="background:#ffffff;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">1</td>
+          <td style="padding:8px;">SMILE 近視雷射術後要休息多久？常見 Q&A 完整解答</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">43</td>
+          <td style="text-align:center;padding:8px 4px;">38</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#27ae60;">88.4%</td>
+        </tr>
+        <tr style="background:#f9fafc;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">2</td>
+          <td style="padding:8px;">眼睛好乾！乾眼症的常見原因與治療方式完整說明</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">74</td>
+          <td style="text-align:center;padding:8px 4px;">58</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#27ae60;">78.4%</td>
+        </tr>
+        <tr style="background:#ffffff;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">3</td>
+          <td style="padding:8px;">3C 傷眼？兒童近視失控怎麼辦？矯正與預防一次搞懂</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">55</td>
+          <td style="text-align:center;padding:8px 4px;">42</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#27ae60;">76.4%</td>
+        </tr>
+        <tr style="background:#f9fafc;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">4</td>
+          <td style="padding:8px;">SMILE 近視雷射 vs LASIK 怎麼選？術前完整比較</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">87</td>
+          <td style="text-align:center;padding:8px 4px;">62</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#27ae60;">71.3%</td>
+        </tr>
+        <tr style="background:#ffffff;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">5</td>
+          <td style="padding:8px;">近視雷射、老花雷射、白內障術後為什麼要點眼藥水？</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">68</td>
+          <td style="text-align:center;padding:8px 4px;">31</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#e67e22;">45.6%</td>
+        </tr>
+        <tr style="background:#f9fafc;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">6</td>
+          <td style="padding:8px;">預防黃斑部病變，哪些保健食品成分才有效？</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">49</td>
+          <td style="text-align:center;padding:8px 4px;">12</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#e74c3c;">24.5%</td>
+        </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div style="margin-bottom:32px;">
+        <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px;">
+          <h3 style="font-size:16px;font-weight:700;color:#1a1a2e;margin:0;">⚠️ 高流量 × 低符合預期（流量好，讀者跑掉）</h3>
+          <span style="background:#e67e22;color:#fff;font-size:11px;font-weight:700;
+                       padding:2px 10px;border-radius:20px;">6 篇</span>
+        </div>
+        <p style="margin:0 0 10px;font-size:12px;color:#666;">瀏覽數 &gt; 37，符合預期度由低到高排列 — 優先優化內容結構</p>
+        <div style="background:#fff;border-radius:12px;overflow:hidden;
+                    box-shadow:0 2px 10px rgba(0,0,0,.07);border:1px solid #e6ebf2;">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="background:#e67e22;color:#fff;">
+                <th style="width:44px;padding:10px 4px;font-weight:600;text-align:center;">排名</th>
+                <th style="padding:10px 8px;font-weight:600;text-align:left;">文章標題</th>
+                <th style="width:72px;padding:10px 4px;font-weight:600;text-align:center;">瀏覽數</th>
+                <th style="width:90px;padding:10px 4px;font-weight:600;text-align:center;">閱讀完成數</th>
+                <th style="width:110px;padding:10px 4px;font-weight:600;text-align:center;">符合預期度(%)</th>
+              </tr>
+            </thead>
+            <tbody>
+        <tr style="background:#ffffff;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">1</td>
+          <td style="padding:8px;">預防黃斑部病變，哪些保健食品成分才有效？</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">49</td>
+          <td style="text-align:center;padding:8px 4px;">12</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#e74c3c;">24.5%</td>
+        </tr>
+        <tr style="background:#f9fafc;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">2</td>
+          <td style="padding:8px;">近視雷射、老花雷射、白內障術後為什麼要點眼藥水？</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">68</td>
+          <td style="text-align:center;padding:8px 4px;">31</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#e67e22;">45.6%</td>
+        </tr>
+        <tr style="background:#ffffff;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">3</td>
+          <td style="padding:8px;">SMILE 近視雷射 vs LASIK 怎麼選？術前完整比較</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">87</td>
+          <td style="text-align:center;padding:8px 4px;">62</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#27ae60;">71.3%</td>
+        </tr>
+        <tr style="background:#f9fafc;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">4</td>
+          <td style="padding:8px;">3C 傷眼？兒童近視失控怎麼辦？矯正與預防一次搞懂</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">55</td>
+          <td style="text-align:center;padding:8px 4px;">42</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#27ae60;">76.4%</td>
+        </tr>
+        <tr style="background:#ffffff;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">5</td>
+          <td style="padding:8px;">眼睛好乾！乾眼症的常見原因與治療方式完整說明</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">74</td>
+          <td style="text-align:center;padding:8px 4px;">58</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#27ae60;">78.4%</td>
+        </tr>
+        <tr style="background:#f9fafc;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">6</td>
+          <td style="padding:8px;">SMILE 近視雷射術後要休息多久？常見 Q&A 完整解答</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">43</td>
+          <td style="text-align:center;padding:8px 4px;">38</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#27ae60;">88.4%</td>
+        </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div style="margin-bottom:32px;">
+        <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px;">
+          <h3 style="font-size:16px;font-weight:700;color:#1a1a2e;margin:0;">💎 低流量 × 高符合預期（隱藏寶石）</h3>
+          <span style="background:#2980b9;color:#fff;font-size:11px;font-weight:700;
+                       padding:2px 10px;border-radius:20px;">6 篇</span>
+        </div>
+        <p style="margin:0 0 10px;font-size:12px;color:#666;">瀏覽數 &le; 37，符合預期度由高到低排列 — 加強推廣與 SEO</p>
+        <div style="background:#fff;border-radius:12px;overflow:hidden;
+                    box-shadow:0 2px 10px rgba(0,0,0,.07);border:1px solid #e6ebf2;">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="background:#2980b9;color:#fff;">
+                <th style="width:44px;padding:10px 4px;font-weight:600;text-align:center;">排名</th>
+                <th style="padding:10px 8px;font-weight:600;text-align:left;">文章標題</th>
+                <th style="width:72px;padding:10px 4px;font-weight:600;text-align:center;">瀏覽數</th>
+                <th style="width:90px;padding:10px 4px;font-weight:600;text-align:center;">閱讀完成數</th>
+                <th style="width:110px;padding:10px 4px;font-weight:600;text-align:center;">符合預期度(%)</th>
+              </tr>
+            </thead>
+            <tbody>
+        <tr style="background:#ffffff;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">1</td>
+          <td style="padding:8px;">白內障手術完整指南：人工水晶體怎麼選？費用說明</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">28</td>
+          <td style="text-align:center;padding:8px 4px;">22</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#27ae60;">78.6%</td>
+        </tr>
+        <tr style="background:#f9fafc;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">2</td>
+          <td style="padding:8px;">老花雷射手術費用與成效：和老花眼鏡相比哪個好？</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">14</td>
+          <td style="text-align:center;padding:8px 4px;">11</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#27ae60;">78.6%</td>
+        </tr>
+        <tr style="background:#ffffff;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">3</td>
+          <td style="padding:8px;">多久做一次眼睛檢查才夠？不同年齡族群建議</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">8</td>
+          <td style="text-align:center;padding:8px 4px;">6</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#27ae60;">75.0%</td>
+        </tr>
+        <tr style="background:#f9fafc;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">4</td>
+          <td style="padding:8px;">吃哪種魚對眼睛最好？深海魚營養排行榜一次看懂</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">31</td>
+          <td style="text-align:center;padding:8px 4px;">8</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#e67e22;">25.8%</td>
+        </tr>
+        <tr style="background:#ffffff;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">5</td>
+          <td style="padding:8px;">角膜塑形片（OK 鏡）適合哪些人？配戴注意事項</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">19</td>
+          <td style="text-align:center;padding:8px 4px;">4</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#e74c3c;">21.1%</td>
+        </tr>
+        <tr style="background:#f9fafc;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">6</td>
+          <td style="padding:8px;">藍光眼鏡有效嗎？護眼效果的科學分析</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">11</td>
+          <td style="text-align:center;padding:8px 4px;">1</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#e74c3c;">9.1%</td>
+        </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div style="margin-bottom:32px;">
+        <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px;">
+          <h3 style="font-size:16px;font-weight:700;color:#1a1a2e;margin:0;">🔻 低流量 × 低符合預期（需要關注）</h3>
+          <span style="background:#c0392b;color:#fff;font-size:11px;font-weight:700;
+                       padding:2px 10px;border-radius:20px;">6 篇</span>
+        </div>
+        <p style="margin:0 0 10px;font-size:12px;color:#666;">瀏覽數 &le; 37，符合預期度由低到高排列 — 評估是否重寫或下架</p>
+        <div style="background:#fff;border-radius:12px;overflow:hidden;
+                    box-shadow:0 2px 10px rgba(0,0,0,.07);border:1px solid #e6ebf2;">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="background:#c0392b;color:#fff;">
+                <th style="width:44px;padding:10px 4px;font-weight:600;text-align:center;">排名</th>
+                <th style="padding:10px 8px;font-weight:600;text-align:left;">文章標題</th>
+                <th style="width:72px;padding:10px 4px;font-weight:600;text-align:center;">瀏覽數</th>
+                <th style="width:90px;padding:10px 4px;font-weight:600;text-align:center;">閱讀完成數</th>
+                <th style="width:110px;padding:10px 4px;font-weight:600;text-align:center;">符合預期度(%)</th>
+              </tr>
+            </thead>
+            <tbody>
+        <tr style="background:#ffffff;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">1</td>
+          <td style="padding:8px;">藍光眼鏡有效嗎？護眼效果的科學分析</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">11</td>
+          <td style="text-align:center;padding:8px 4px;">1</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#e74c3c;">9.1%</td>
+        </tr>
+        <tr style="background:#f9fafc;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">2</td>
+          <td style="padding:8px;">角膜塑形片（OK 鏡）適合哪些人？配戴注意事項</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">19</td>
+          <td style="text-align:center;padding:8px 4px;">4</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#e74c3c;">21.1%</td>
+        </tr>
+        <tr style="background:#ffffff;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">3</td>
+          <td style="padding:8px;">吃哪種魚對眼睛最好？深海魚營養排行榜一次看懂</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">31</td>
+          <td style="text-align:center;padding:8px 4px;">8</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#e67e22;">25.8%</td>
+        </tr>
+        <tr style="background:#f9fafc;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">4</td>
+          <td style="padding:8px;">多久做一次眼睛檢查才夠？不同年齡族群建議</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">8</td>
+          <td style="text-align:center;padding:8px 4px;">6</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#27ae60;">75.0%</td>
+        </tr>
+        <tr style="background:#ffffff;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">5</td>
+          <td style="padding:8px;">白內障手術完整指南：人工水晶體怎麼選？費用說明</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">28</td>
+          <td style="text-align:center;padding:8px 4px;">22</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#27ae60;">78.6%</td>
+        </tr>
+        <tr style="background:#f9fafc;">
+          <td style="text-align:center;font-weight:700;padding:8px 4px;">6</td>
+          <td style="padding:8px;">老花雷射手術費用與成效：和老花眼鏡相比哪個好？</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;">14</td>
+          <td style="text-align:center;padding:8px 4px;">11</td>
+          <td style="text-align:center;padding:8px 4px;font-weight:700;color:#27ae60;">78.6%</td>
+        </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+  </div>
+
+  <div class="footer">
+    文章表現月報 M06 ｜ 資料來源：GA4 BigQuery ｜ 產生時間：2026/06/25 04:21<br>
+    Doctor-10 何宜儒醫師 · 澄清眼科 · 自動生成 by Claude Agent
+  </div>
+
+</div><!-- /report -->
+
+<script>
+  const CORRECT = '9053';
+  function checkPw() {
+    if (document.getElementById('pw').value === CORRECT) {
+      document.getElementById('gate').style.display = 'none';
+      document.getElementById('report').style.display = 'block';
+    } else {
+      document.getElementById('pw-error').style.display = 'block';
+      document.getElementById('pw').value = '';
+      document.getElementById('pw').focus();
+    }
+  }
+  document.getElementById('pw').addEventListener('keypress', e => {
+    if (e.key === 'Enter') checkPw();
+  });
+</script>
+</body>
+</html>
