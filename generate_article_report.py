@@ -46,9 +46,10 @@ except ImportError:
 # ─── 設定區 ────────────────────────────────────────────────────────────────────
 
 CONFIG = {
-    "BQ_PROJECT": os.environ.get("BQ_PROJECT", "YOUR_PROJECT"),
-    "BQ_DATASET": os.environ.get("BQ_DATASET", "YOUR_DATASET"),
-    "PASSWORD":   "9053",
+    "BQ_PROJECT":  os.environ.get("BQ_PROJECT", "YOUR_PROJECT"),
+    "BQ_DATASET":  os.environ.get("BQ_DATASET", "YOUR_DATASET"),
+    "BQ_LOCATION": os.environ.get("BQ_LOCATION", "asia-east1"),
+    "PASSWORD":    "9053",
     "OUTPUT_DIR": Path(__file__).parent,
     # 閱讀完成比分界（%）
     "COMPLETION_THRESHOLD": 40,
@@ -228,7 +229,7 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
         return _weekly_sample_data()
 
     from google.cloud import bigquery
-    client = bigquery.Client(project=CONFIG["BQ_PROJECT"])
+    client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=CONFIG["BQ_LOCATION"])
     t = bq_table()
 
     def run(sql):
@@ -671,7 +672,7 @@ def main():
         except ImportError:
             print("❌ pip install google-cloud-bigquery")
             sys.exit(1)
-        client = bigquery.Client(project=CONFIG["BQ_PROJECT"])
+        client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=CONFIG["BQ_LOCATION"])
         sql    = q5_article_analysis(build_table_path(), d_from, d_to)
         print(f"🔍 查詢 BigQuery 文章四象限（{date_from_str} – {date_to_str}）...")
         rows = run_query(client, sql)

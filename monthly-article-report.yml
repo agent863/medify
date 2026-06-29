@@ -1,0 +1,62 @@
+name: 月報：Doctor-10 文章分析
+
+on:
+  schedule:
+    # 每月 2 號 台灣時間 10:00（UTC 02:00）— 確保上個月資料完整
+    - cron: '0 2 2 * *'
+  workflow_dispatch:
+    inputs:
+      date_from:
+        description: '查詢起始日（YYYY-MM-DD，留空=自動取上個月）'
+        required: false
+      date_to:
+        description: '查詢結束日（YYYY-MM-DD）'
+        required: false
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install google-cloud-bigquery
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Generate article report
+        env:
+          BQ_PROJECT:  ${{ secrets.BQ_PROJECT }}
+          BQ_DATASET:  ${{ secrets.BQ_DATASET }}
+          BQ_LOCATION: ${{ secrets.BQ_LOCATION }}
+        run: |
+          if [[ -n "${{ github.event.inputs.date_from }}" ]]; then
+            python generate_article_report.py \
+              --date-from "${{ github.event.inputs.date_from }}" \
+              --date-to "${{ github.event.inputs.date_to }}" \
+              --no-push
+          else
+            python generate_article_report.py --no-push
+          fi
+
+      - name: Commit and push report
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add report-*-M*-article-analysis.html
+          if git diff --cached --quiet; then
+            echo "沒有新的報告產生"
+          else
+            git commit -m "月報 $(date '+M%m')：Doctor-10 文章分析自動產生"
+            git push
+          fi

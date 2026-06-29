@@ -63,6 +63,7 @@ LOCATION_UTM = {
 CONFIG = {
     "BQ_PROJECT":  os.environ.get("BQ_PROJECT", "YOUR_PROJECT"),
     "BQ_DATASET":  os.environ.get("BQ_DATASET", "YOUR_DATASET"),
+    "BQ_LOCATION": os.environ.get("BQ_LOCATION", "asia-east1"),
     "PASSWORD":    "9053",
     "OUTPUT_DIR":  Path(__file__).parent,
 }
@@ -378,7 +379,7 @@ def make_sample_data():
 
 def fetch_all_data(ws, we, ps, pe):
     from google.cloud import bigquery
-    client = bigquery.Client(project=CONFIG["BQ_PROJECT"])
+    client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=CONFIG["BQ_LOCATION"])
     t = bq_table()
 
     def run(sql):
