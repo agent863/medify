@@ -28,6 +28,7 @@ jobs:
         env:
           BQ_PROJECT: ${{ secrets.BQ_PROJECT }}
           BQ_DATASET: ${{ secrets.BQ_DATASET }}
+                    BQ_LOCATION: ${{ secrets.BQ_LOCATION }}
         run: |
           if [[ -n "${{ github.event.inputs.date_from }}" ]]; then
             python generate_article_report.py --date-from "${{ github.event.inputs.date_from }}" --date-to "${{ github.event.inputs.date_to }}" --no-push
