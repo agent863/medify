@@ -10,7 +10,7 @@ on:
         required: false
       date_to:
         description: 'End date YYYY-MM-DD'
-        required: fals
+        required: false
 
 jobs:
   generate-report:
