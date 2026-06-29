@@ -2,539 +2,772 @@
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Medify W26 週報 (2026/06/22–28)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Medify 週報 W26</title>
 <style>
+  :root {
+    --navy: #0f3460; --navy2: #1a4a80;
+    --green: #16a34a; --red: #dc2626; --gray: #6b7280;
+    --bg: #f6f8fb; --card: #ffffff;
+    --border: #e2e8f0;
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f4f8; color: #1a202c; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          background: var(--bg); color: #1e293b; }
 
-  /* ── Password Gate ── */
-  #gate {
-    position: fixed; inset: 0; background: #1a365d;
+  /* Lock screen */
+  #lock-screen {
+    position: fixed; inset: 0; background: linear-gradient(135deg, var(--navy), var(--navy2));
     display: flex; align-items: center; justify-content: center; z-index: 9999;
   }
-  .gate-box {
-    background: white; border-radius: 16px; padding: 48px 40px;
-    text-align: center; width: 340px; box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  .lock-box {
+    background: #fff; border-radius: 16px; padding: 40px 48px; text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,.4); max-width: 360px; width: 90%;
   }
-  .gate-logo { font-size: 32px; font-weight: 800; color: #2b6cb0; margin-bottom: 8px; }
-  .gate-sub { font-size: 13px; color: #718096; margin-bottom: 28px; }
-  .gate-box input {
-    width: 100%; padding: 12px 16px; border: 2px solid #e2e8f0; border-radius: 8px;
-    font-size: 18px; text-align: center; letter-spacing: 6px;
-    transition: border-color .2s; outline: none;
+  .lock-icon { font-size: 48px; margin-bottom: 16px; }
+  .lock-box h2 { color: var(--navy); margin-bottom: 8px; font-size: 20px; }
+  .lock-box p  { color: var(--gray); font-size: 14px; margin-bottom: 24px; }
+  #pw-input {
+    width: 100%; padding: 12px 16px; border: 2px solid var(--border);
+    border-radius: 8px; font-size: 18px; letter-spacing: 4px; text-align: center;
+    margin-bottom: 12px;
   }
-  .gate-box input:focus { border-color: #2b6cb0; }
-  .gate-btn {
-    margin-top: 16px; width: 100%; padding: 12px; background: #2b6cb0; color: white;
-    border: none; border-radius: 8px; font-size: 15px; font-weight: 600;
-    cursor: pointer; transition: background .2s;
+  #pw-input:focus { outline: none; border-color: var(--navy); }
+  #pw-btn {
+    width: 100%; padding: 12px; background: linear-gradient(135deg, var(--navy), var(--navy2));
+    color: #fff; border: none; border-radius: 8px; font-size: 16px; cursor: pointer;
   }
-  .gate-btn:hover { background: #2c5282; }
-  #pw-error { display: none; margin-top: 10px; color: #e53e3e; font-size: 13px; }
+  #pw-error { color: var(--red); font-size: 13px; margin-top: 8px; display: none; }
 
-  /* ── Report Layout ── */
-  #report { display: none; }
-  .header {
-    background: linear-gradient(135deg, #1a365d 0%, #2b6cb0 100%);
-    color: white; padding: 32px 40px; position: sticky; top: 0; z-index: 100;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+  /* Main */
+  #main-content { display: none; }
+  .site-header {
+    background: linear-gradient(135deg, var(--navy), var(--navy2));
+    color: #fff; padding: 24px 32px;
   }
-  .header-inner { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
-  .header-title { font-size: 22px; font-weight: 800; }
-  .header-meta { font-size: 13px; opacity: .8; margin-top: 4px; }
-  .week-badge {
-    background: rgba(255,255,255,0.2); border-radius: 20px;
-    padding: 6px 18px; font-size: 14px; font-weight: 700; letter-spacing: 1px;
+  .site-header h1 { font-size: 24px; font-weight: 700; }
+  .site-header .sub  { font-size: 14px; opacity: .8; margin-top: 4px; }
+  .dry-run-badge {
+    display: inline-block; background: #f97316; color: #fff;
+    padding: 2px 10px; border-radius: 12px; font-size: 12px; margin-left: 12px;
   }
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px 20px; }
 
-  .container { max-width: 1200px; margin: 0 auto; padding: 32px 24px; }
-
-  /* Section titles */
-  .section-title {
-    font-size: 16px; font-weight: 700; color: #2d3748; margin-bottom: 20px;
-    display: flex; align-items: center; gap: 8px;
+  /* Section cards */
+  .section-card {
+    background: var(--card); border-radius: 12px; margin-bottom: 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.06); overflow: hidden;
   }
-  .section-title::before {
-    content: ''; display: block; width: 4px; height: 20px;
-    background: #2b6cb0; border-radius: 2px;
+  .section-header {
+    background: linear-gradient(135deg, var(--navy), var(--navy2));
+    color: #fff; padding: 14px 20px; display: flex; align-items: center; gap: 10px;
   }
+  .section-num  { font-size: 22px; }
+  .section-title { font-size: 16px; font-weight: 600; }
+  .section-body  { padding: 20px; }
 
-  /* ── KPI Cards ── */
-  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 32px; }
-  .kpi-card {
-    background: white; border-radius: 12px; padding: 24px 20px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.06); border-top: 3px solid;
+  /* Badges */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+  .badge.green  { background: #dcfce7; color: var(--green); }
+  .badge.red    { background: #fee2e2; color: var(--red); }
+  .badge.gray   { background: #f1f5f9; color: var(--gray); }
+
+  /* KPI grid */
+  .kpi-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
+  @media(max-width:700px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+  .kpi-item { text-align: center; padding: 16px 8px; background: var(--bg);
+               border-radius: 10px; border: 1px solid var(--border); }
+  .kpi-value { font-size: 28px; font-weight: 700; color: var(--navy); }
+  .kpi-label { font-size: 12px; color: var(--gray); margin: 4px 0; }
+  .kpi-wow   { font-size: 12px; }
+
+  /* Doctor grid */
+  .doctor-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
   }
-  .kpi-card.blue { border-color: #2b6cb0; }
-  .kpi-card.green { border-color: #38a169; }
-  .kpi-card.orange { border-color: #d69e2e; }
-  .kpi-card.purple { border-color: #6b46c1; }
-  .kpi-label { font-size: 12px; color: #718096; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
-  .kpi-value { font-size: 36px; font-weight: 800; margin: 8px 0; color: #1a202c; }
-  .kpi-change { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
-  .kpi-change.down { color: #e53e3e; }
-  .kpi-change.up { color: #38a169; }
-  .kpi-compare { font-size: 11px; color: #a0aec0; margin-top: 2px; }
-
-  /* ── Doctor Cards ── */
-  .doctor-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 32px; }
+  @media(max-width:700px) { .doctor-grid { grid-template-columns: repeat(2, 1fr); } }
   .doctor-card {
-    background: white; border-radius: 12px; padding: 24px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.06); border-left: 4px solid;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px; position: relative;
   }
-  .doctor-card.d10 { border-color: #2b6cb0; }
-  .doctor-card.d43 { border-color: #6b46c1; }
-  .doctor-card.d44 { border-color: #38a169; }
-  .doctor-card.d76 { border-color: #d69e2e; }
-  .doctor-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
-  .doctor-name { font-size: 17px; font-weight: 700; }
-  .doctor-id { font-size: 11px; color: #a0aec0; background: #f7fafc; padding: 3px 8px; border-radius: 10px; }
-  .doctor-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px; }
-  .stat-item { background: #f7fafc; border-radius: 8px; padding: 12px; }
-  .stat-label { font-size: 11px; color: #718096; margin-bottom: 4px; }
-  .stat-value { font-size: 20px; font-weight: 700; color: #2d3748; }
-  .qr-section { margin-top: 16px; }
-  .qr-title { font-size: 12px; color: #718096; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
-  .qr-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-  .qr-label { font-size: 12px; color: #4a5568; width: 80px; flex-shrink: 0; }
-  .qr-track { flex: 1; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; }
-  .qr-fill { height: 100%; border-radius: 4px; }
-  .qr-count { font-size: 12px; font-weight: 700; color: #2d3748; width: 40px; text-align: right; }
-  .qr-users { font-size: 11px; color: #a0aec0; width: 50px; text-align: right; }
-  .no-qr { font-size: 12px; color: #a0aec0; font-style: italic; margin-top: 8px; }
-
-  /* ── Article Table ── */
-  .table-section { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 32px; }
-  table { width: 100%; border-collapse: collapse; }
-  thead th { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: #718096; padding: 10px 12px; border-bottom: 2px solid #e2e8f0; text-align: left; }
-  thead th.num { text-align: right; }
-  tbody tr:hover { background: #f7fafc; }
-  tbody td { padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #f0f4f8; }
-  tbody td.num { text-align: right; font-weight: 600; color: #2d3748; }
-  tbody td.change { text-align: right; font-size: 12px; }
-  .rank { font-size: 12px; color: #a0aec0; font-weight: 600; }
-  .page-name { font-weight: 500; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-  /* ── Traffic Sources ── */
-  .traffic-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 32px; }
-  .traffic-card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
-  .source-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f0f4f8; }
-  .source-row:last-child { border-bottom: none; }
-  .source-name { font-size: 13px; color: #4a5568; }
-  .source-badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 600; margin-left: 6px; }
-  .badge-new { background: #c6f6d5; color: #276749; }
-  .badge-qr { background: #bee3f8; color: #2c5282; }
-  .source-count { font-size: 15px; font-weight: 700; }
-  .source-change { font-size: 11px; }
-  .source-change.down { color: #e53e3e; }
-  .source-change.up { color: #38a169; }
-  .source-change.new { color: #38a169; }
-
-  /* ── Insights ── */
-  .insights-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 32px; }
-  .insight-card {
-    background: white; border-radius: 12px; padding: 20px 24px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-    border-left: 4px solid;
-    display: flex; gap: 14px; align-items: flex-start;
+  .doctor-card.no-traffic { opacity: .55; }
+  .doc-name { font-weight: 600; font-size: 15px; margin-bottom: 4px; }
+  .doc-org-badge {
+    display: inline-block; font-size: 11px; padding: 1px 8px;
+    border-radius: 10px; margin-bottom: 10px;
   }
-  .insight-card.info { border-color: #2b6cb0; }
-  .insight-card.warning { border-color: #d69e2e; }
-  .insight-card.success { border-color: #38a169; }
-  .insight-card.alert { border-color: #e53e3e; }
-  .insight-icon { font-size: 22px; flex-shrink: 0; }
-  .insight-text { font-size: 14px; color: #4a5568; line-height: 1.6; }
-  .insight-text strong { color: #1a202c; }
+  .badge-org-navi  { background: #dbeafe; color: #1d4ed8; }
+  .badge-org-cceye { background: #d1fae5; color: #065f46; }
+  .badge-org-demo  { background: #f3f4f6; color: #6b7280; }
+  .doc-metrics { font-size: 13px; }
+  .doc-metric-row { display: flex; justify-content: space-between; padding: 2px 0;
+                     border-bottom: 1px solid var(--border); }
+  .doc-metric-label { color: var(--gray); }
+  .doc-metric-value { font-weight: 600; }
+  .doc-wow  { margin-top: 8px; text-align: right; }
+  .doc-no-data { font-size: 13px; color: var(--gray); font-style: italic; }
 
-  /* ── Footer ── */
-  .footer { text-align: center; padding: 32px; color: #a0aec0; font-size: 12px; }
+  /* Tables */
+  .data-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .data-table th { background: var(--bg); color: var(--gray); font-weight: 600;
+                    padding: 8px 12px; text-align: left; border-bottom: 2px solid var(--border); }
+  .data-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table tr:hover td { background: #f8fafc; }
+  td.num   { text-align: right; font-variant-numeric: tabular-nums; }
+  td.rank  { text-align: center; color: var(--gray); font-weight: 700; width: 36px; }
+  td.green { color: var(--green); font-weight: 600; }
+  td.red   { color: var(--red); font-weight: 600; }
+  .article-title a { color: var(--navy); text-decoration: none; }
+  .article-title a:hover { text-decoration: underline; }
+  .table-note { font-size: 12px; color: var(--gray); margin-top: 8px; }
+
+  /* Hospital */
+  .hospital-block { margin-bottom: 24px; }
+  .hospital-block:last-child { margin-bottom: 0; }
+  .hospital-name { font-size: 15px; font-weight: 700; color: var(--navy);
+                    margin-bottom: 10px; padding-bottom: 6px;
+                    border-bottom: 2px solid var(--border); }
+  .no-data-msg { color: var(--gray); font-style: italic; font-size: 14px; }
+
+  /* Scroll section */
+  .metric-highlight {
+    margin-top: 16px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 20px; display: flex; align-items: center; gap: 12px;
+    flex-wrap: wrap;
+  }
+  .mh-label { color: var(--gray); font-size: 13px; flex: 1; }
+  .mh-value { font-size: 28px; font-weight: 700; color: var(--navy); }
+  .mh-prev  { font-size: 13px; color: var(--gray); }
+
+  /* Reserve */
+  .reserve-hero {
+    text-align: center; padding: 24px;
+    background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
+    border-radius: 10px; margin-bottom: 16px;
+  }
+  .res-big   { font-size: 56px; font-weight: 700; color: var(--navy); line-height: 1; }
+  .res-label { color: var(--gray); font-size: 15px; margin: 6px 0; }
+  .res-wow   { font-size: 18px; }
+  .reserve-detail { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  @media(max-width:600px) { .reserve-detail { grid-template-columns: 1fr; } }
+  .res-row {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px; text-align: center; font-size: 13px;
+  }
+  .res-row span   { display: block; color: var(--gray); margin-bottom: 4px; }
+  .res-row strong { font-size: 20px; color: var(--navy); display: block; }
+
+  /* Footer */
+  .footer { text-align: center; color: var(--gray); font-size: 12px;
+             padding: 20px; margin-top: 8px; }
 </style>
 </head>
 <body>
 
-<!-- Password Gate -->
-<div id="gate">
-  <div class="gate-box">
-    <div class="gate-logo">MEDIFY</div>
-    <div class="gate-sub">週報數據（僅限內部使用）</div>
-    <input type="password" id="pw" placeholder="••••" maxlength="10" autofocus>
+<!-- Lock Screen -->
+<div id="lock-screen">
+  <div class="lock-box">
+    <div class="lock-icon">🔐</div>
+    <h2>Medify 週報</h2>
+    <p>W26｜Jun 22–28, 2026</p>
+    <input id="pw-input" type="password" placeholder="請輸入密碼" autocomplete="off">
+    <button id="pw-btn" onclick="checkPw()">進入</button>
     <div id="pw-error">密碼錯誤，請再試一次</div>
-    <button class="gate-btn" onclick="checkPw()">進入報告</button>
   </div>
 </div>
 
-<!-- Report -->
-<div id="report">
-  <div class="header">
-    <div class="header-inner">
-      <div>
-        <div class="header-title">MEDIFY 週報</div>
-        <div class="header-meta">2026年6月22日（一）– 2026年6月28日（日）</div>
+<!-- Main Content -->
+<div id="main-content">
+  <div class="site-header">
+    <h1>🏥 Medify 週報 W26</h1>
+    <div class="sub">Jun 22–28, 2026　<span class="dry-run-badge">⚠️ 乾跑模式（假資料）</span></div>
+    <div class="sub" style="margin-top:4px;font-size:12px;opacity:.6;">產生時間：2026-06-29 02:34</div>
+  </div>
+  <div class="container">
+    
+  <div class="section-card">
+    <div class="section-header">
+      <span class="section-num">①</span>
+      <span class="section-title">🌐 全站 KPI</span>
+    </div>
+    <div class="section-body">
+      <div class="kpi-grid">
+      <div class="kpi-item">
+        <div class="kpi-value">2,847</div>
+        <div class="kpi-label">活躍用戶</div>
+        <div class="kpi-wow"><span class="badge green">▲ 9.0%</span></div>
       </div>
-      <div class="week-badge">W26 · 2026</div>
+      <div class="kpi-item">
+        <div class="kpi-value">1,123</div>
+        <div class="kpi-label">新用戶</div>
+        <div class="kpi-wow"><span class="badge green">▲ 8.6%</span></div>
+      </div>
+      <div class="kpi-item">
+        <div class="kpi-value">3,294</div>
+        <div class="kpi-label">工作階段</div>
+        <div class="kpi-wow"><span class="badge green">▲ 6.9%</span></div>
+      </div>
+      <div class="kpi-item">
+        <div class="kpi-value">8,641</div>
+        <div class="kpi-label">頁面瀏覽</div>
+        <div class="kpi-wow"><span class="badge green">▲ 9.1%</span></div>
+      </div>
+      <div class="kpi-item">
+        <div class="kpi-value">87.3s</div>
+        <div class="kpi-label">平均互動時長</div>
+        <div class="kpi-wow"><span class="badge green">▲ 7.1%</span></div>
+      </div>
+    </div>
     </div>
   </div>
-
-  <div class="container">
-
-    <!-- Section 1: GA4 KPIs -->
-    <div class="section-title">全站 KPI（vs 上週 W25）</div>
-    <div class="kpi-grid">
-      <div class="kpi-card blue">
-        <div class="kpi-label">活躍使用者</div>
-        <div class="kpi-value">79</div>
-        <div class="kpi-change down">▼ 17.7%</div>
-        <div class="kpi-compare">W25: ~96</div>
+    
+  <div class="section-card">
+    <div class="section-header">
+      <span class="section-num">②</span>
+      <span class="section-title">👨‍⚕️ 各醫師報告</span>
+    </div>
+    <div class="section-body">
+      <div class="doctor-grid">
+      <div class="doctor-card">
+        <div class="doc-name">蔡明劭醫師</div>
+        <div class="doc-org-badge badge-org-navi">領航醫師</div>
+        <div class="doc-metrics">
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">首頁瀏覽</span>
+            <span class="doc-metric-value">312</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">總頁面瀏覽</span>
+            <span class="doc-metric-value">1,820</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">不重複訪客</span>
+            <span class="doc-metric-value">644</span>
+          </div>
+        </div>
+        <div class="doc-wow"><span class="badge green">▲ 10.6%</span></div>
       </div>
-      <div class="kpi-card green">
-        <div class="kpi-label">新使用者人數</div>
-        <div class="kpi-value">67</div>
-        <div class="kpi-change down">▼ 17.3%</div>
-        <div class="kpi-compare">W25: ~81</div>
+      <div class="doctor-card">
+        <div class="doc-name">何宜儒醫師</div>
+        <div class="doc-org-badge badge-org-cceye">澄清眼科</div>
+        <div class="doc-metrics">
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">首頁瀏覽</span>
+            <span class="doc-metric-value">198</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">總頁面瀏覽</span>
+            <span class="doc-metric-value">1,250</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">不重複訪客</span>
+            <span class="doc-metric-value">480</span>
+          </div>
+        </div>
+        <div class="doc-wow"><span class="badge green">▲ 13.6%</span></div>
       </div>
-      <div class="kpi-card orange">
-        <div class="kpi-label">平均參與時間</div>
-        <div class="kpi-value">44<span style="font-size:18px">秒</span></div>
-        <div class="kpi-change down">▼ 8.2%</div>
-        <div class="kpi-compare">W25: ~48秒</div>
+      <div class="doctor-card">
+        <div class="doc-name">孫啟欽醫師</div>
+        <div class="doc-org-badge badge-org-navi">領航醫師</div>
+        <div class="doc-metrics">
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">首頁瀏覽</span>
+            <span class="doc-metric-value">152</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">總頁面瀏覽</span>
+            <span class="doc-metric-value">980</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">不重複訪客</span>
+            <span class="doc-metric-value">362</span>
+          </div>
+        </div>
+        <div class="doc-wow"><span class="badge red">▼ 3.9%</span></div>
       </div>
-      <div class="kpi-card purple">
-        <div class="kpi-label">事件計數</div>
-        <div class="kpi-value">1,037</div>
-        <div class="kpi-change down">▼ 35.9%</div>
-        <div class="kpi-compare">W25: ~1,618</div>
+      <div class="doctor-card">
+        <div class="doc-name">徐邦瀚醫師</div>
+        <div class="doc-org-badge badge-org-navi">領航醫師</div>
+        <div class="doc-metrics">
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">首頁瀏覽</span>
+            <span class="doc-metric-value">118</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">總頁面瀏覽</span>
+            <span class="doc-metric-value">760</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">不重複訪客</span>
+            <span class="doc-metric-value">291</span>
+          </div>
+        </div>
+        <div class="doc-wow"><span class="badge green">▲ 9.4%</span></div>
+      </div>
+      <div class="doctor-card">
+        <div class="doc-name">陳夢柔醫師</div>
+        <div class="doc-org-badge badge-org-cceye">澄清眼科</div>
+        <div class="doc-metrics">
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">首頁瀏覽</span>
+            <span class="doc-metric-value">95</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">總頁面瀏覽</span>
+            <span class="doc-metric-value">620</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">不重複訪客</span>
+            <span class="doc-metric-value">240</span>
+          </div>
+        </div>
+        <div class="doc-wow"><span class="badge green">▲ 14.8%</span></div>
+      </div>
+      <div class="doctor-card">
+        <div class="doc-name">吳孟憲醫師</div>
+        <div class="doc-org-badge badge-org-cceye">澄清眼科</div>
+        <div class="doc-metrics">
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">首頁瀏覽</span>
+            <span class="doc-metric-value">78</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">總頁面瀏覽</span>
+            <span class="doc-metric-value">480</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">不重複訪客</span>
+            <span class="doc-metric-value">182</span>
+          </div>
+        </div>
+        <div class="doc-wow"><span class="badge green">▲ 11.6%</span></div>
+      </div>
+      <div class="doctor-card">
+        <div class="doc-name">陳品元醫師</div>
+        <div class="doc-org-badge badge-org-navi">領航醫師</div>
+        <div class="doc-metrics">
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">首頁瀏覽</span>
+            <span class="doc-metric-value">62</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">總頁面瀏覽</span>
+            <span class="doc-metric-value">390</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">不重複訪客</span>
+            <span class="doc-metric-value">151</span>
+          </div>
+        </div>
+        <div class="doc-wow"><span class="badge green">▲ 25.8%</span></div>
+      </div>
+      <div class="doctor-card">
+        <div class="doc-name">徐郁芳醫師</div>
+        <div class="doc-org-badge badge-org-cceye">澄清眼科</div>
+        <div class="doc-metrics">
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">首頁瀏覽</span>
+            <span class="doc-metric-value">48</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">總頁面瀏覽</span>
+            <span class="doc-metric-value">310</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">不重複訪客</span>
+            <span class="doc-metric-value">120</span>
+          </div>
+        </div>
+        <div class="doc-wow"><span class="badge green">▲ 10.7%</span></div>
+      </div>
+      <div class="doctor-card">
+        <div class="doc-name">陳怡豪醫師</div>
+        <div class="doc-org-badge badge-org-cceye">澄清眼科</div>
+        <div class="doc-metrics">
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">首頁瀏覽</span>
+            <span class="doc-metric-value">30</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">總頁面瀏覽</span>
+            <span class="doc-metric-value">185</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">不重複訪客</span>
+            <span class="doc-metric-value">72</span>
+          </div>
+        </div>
+        <div class="doc-wow"><span class="badge green">▲ 27.6%</span></div>
+      </div>
+      <div class="doctor-card">
+        <div class="doc-name">吳兆偉醫師</div>
+        <div class="doc-org-badge badge-org-cceye">澄清眼科</div>
+        <div class="doc-metrics">
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">首頁瀏覽</span>
+            <span class="doc-metric-value">20</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">總頁面瀏覽</span>
+            <span class="doc-metric-value">120</span>
+          </div>
+          <div class="doc-metric-row">
+            <span class="doc-metric-label">不重複訪客</span>
+            <span class="doc-metric-value">47</span>
+          </div>
+        </div>
+        <div class="doc-wow"><span class="badge green">▲ 22.4%</span></div>
+      </div>
+      <div class="doctor-card no-traffic">
+        <div class="doc-name">博仁醫院示範</div>
+        <div class="doc-org-badge badge-org-demo">示範帳號</div>
+        <div class="doc-no-data">本週無流量</div>
+      </div>
+      <div class="doctor-card no-traffic">
+        <div class="doc-name">林昕穎醫師</div>
+        <div class="doc-org-badge badge-org-cceye">澄清眼科</div>
+        <div class="doc-no-data">本週無流量</div>
       </div>
     </div>
-
-    <!-- Looker Studio Supplement -->
-    <div class="kpi-grid" style="margin-top:-16px;">
-      <div class="kpi-card blue" style="border-top-color:#e2e8f0; border-left: 3px solid #2b6cb0; border-top: none;">
-        <div class="kpi-label">總瀏覽量（Looker）</div>
-        <div class="kpi-value" style="font-size:26px;">304</div>
-      </div>
-      <div class="kpi-card green" style="border-top-color:#e2e8f0; border-left: 3px solid #38a169; border-top: none;">
-        <div class="kpi-label">Sessions / User</div>
-        <div class="kpi-value" style="font-size:26px;">1.75</div>
-      </div>
-      <div class="kpi-card orange" style="border-top-color:#e2e8f0; border-left: 3px solid #d69e2e; border-top: none;">
-        <div class="kpi-label">平均工作階段時長</div>
-        <div class="kpi-value" style="font-size:26px;">3:31</div>
-      </div>
-      <div class="kpi-card purple" style="border-top-color:#e2e8f0; border-left: 3px solid #6b46c1; border-top: none;">
-        <div class="kpi-label">總人數（Looker）</div>
-        <div class="kpi-value" style="font-size:26px;">82</div>
-      </div>
     </div>
-
-    <!-- Section 2: Doctor Cards -->
-    <div class="section-title" style="margin-top: 8px;">各醫師表現</div>
-    <div class="doctor-grid">
-
-      <!-- Doctor-10 何宜儒 -->
-      <div class="doctor-card d10">
-        <div class="doctor-header">
-          <div class="doctor-name">何宜儒醫師 <span style="font-size:13px;color:#718096;">台北澄清眼科</span></div>
-          <div class="doctor-id">Doctor-10</div>
-        </div>
-        <div class="doctor-stats">
-          <div class="stat-item">
-            <div class="stat-label">主頁瀏覽量</div>
-            <div class="stat-value">87 <span style="font-size:12px;color:#e53e3e;">↓32.6%</span></div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">活躍使用者</div>
-            <div class="stat-value">42 <span style="font-size:12px;color:#e53e3e;">↓14.3%</span></div>
-          </div>
-        </div>
-        <div class="qr-section">
-          <div class="qr-title">QR 掃描來源（Looker Studio）</div>
-          <div class="qr-bar">
-            <div class="qr-label">掛號櫃檯</div>
-            <div class="qr-track"><div class="qr-fill" style="width:68%;background:#2b6cb0;"></div></div>
-            <div class="qr-count">111</div>
-            <div class="qr-users">67人</div>
-          </div>
-          <div class="qr-bar">
-            <div class="qr-label">手術等候區</div>
-            <div class="qr-track"><div class="qr-fill" style="width:21%;background:#63b3ed;"></div></div>
-            <div class="qr-count">34</div>
-            <div class="qr-users">21人</div>
-          </div>
-          <div class="qr-bar">
-            <div class="qr-label">候診區</div>
-            <div class="qr-track"><div class="qr-fill" style="width:11%;background:#90cdf4;"></div></div>
-            <div class="qr-count">17</div>
-            <div class="qr-users">9人</div>
-          </div>
-          <div style="margin-top:8px;font-size:11px;color:#718096;">平均參與：掛號 13:12 ／手術等 07:08 ／候診 03:19</div>
-        </div>
-      </div>
-
-      <!-- Doctor-43 蔡明劭 -->
-      <div class="doctor-card d43">
-        <div class="doctor-header">
-          <div class="doctor-name">蔡明劭醫師</div>
-          <div class="doctor-id">Doctor-43</div>
-        </div>
-        <div class="doctor-stats">
-          <div class="stat-item">
-            <div class="stat-label">主頁瀏覽量</div>
-            <div class="stat-value">8</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">活躍使用者</div>
-            <div class="stat-value">5</div>
-          </div>
-        </div>
-        <div class="qr-section">
-          <div class="qr-title">QR 掃描來源</div>
-          <div class="no-qr">本週無 QR 掃描數據</div>
-          <div style="margin-top:8px;font-size:12px;color:#718096;">文章點擊：本週有 1 次醫師頁面被點擊進入</div>
-        </div>
-      </div>
-
-      <!-- Doctor-44 板橋澄清眼科 -->
-      <div class="doctor-card d44">
-        <div class="doctor-header">
-          <div class="doctor-name">板橋澄清眼科</div>
-          <div class="doctor-id">Doctor-44</div>
-        </div>
-        <div class="doctor-stats">
-          <div class="stat-item">
-            <div class="stat-label">主頁瀏覽量</div>
-            <div class="stat-value">15</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">活躍使用者</div>
-            <div class="stat-value">11</div>
-          </div>
-        </div>
-        <div class="qr-section">
-          <div class="qr-title">QR 掃描來源（新增，本週首現）</div>
-          <div class="qr-bar">
-            <div class="qr-label">板橋掛號</div>
-            <div class="qr-track"><div class="qr-fill" style="width:55%;background:#38a169;"></div></div>
-            <div class="qr-count">6人</div>
-            <div class="qr-users" style="width:70px;">（首次）</div>
-          </div>
-          <div class="qr-bar">
-            <div class="qr-label">板橋候診</div>
-            <div class="qr-track"><div class="qr-fill" style="width:45%;background:#68d391;"></div></div>
-            <div class="qr-count">5人</div>
-            <div class="qr-users" style="width:70px;">（首次）</div>
-          </div>
-          <div style="margin-top:8px;font-size:11px;color:#276749;font-weight:600;">🆕 本週新增 cceye-banqiao QR，首次出現流量</div>
-        </div>
-      </div>
-
-      <!-- Doctor-76 -->
-      <div class="doctor-card d76">
-        <div class="doctor-header">
-          <div class="doctor-name">Doctor-76</div>
-          <div class="doctor-id">Doctor-76</div>
-        </div>
-        <div class="doctor-stats">
-          <div class="stat-item">
-            <div class="stat-label">主頁瀏覽量</div>
-            <div class="stat-value">—</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">活躍使用者</div>
-            <div class="stat-value">—</div>
-          </div>
-        </div>
-        <div class="qr-section">
-          <div class="qr-title">QR 掃描來源</div>
-          <div class="no-qr">無 QR 掃描數據</div>
-          <div style="margin-top:8px;font-size:12px;color:#718096;">文章 post_view：「眼袋手術原理是什麼？」2 次瀏覽</div>
-        </div>
-      </div>
-
+  </div>
+    
+  <div class="section-card">
+    <div class="section-header">
+      <span class="section-num">③</span>
+      <span class="section-title">📰 最熱門文章（前10，僅文章頁）</span>
     </div>
-
-    <!-- Section: Top Pages -->
-    <div class="section-title">熱門頁面（GA4 W26）</div>
-    <div class="table-section">
-      <table>
+    <div class="section-body">
+      
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>文章標題</th>
+          <th>瀏覽數</th>
+          <th>閱讀完成數</th>
+          <th>閱讀完成比(%)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="rank">1</td>
+          <td class="article-title"><a href="https://medify.com.tw/doctor-43/dry-eye-symptoms" target="_blank">乾眼症的症狀與完整治療指南</a></td>
+          <td class="num">682</td>
+          <td class="num">312</td>
+          <td class="num green">63.0%</td>
+        </tr>
+        <tr>
+          <td class="rank">2</td>
+          <td class="article-title"><a href="https://medify.com.tw/doctor-10/glaucoma-early-signs" target="_blank">青光眼早期症狀不容忽視</a></td>
+          <td class="num">541</td>
+          <td class="num">189</td>
+          <td class="num green">47.5%</td>
+        </tr>
+        <tr>
+          <td class="rank">3</td>
+          <td class="article-title"><a href="https://medify.com.tw/doctor-44/lasik-vs-smile" target="_blank">LASIK 與 SMILE 近視雷射比較</a></td>
+          <td class="num">487</td>
+          <td class="num">240</td>
+          <td class="num green">66.5%</td>
+        </tr>
+        <tr>
+          <td class="rank">4</td>
+          <td class="article-title"><a href="https://medify.com.tw/doctor-43/presbyopia-solutions" target="_blank">老花眼矯正方法完整指南</a></td>
+          <td class="num">445</td>
+          <td class="num">155</td>
+          <td class="num green">47.3%</td>
+        </tr>
+        <tr>
+          <td class="rank">5</td>
+          <td class="article-title"><a href="https://medify.com.tw/doctor-76/cataract-surgery-guide" target="_blank">白內障手術前後注意事項</a></td>
+          <td class="num">398</td>
+          <td class="num">198</td>
+          <td class="num green">68.3%</td>
+        </tr>
+        <tr>
+          <td class="rank">6</td>
+          <td class="article-title"><a href="https://medify.com.tw/doctor-10/myopia-control-children" target="_blank">兒童近視控制最新方法</a></td>
+          <td class="num">356</td>
+          <td class="num">112</td>
+          <td class="num green">42.4%</td>
+        </tr>
+        <tr>
+          <td class="rank">7</td>
+          <td class="article-title"><a href="https://medify.com.tw/doctor-94/contact-lens-care" target="_blank">隱形眼鏡正確保養與清潔</a></td>
+          <td class="num">298</td>
+          <td class="num">82</td>
+          <td class="num red">37.1%</td>
+        </tr>
+        <tr>
+          <td class="rank">8</td>
+          <td class="article-title"><a href="https://medify.com.tw/doctor-44/refractive-candidate" target="_blank">哪些人適合做近視雷射手術</a></td>
+          <td class="num">267</td>
+          <td class="num">141</td>
+          <td class="num green">71.9%</td>
+        </tr>
+        <tr>
+          <td class="rank">9</td>
+          <td class="article-title"><a href="https://medify.com.tw/doctor-99/diabetic-retinopathy" target="_blank">糖尿病視網膜病變預防與治療</a></td>
+          <td class="num">234</td>
+          <td class="num">94</td>
+          <td class="num green">54.7%</td>
+        </tr>
+        <tr>
+          <td class="rank">10</td>
+          <td class="article-title"><a href="https://medify.com.tw/doctor-76/floaters-when-to-see-dr" target="_blank">飛蚊症：什麼時候需要就醫</a></td>
+          <td class="num">198</td>
+          <td class="num">68</td>
+          <td class="num green">46.9%</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="table-note">閱讀完成比 = scroll_75 不重複用戶 ÷ 頁面不重複訪客；≥40% 為綠色</p>
+    </div>
+  </div>
+    
+  <div class="section-card">
+    <div class="section-header">
+      <span class="section-num">④</span>
+      <span class="section-title">🏷️ 最熱門文章分類</span>
+    </div>
+    <div class="section-body">
+      
+    <table class="data-table">
+      <thead>
+        <tr><th>#</th><th>分類</th><th>文章數</th><th>瀏覽總數</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="rank">1</td>
+          <td>近視矯正</td>
+          <td class="num">4</td>
+          <td class="num">1,310</td>
+        </tr>
+        <tr>
+          <td class="rank">2</td>
+          <td>乾眼症</td>
+          <td class="num">3</td>
+          <td class="num">980</td>
+        </tr>
+        <tr>
+          <td class="rank">3</td>
+          <td>青光眼</td>
+          <td class="num">2</td>
+          <td class="num">775</td>
+        </tr>
+        <tr>
+          <td class="rank">4</td>
+          <td>白內障</td>
+          <td class="num">2</td>
+          <td class="num">634</td>
+        </tr>
+        <tr>
+          <td class="rank">5</td>
+          <td>視網膜疾病</td>
+          <td class="num">2</td>
+          <td class="num">432</td>
+        </tr>
+        <tr>
+          <td class="rank">6</td>
+          <td>隱形眼鏡</td>
+          <td class="num">2</td>
+          <td class="num">386</td>
+        </tr>
+        <tr>
+          <td class="rank">7</td>
+          <td>老花眼</td>
+          <td class="num">1</td>
+          <td class="num">234</td>
+        </tr>
+        <tr>
+          <td class="rank">8</td>
+          <td>其他</td>
+          <td class="num">3</td>
+          <td class="num">324</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+    
+  <div class="section-card">
+    <div class="section-header">
+      <span class="section-num">⑤</span>
+      <span class="section-title">🏥 各醫院 QR Code 報告</span>
+    </div>
+    <div class="section-body">
+      
+    <div class="hospital-block">
+      <h3 class="hospital-name">台北澄清眼科
+        <small style="font-weight:normal;font-size:13px;margin-left:8px;">
+          本週共 235 次掃碼  <span class="badge green">▲ 4.4%</span>
+        </small>
+      </h3>
+      <table class="data-table">
         <thead>
-          <tr>
-            <th style="width:32px;">#</th>
-            <th>頁面</th>
-            <th class="num">瀏覽</th>
-            <th class="num">WoW</th>
-            <th class="num">使用者</th>
-            <th class="num">WoW</th>
-            <th class="num">跳出率</th>
-          </tr>
+          <tr><th>位置</th><th>本週掃碼</th><th>不重複用戶</th><th>上週掃碼</th><th>週變化</th></tr>
         </thead>
         <tbody>
           <tr>
-            <td class="rank">1</td>
-            <td class="page-name">何宜儒醫師 – MEDIFY 醫病關係平台</td>
-            <td class="num">87</td>
-            <td class="change" style="color:#e53e3e;">▼32.6%</td>
-            <td class="num">42</td>
-            <td class="change" style="color:#e53e3e;">▼14.3%</td>
-            <td class="num">50.8%</td>
+            <td>診間</td>
+            <td class="num">48</td>
+            <td class="num">41</td>
+            <td class="num">52</td>
+            <td><span class="badge red">▼ 7.7%</span></td>
           </tr>
           <tr>
-            <td class="rank">2</td>
-            <td class="page-name">MEDIFY 醫病關係平台（首頁）</td>
-            <td class="num">42</td>
-            <td class="change" style="color:#e53e3e;">▼30.0%</td>
-            <td class="num">19</td>
-            <td class="change" style="color:#e53e3e;">▼36.7%</td>
-            <td class="num">50.0%</td>
+            <td>掛號櫃檯</td>
+            <td class="num">31</td>
+            <td class="num">28</td>
+            <td class="num">27</td>
+            <td><span class="badge green">▲ 14.8%</span></td>
           </tr>
           <tr>
-            <td class="rank">3</td>
-            <td class="page-name">板橋澄清眼科 – MEDIFY 醫病關係平台</td>
-            <td class="num">15</td>
-            <td class="change" style="color:#a0aec0;">—</td>
-            <td class="num">11</td>
-            <td class="change" style="color:#a0aec0;">—</td>
-            <td class="num">33.3%</td>
+            <td>候診區</td>
+            <td class="num">94</td>
+            <td class="num">86</td>
+            <td class="num">88</td>
+            <td><span class="badge green">▲ 6.8%</span></td>
           </tr>
           <tr>
-            <td class="rank">4</td>
-            <td class="page-name">Medify管理後台-文章列表</td>
-            <td class="num">18</td>
-            <td class="change" style="color:#e53e3e;">▼41.9%</td>
-            <td class="num">7</td>
-            <td class="change" style="color:#e53e3e;">▼12.5%</td>
-            <td class="num">10.0%</td>
-          </tr>
-          <tr>
-            <td class="rank">5</td>
-            <td class="page-name">蔡明劭醫師 – MEDIFY 醫病關係平台</td>
-            <td class="num">8</td>
-            <td class="change" style="color:#a0aec0;">—</td>
-            <td class="num">5</td>
-            <td class="change" style="color:#a0aec0;">—</td>
-            <td class="num">—</td>
-          </tr>
-          <tr>
-            <td class="rank">6</td>
-            <td class="page-name">孫啟欽醫師 – MEDIFY 醫病關係平台</td>
-            <td class="num">6</td>
-            <td class="change" style="color:#e53e3e;">▼45.5%</td>
-            <td class="num">2</td>
-            <td class="change" style="color:#e53e3e;">▼71.4%</td>
-            <td class="num">33.3%</td>
-          </tr>
-          <tr>
-            <td class="rank">7</td>
-            <td class="page-name">Medify管理後台</td>
-            <td class="num">8</td>
-            <td class="change" style="color:#e53e3e;">▼65.2%</td>
-            <td class="num">5</td>
-            <td class="change" style="color:#e53e3e;">▼44.4%</td>
-            <td class="num">12.5%</td>
+            <td>電視牆</td>
+            <td class="num">62</td>
+            <td class="num">55</td>
+            <td class="num">58</td>
+            <td><span class="badge green">▲ 6.9%</span></td>
           </tr>
         </tbody>
       </table>
     </div>
-
-    <!-- Section: Traffic Sources -->
-    <div class="section-title">流量來源（GA4 W26 活躍使用者）</div>
-    <div class="traffic-grid">
-      <div class="traffic-card">
-        <div class="section-title" style="font-size:13px;margin-bottom:14px;">招攬來源</div>
-        <div class="source-row">
-          <div><span class="source-name">(direct) / (none)</span></div>
-          <div style="text-align:right;"><div class="source-count">25</div><div class="source-change down">▼28.6%</div></div>
-        </div>
-        <div class="source-row">
-          <div><span class="source-name">cceye-counter</span><span class="source-badge badge-qr">QR</span></div>
-          <div style="text-align:right;"><div class="source-count">15</div><div class="source-change down">▼42.3%</div></div>
-        </div>
-        <div class="source-row">
-          <div><span class="source-name">cceye-banqiao-counter</span><span class="source-badge badge-qr">QR</span><span class="source-badge badge-new">NEW</span></div>
-          <div style="text-align:right;"><div class="source-count">6</div><div class="source-change new">首次</div></div>
-        </div>
-        <div class="source-row">
-          <div><span class="source-name">cceye-banqiao-waiting</span><span class="source-badge badge-qr">QR</span><span class="source-badge badge-new">NEW</span></div>
-          <div style="text-align:right;"><div class="source-count">5</div><div class="source-change new">首次</div></div>
-        </div>
-        <div class="source-row">
-          <div><span class="source-name">google / organic</span></div>
-          <div style="text-align:right;"><div class="source-count">5</div><div class="source-change down">▼61.5%</div></div>
-        </div>
-        <div class="source-row">
-          <div><span class="source-name">cceye-surgery-waiting</span><span class="source-badge badge-qr">QR</span></div>
-          <div style="text-align:right;"><div class="source-count">4</div><div class="source-change down">▼50.0%</div></div>
-        </div>
-      </div>
-      <div class="traffic-card">
-        <div class="section-title" style="font-size:13px;margin-bottom:14px;">QR 地點分佈（Doctor-10 QR 總計 162 次）</div>
-        <div class="source-row">
-          <span class="source-name">掛號櫃檯</span>
-          <div style="text-align:right;"><div class="source-count">111</div><div style="font-size:11px;color:#718096;">79.4%</div></div>
-        </div>
-        <div class="source-row">
-          <span class="source-name">手術等候區</span>
-          <div style="text-align:right;"><div class="source-count">34</div><div style="font-size:11px;color:#718096;">11.8%</div></div>
-        </div>
-        <div class="source-row">
-          <span class="source-name">候診區</span>
-          <div style="text-align:right;"><div class="source-count">17</div><div style="font-size:11px;color:#718096;">8.8%</div></div>
-        </div>
-        <div style="margin-top:16px;padding:12px;background:#f7fafc;border-radius:8px;font-size:12px;color:#4a5568;">
-          📍 板橋 QR（新增本週）：掛號 6 人 + 候診 5 人 = 11 人首次流量
-        </div>
-      </div>
+    <div class="hospital-block">
+      <h3 class="hospital-name">板橋澄清眼科
+        <small style="font-weight:normal;font-size:13px;margin-left:8px;">
+          本週共 172 次掃碼  <span class="badge green">▲ 14.7%</span>
+        </small>
+      </h3>
+      <table class="data-table">
+        <thead>
+          <tr><th>位置</th><th>本週掃碼</th><th>不重複用戶</th><th>上週掃碼</th><th>週變化</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>診間</td>
+            <td class="num">35</td>
+            <td class="num">30</td>
+            <td class="num">28</td>
+            <td><span class="badge green">▲ 25.0%</span></td>
+          </tr>
+          <tr>
+            <td>掛號櫃檯</td>
+            <td class="num">22</td>
+            <td class="num">20</td>
+            <td class="num">18</td>
+            <td><span class="badge green">▲ 22.2%</span></td>
+          </tr>
+          <tr>
+            <td>候診區</td>
+            <td class="num">71</td>
+            <td class="num">65</td>
+            <td class="num">64</td>
+            <td><span class="badge green">▲ 10.9%</span></td>
+          </tr>
+          <tr>
+            <td>電視牆</td>
+            <td class="num">44</td>
+            <td class="num">39</td>
+            <td class="num">40</td>
+            <td><span class="badge green">▲ 10.0%</span></td>
+          </tr>
+        </tbody>
+      </table>
     </div>
-
-    <!-- Section: Insights -->
-    <div class="section-title">本週洞察</div>
-    <div class="insights-grid">
-      <div class="insight-card alert">
-        <div class="insight-icon">📉</div>
-        <div class="insight-text">
-          <strong>全站流量全面下滑</strong>：本週活躍使用者 (-17.7%)、新使用者 (-17.3%)、事件計數 (-35.9%) 均有雙位數下降。事件計數跌幅最明顯，需確認是否有互動功能異常或醫師診所假日閉診影響。
-        </div>
-      </div>
-      <div class="insight-card success">
-        <div class="insight-icon">🆕</div>
-        <div class="insight-text">
-          <strong>板橋 QR 首次出現流量</strong>：cceye-banqiao-counter（6 人）與 cceye-banqiao-waiting（5 人）本週首次在 GA4 中出現，代表板橋澄清眼科的 QR Code 已上線並開始引流，建議持續監測。
-        </div>
-      </div>
-      <div class="insight-card warning">
-        <div class="insight-icon">👀</div>
-        <div class="insight-text">
-          <strong>Google 自然搜尋流量大幅下降</strong>：google/organic 僅 5 人（↓61.5%），為本週最大跌幅來源。建議確認網站 SEO 狀態，並檢視是否有文章被取消索引或排名變動。
-        </div>
-      </div>
-      <div class="insight-card info">
-        <div class="insight-icon">🏥</div>
-        <div class="insight-text">
-          <strong>何宜儒醫師 QR 仍是主要引流</strong>：Doctor-10 的 QR 掃描合計 162 次（Looker Studio），掛號櫃檯佔比最高（79.4%）。即使對比 GA4 主頁 87 次，QR 流量已超過直接主頁訪問，顯示 QR 動線成效顯著。
-        </div>
-      </div>
     </div>
-
-    <div class="footer">
-      MEDIFY 週報 W26 · 資料來源：GA4 Property 456665733 ＋ Looker Studio Report_by_doctor<br>
-      週期：2026/06/22 ~ 2026/06/28 · 產出時間：2026/06/29
+  </div>
+    
+  <div class="section-card">
+    <div class="section-header">
+      <span class="section-num">⑥</span>
+      <span class="section-title">📊 Scroll 事件分析</span>
     </div>
+    <div class="section-body">
+      
+    <table class="data-table">
+      <thead>
+        <tr><th>事件</th><th>本週次數</th><th>本週不重複用戶</th><th>上週次數</th><th>週變化</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Scroll 25%</strong></td>
+          <td class="num">6,820</td>
+          <td class="num">2,341</td>
+          <td class="num">6,210</td>
+          <td><span class="badge green">▲ 9.8%</span></td>
+        </tr>
+        <tr>
+          <td><strong>Scroll 50%</strong></td>
+          <td class="num">4,930</td>
+          <td class="num">1,720</td>
+          <td class="num">4,490</td>
+          <td><span class="badge green">▲ 9.8%</span></td>
+        </tr>
+        <tr>
+          <td><strong>Scroll 75%</strong></td>
+          <td class="num">3,180</td>
+          <td class="num">1,124</td>
+          <td class="num">2,890</td>
+          <td><span class="badge green">▲ 10.0%</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="metric-highlight">
+      <span class="mh-label">全站閱讀完成比（scroll_75 / 文章頁面瀏覽）</span>
+      <span class="mh-value">56.4%</span>
+      <span class="badge gray">— 0.0%</span>
+      <span class="mh-prev">上週 56.4%</span>
+    </div>
+    </div>
+  </div>
+    
+  <div class="section-card">
+    <div class="section-header">
+      <span class="section-num">⑦</span>
+      <span class="section-title">📅 預約按鈕點擊</span>
+    </div>
+    <div class="section-body">
+      
+    <div class="reserve-hero">
+      <div class="res-big">312</div>
+      <div class="res-label">預約按鈕點擊次數</div>
+      <div class="res-wow"><span class="badge green">▲ 8.7%</span></div>
+    </div>
+    <div class="reserve-detail">
+      <div class="res-row"><span>不重複用戶</span><strong>218</strong> <span class="badge green">▲ 9.5%</span></div>
+      <div class="res-row"><span>上週點擊次數</span><strong>287</strong></div>
+      <div class="res-row"><span>上週不重複用戶</span><strong>199</strong></div>
+    </div>
+    </div>
+  </div>
+    <div class="footer">資料來源：GA4 BigQuery Export｜© Medify</div>
   </div>
 </div>
 
 <script>
-const CORRECT = '9053';
-function checkPw() {
-  if (document.getElementById('pw').value === CORRECT) {
-    document.getElementById('gate').style.display = 'none';
-    document.getElementById('report').style.display = 'block';
-  } else {
-    document.getElementById('pw-error').style.display = 'block';
-    document.getElementById('pw').value = '';
-    document.getElementById('pw').focus();
+  const CORRECT = '9053';
+  function checkPw() {
+    const v = document.getElementById('pw-input').value;
+    if (v === CORRECT) {
+      document.getElementById('lock-screen').style.display = 'none';
+      document.getElementById('main-content').style.display = 'block';
+    } else {
+      document.getElementById('pw-error').style.display = 'block';
+      document.getElementById('pw-input').value = '';
+    }
   }
-}
-document.getElementById('pw').addEventListener('keypress', e => { if (e.key === 'Enter') checkPw(); });
+  document.getElementById('pw-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') checkPw();
+  });
 </script>
 </body>
 </html>
