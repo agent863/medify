@@ -229,7 +229,16 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
         return _weekly_sample_data()
 
     from google.cloud import bigquery
-    client = bigquery.Client(project=CONFIG["BQ_PROJECT"])
+    # Auto-discover dataset location so queries route to the correct region
+    _tmp = bigquery.Client(project=CONFIG["BQ_PROJECT"])
+    try:
+        ds = _tmp.get_dataset(f"{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}")
+        _loc = ds.location
+        print(f"📍 BigQuery dataset location: {_loc}")
+    except Exception as _e:
+        _loc = CONFIG.get("BQ_LOCATION") or None
+        print(f"⚠️  Could not auto-detect location ({_e}), using: {_loc}")
+    client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc)
     t = bq_table()
 
     def run(sql):
@@ -672,7 +681,15 @@ def main():
         except ImportError:
             print("❌ pip install google-cloud-bigquery")
             sys.exit(1)
-        client = bigquery.Client(project=CONFIG["BQ_PROJECT"])
+        _tmp2 = bigquery.Client(project=CONFIG["BQ_PROJECT"])
+        try:
+            ds2 = _tmp2.get_dataset(f"{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}")
+            _loc2 = ds2.location
+            print(f"📍 BigQuery dataset location: {_loc2}")
+        except Exception as _e2:
+            _loc2 = CONFIG.get("BQ_LOCATION") or None
+            print(f"⚠️  Could not auto-detect location ({_e2}), using: {_loc2}")
+        client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc2)
         sql    = q5_article_analysis(build_table_path(), d_from, d_to)
         print(f"🔍 查詢 BigQuery 文章四象限（{date_from_str} – {date_to_str}）...")
         rows = run_query(client, sql)
