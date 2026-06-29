@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
 generate_article_report.py
-月報自動化腳本 — Doctor-10 文章表現分析
+月報自動化腳本 — 文章四象限分析 + 全站 7 區塊
 
-功能：
-- 查詢 GA4 BigQuery：Doctor-10 文章 page_view 與 scroll_75 事件
-- 動態計算瀏覽數中位數作為高/低流量分界（40% 為閱讀完成比分界）
-- 輸出 4 個維度排行的獨立 HTML 月報（密碼保護）
+結構：
+  [零]  Doctor-10 文章四象限分析（高/低流量 × 高/低閱讀完成比）
+  [①–⑦] 全站標準 7 區塊（同週報，使用月份區間）
 
 分析期間：自動取上個月（月初至月末），或以 --date-from / --date-to 手動指定
 
@@ -24,8 +23,25 @@ import os
 import statistics
 import subprocess
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
+
+# 從週報腳本匯入共用的區塊建立函式
+sys.path.insert(0, str(Path(__file__).parent))
+try:
+    from generate_weekly_report import (
+        DOCTORS, HOSPITAL_UTM, LOCATION_UTM,
+        bq_table, sql_site_kpi, sql_doctor_traffic, sql_article_ranking,
+        sql_category_ranking, sql_hospital_qr, sql_scroll_events,
+        sql_article_pv_for_ratio, sql_reserve_clicks,
+        make_sample_data as _weekly_sample_data,
+        build_s1_kpi, build_s2_doctors, build_s3_articles, build_s4_categories,
+        build_s5_hospital, build_s6_scroll, build_s7_reserve,
+        e, fmt_num, wow_badge,
+    )
+    _WEEKLY_IMPORTED = True
+except ImportError:
+    _WEEKLY_IMPORTED = False
 
 # ─── 設定區 ────────────────────────────────────────────────────────────────────
 
@@ -195,8 +211,134 @@ def make_table_section(rows: list[dict], title: str, subtitle: str,
     </div>"""
 
 
+def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
+    """抓取全站標準 7 區塊資料（月份區間）"""
+    if not _WEEKLY_IMPORTED:
+        return None
+
+    # 比較期：上一個月
+    prev_d_to   = d_from - timedelta(days=1)
+    prev_d_from = prev_d_to.replace(day=1)
+    ws = d_from.strftime("%Y%m%d")
+    we = d_to.strftime("%Y%m%d")
+    ps = prev_d_from.strftime("%Y%m%d")
+    pe = prev_d_to.strftime("%Y%m%d")
+
+    if dry_run:
+        return _weekly_sample_data()
+
+    from google.cloud import bigquery
+    client = bigquery.Client(project=CONFIG["BQ_PROJECT"])
+    t = bq_table()
+
+    def run(sql):
+        return [dict(r) for r in client.query(sql).result()]
+
+    print("⏳ 月報標準區塊 1/7: 全站 KPI …")
+    kpi_rows = run(sql_site_kpi(t, ws, we, ps, pe))
+    kpi = {}
+    for r in kpi_rows:
+        kpi[r["week"]] = {k: v for k, v in r.items() if k != "week"}
+
+    print("⏳ 月報標準區塊 2/7: 各醫師報告 …")
+    doc_rows = run(sql_doctor_traffic(t, ws, we, ps, pe))
+    doctors = {}
+    for r in doc_rows:
+        did  = r["doctor_id"]
+        week = r["week"]
+        if did not in doctors:
+            doctors[did] = {"curr_page_views": 0, "curr_unique": 0,
+                            "curr_homepage": 0, "prev_page_views": 0}
+        if week == "current":
+            doctors[did]["curr_page_views"] = r["page_views"]
+            doctors[did]["curr_unique"]     = r["unique_users"]
+            doctors[did]["curr_homepage"]   = r.get("homepage_views", 0)
+        else:
+            doctors[did]["prev_page_views"] = r["page_views"]
+    for d in DOCTORS:
+        if d["id"] not in doctors:
+            doctors[d["id"]] = {"curr_page_views": 0, "curr_unique": 0,
+                                 "curr_homepage": 0, "prev_page_views": 0}
+
+    print("⏳ 月報標準區塊 3/7: 熱門文章 …")
+    articles = run(sql_article_ranking(t, ws, we))[:10]
+
+    print("⏳ 月報標準區塊 4/7: 文章分類 …")
+    categories = run(sql_category_ranking(t, ws, we))
+
+    print("⏳ 月報標準區塊 5/7: 醫院 QR Code …")
+    qr_rows = run(sql_hospital_qr(t, ws, we, ps, pe))
+    hospital_qr = {}
+    for r in qr_rows:
+        hk = r["hospital_key"]
+        lk = r["location_key"]
+        if hk not in hospital_qr:
+            hospital_qr[hk] = {}
+        if lk not in hospital_qr[hk]:
+            hospital_qr[hk][lk] = {"curr_sessions": 0, "curr_users": 0, "prev_sessions": 0}
+        if r["week"] == "current":
+            hospital_qr[hk][lk]["curr_sessions"] = r["sessions"]
+            hospital_qr[hk][lk]["curr_users"]    = r["unique_users"]
+        else:
+            hospital_qr[hk][lk]["prev_sessions"] = r["sessions"]
+
+    print("⏳ 月報標準區塊 6/7: Scroll 事件 …")
+    scroll_rows = run(sql_scroll_events(t, ws, we, ps, pe))
+    pv_rows     = run(sql_article_pv_for_ratio(t, ws, we, ps, pe))
+    scroll = {}
+    for r in scroll_rows:
+        ev = r["event_name"]
+        if ev not in scroll:
+            scroll[ev] = {"curr_count": 0, "curr_users": 0, "prev_count": 0}
+        if r["week"] == "current":
+            scroll[ev]["curr_count"] = r["event_count"]
+            scroll[ev]["curr_users"] = r["unique_users"]
+        else:
+            scroll[ev]["prev_count"] = r["event_count"]
+    pv_map = {r["week"]: r for r in pv_rows}
+    scroll["article_pv_curr"] = pv_map.get("current",  {}).get("article_page_views", 0)
+    scroll["article_pv_prev"] = pv_map.get("previous", {}).get("article_page_views", 0)
+
+    print("⏳ 月報標準區塊 7/7: 預約按鈕 …")
+    res_rows = run(sql_reserve_clicks(t, ws, we, ps, pe))
+    reserve = {"curr_clicks": 0, "curr_users": 0, "prev_clicks": 0, "prev_users": 0}
+    for r in res_rows:
+        if r["week"] == "current":
+            reserve["curr_clicks"] = r["reserve_clicks"]
+            reserve["curr_users"]  = r["unique_users"]
+        else:
+            reserve["prev_clicks"] = r["reserve_clicks"]
+            reserve["prev_users"]  = r["unique_users"]
+
+    return {
+        "site_kpi":    kpi,
+        "doctors":     doctors,
+        "articles":    articles,
+        "categories":  categories,
+        "hospital_qr": hospital_qr,
+        "scroll":      scroll,
+        "reserve":     reserve,
+    }
+
+
+def build_standard_sections(std_data: dict) -> str:
+    """組合全站標準 7 區塊 HTML"""
+    if not _WEEKLY_IMPORTED or std_data is None:
+        return ""
+    return (
+        build_s1_kpi(std_data) +
+        build_s2_doctors(std_data) +
+        build_s3_articles(std_data) +
+        build_s4_categories(std_data) +
+        build_s5_hospital(std_data) +
+        build_s6_scroll(std_data) +
+        build_s7_reserve(std_data)
+    )
+
+
 def build_html(rows: list[dict], month_label: str, generated_at: str,
-               date_from_str: str, date_to_str: str) -> str:
+               date_from_str: str, date_to_str: str,
+               standard_sections_html: str = "") -> str:
     global _section_counter
     _section_counter = 0
 
@@ -385,9 +527,11 @@ def build_html(rows: list[dict], month_label: str, generated_at: str,
       </div>
     </div>
 
-    <div class="section-label">📊 Doctor-10 文章分析（{date_from_str} – {date_to_str}）</div>
+    <div class="section-label">📊 Doctor-10 文章四象限分析（{date_from_str} – {date_to_str}）</div>
 
 {sections_html}
+
+    {"" if not standard_sections_html else '<div class="section-label" style="margin-top:40px;">📈 全站標準報告（' + date_from_str + ' – ' + date_to_str + '）</div>' + standard_sections_html}
 
   </div>
 
@@ -529,11 +673,21 @@ def main():
             sys.exit(1)
         client = bigquery.Client(project=CONFIG["BQ_PROJECT"])
         sql    = q5_article_analysis(build_table_path(), d_from, d_to)
-        print(f"🔍 查詢 BigQuery（{date_from_str} – {date_to_str}）...")
+        print(f"🔍 查詢 BigQuery 文章四象限（{date_from_str} – {date_to_str}）...")
         rows = run_query(client, sql)
         print(f"   回傳 {len(rows)} 篇文章")
 
-    html = build_html(rows, month_label, generated_at, date_from_str, date_to_str)
+    # 全站標準 7 區塊
+    if _WEEKLY_IMPORTED:
+        print(f"🔍 查詢全站標準 7 區塊{'（乾跑）' if args.dry_run else ''}...")
+        std_data = fetch_standard_data(d_from, d_to, args.dry_run)
+        std_html = build_standard_sections(std_data)
+    else:
+        print("⚠️  generate_weekly_report.py 未找到，略過標準 7 區塊")
+        std_html = ""
+
+    html = build_html(rows, month_label, generated_at, date_from_str, date_to_str,
+                      standard_sections_html=std_html)
     output_path.write_text(html, encoding="utf-8")
     print(f"✅ 月報已產生：{output_path.name}")
     print(f"   分析期間：{date_from_str} – {date_to_str}")
