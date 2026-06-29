@@ -349,7 +349,7 @@ def make_sample_data():
             "doctor-76":  {"curr_page_views":  760, "curr_unique": 291,  "curr_homepage": 118, "prev_page_views":  695},
             "doctor-94":  {"curr_page_views":  620, "curr_unique": 240,  "curr_homepage":  95, "prev_page_views":  540},
             "doctor-99":  {"curr_page_views":  480, "curr_unique": 182,  "curr_homepage":  78, "prev_page_views":  430},
-            "doctor-100": {"curr_page_views":  390, "curr_unique": 151,  "curr_homepage":  62, "prev_page_views":  310},
+            "doctor-100": {"curr_page_views":    0, "curr_unique":   0,  "curr_homepage":   0, "prev_page_views":    0},
             "doctor-95":  {"curr_page_views":  310, "curr_unique": 120,  "curr_homepage":  48, "prev_page_views":  280},
             "doctor-101": {"curr_page_views":  185, "curr_unique":  72,  "curr_homepage":  30, "prev_page_views":  145},
             "doctor-102": {"curr_page_views":  120, "curr_unique":  47,  "curr_homepage":  20, "prev_page_views":   98},
