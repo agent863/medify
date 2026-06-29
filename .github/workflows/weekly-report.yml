@@ -1,0 +1,58 @@
+name: 週報：Doctor-10 數據分析
+
+on:
+  schedule:
+    # 每週一 台灣時間 08:00（UTC 00:00）
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+    inputs:
+      week:
+        description: '週次（例如 W26，留空=自動偵測上週）'
+        required: false
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install google-cloud-bigquery
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Generate
+        env:
+          BQ_PROJECT:  ${{ secrets.BQ_PROJECT }}
+          BQ_DATASET:  ${{ secrets.BQ_DATASET }}
+          BQ_LOCATION: ${{ secrets.BQ_LOCATION }}
+        run: |
+          if [[ -n "${{ github.event.inputs.week }}" ]]; then
+            python generate_weekly_report.py \
+              --week "${{ github.event.inputs.week }}" \
+              --no-push
+          else
+            python generate_weekly_report.py --no-push
+          fi
+
+      - name: Commit and push report
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add report-*-W*.html
+          if git diff --cached --quiet; then
+            echo "沒有新的報告產生"
+          else
+            git commit -m "週報 $(date '+%Y-W%V')：Doctor-10 數據分析自動產生"
+            git push
+          fi
