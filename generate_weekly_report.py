@@ -200,7 +200,7 @@ def sql_category_ranking(t, ws, we):
     return f"""
 SELECT
   COALESCE(
-    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'content_group'),
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'post_category'),
     '未分類'
   )                                               AS category,
   COUNT(DISTINCT
@@ -208,16 +208,8 @@ SELECT
   )                                               AS article_count,
   COUNT(*)                                        AS total_views
 FROM {t}
-WHERE event_name = 'page_view'
+WHERE event_name = 'post_view'
   AND _TABLE_SUFFIX BETWEEN '{ws}' AND '{we}'
-  AND REGEXP_CONTAINS(
-        (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location'),
-        r'/(doctor-\\d+|default)/[^/?#]+'
-      )
-  AND NOT REGEXP_CONTAINS(
-        (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location'),
-        r'/category/'
-      )
 GROUP BY category
 ORDER BY total_views DESC
 LIMIT 10
@@ -337,71 +329,47 @@ GROUP BY week
 # ─── 乾跑假資料 ───────────────────────────────────────────────────────────────
 
 def make_sample_data():
+    """乾跑模式假資料 — 只用於測試版型，數字全部為 0 或無意義佔位符，不得用於正式報告"""
+    zero_doctor = {"curr_page_views": 0, "curr_unique": 0, "curr_homepage": 0, "prev_page_views": 0}
     return {
         "site_kpi": {
-            "current":  {"active_users": 2847, "new_users": 1123, "sessions": 3294, "page_views": 8641, "avg_engagement_sec": 87.3},
-            "previous": {"active_users": 2612, "new_users": 1034, "sessions": 3081, "page_views": 7920, "avg_engagement_sec": 81.5},
+            "current":  {"active_users": 0, "new_users": 0, "sessions": 0, "page_views": 0, "avg_engagement_sec": 0},
+            "previous": {"active_users": 0, "new_users": 0, "sessions": 0, "page_views": 0, "avg_engagement_sec": 0},
         },
-        "doctors": {
-            "doctor-43":  {"curr_page_views": 1820, "curr_unique": 644,  "curr_homepage": 312, "prev_page_views": 1645},
-            "doctor-10":  {"curr_page_views": 1250, "curr_unique": 480,  "curr_homepage": 198, "prev_page_views": 1100},
-            "doctor-44":  {"curr_page_views":  980, "curr_unique": 362,  "curr_homepage": 152, "prev_page_views": 1020},
-            "doctor-76":  {"curr_page_views":  760, "curr_unique": 291,  "curr_homepage": 118, "prev_page_views":  695},
-            "doctor-94":  {"curr_page_views":  620, "curr_unique": 240,  "curr_homepage":  95, "prev_page_views":  540},
-            "doctor-99":  {"curr_page_views":  480, "curr_unique": 182,  "curr_homepage":  78, "prev_page_views":  430},
-            "doctor-100": {"curr_page_views":    0, "curr_unique":   0,  "curr_homepage":   0, "prev_page_views":    0},
-            "doctor-95":  {"curr_page_views":  310, "curr_unique": 120,  "curr_homepage":  48, "prev_page_views":  280},
-            "doctor-101": {"curr_page_views":  185, "curr_unique":  72,  "curr_homepage":  30, "prev_page_views":  145},
-            "doctor-102": {"curr_page_views":  120, "curr_unique":  47,  "curr_homepage":  20, "prev_page_views":   98},
-            "doctor-103": {"curr_page_views":    0, "curr_unique":   0,  "curr_homepage":   0, "prev_page_views":    0},
-            "doctor-97":  {"curr_page_views":    0, "curr_unique":   0,  "curr_homepage":   0, "prev_page_views":    0},
-        },
+        "doctors": {d["id"]: dict(zero_doctor) for d in DOCTORS},
         "articles": [
-            {"url": "https://medify.com.tw/doctor-43/dry-eye-symptoms",        "title": "乾眼症的症狀與完整治療指南",      "page_views": 682, "unique_users": 495, "scroll75_users": 312, "completion_rate": 63.0},
-            {"url": "https://medify.com.tw/doctor-10/glaucoma-early-signs",    "title": "青光眼早期症狀不容忽視",         "page_views": 541, "unique_users": 398, "scroll75_users": 189, "completion_rate": 47.5},
-            {"url": "https://medify.com.tw/doctor-44/lasik-vs-smile",          "title": "LASIK 與 SMILE 近視雷射比較",  "page_views": 487, "unique_users": 361, "scroll75_users": 240, "completion_rate": 66.5},
-            {"url": "https://medify.com.tw/doctor-43/presbyopia-solutions",    "title": "老花眼矯正方法完整指南",         "page_views": 445, "unique_users": 328, "scroll75_users": 155, "completion_rate": 47.3},
-            {"url": "https://medify.com.tw/doctor-76/cataract-surgery-guide",  "title": "白內障手術前後注意事項",         "page_views": 398, "unique_users": 290, "scroll75_users": 198, "completion_rate": 68.3},
-            {"url": "https://medify.com.tw/doctor-10/myopia-control-children", "title": "兒童近視控制最新方法",           "page_views": 356, "unique_users": 264, "scroll75_users": 112, "completion_rate": 42.4},
-            {"url": "https://medify.com.tw/doctor-94/contact-lens-care",       "title": "隱形眼鏡正確保養與清潔",         "page_views": 298, "unique_users": 221, "scroll75_users":  82, "completion_rate": 37.1},
-            {"url": "https://medify.com.tw/doctor-44/refractive-candidate",    "title": "哪些人適合做近視雷射手術",       "page_views": 267, "unique_users": 196, "scroll75_users": 141, "completion_rate": 71.9},
-            {"url": "https://medify.com.tw/doctor-99/diabetic-retinopathy",    "title": "糖尿病視網膜病變預防與治療",     "page_views": 234, "unique_users": 172, "scroll75_users":  94, "completion_rate": 54.7},
-            {"url": "https://medify.com.tw/doctor-76/floaters-when-to-see-dr", "title": "飛蚊症：什麼時候需要就醫",       "page_views": 198, "unique_users": 145, "scroll75_users":  68, "completion_rate": 46.9},
+            {"url": "https://medify.com.tw/doctor-43/TEST-ARTICLE-1", "title": "（版型測試）文章標題 1", "page_views": 0, "unique_users": 0, "scroll75_users": 0, "completion_rate": 0},
+            {"url": "https://medify.com.tw/doctor-10/TEST-ARTICLE-2", "title": "（版型測試）文章標題 2", "page_views": 0, "unique_users": 0, "scroll75_users": 0, "completion_rate": 0},
+            {"url": "https://medify.com.tw/doctor-44/TEST-ARTICLE-3", "title": "（版型測試）文章標題 3", "page_views": 0, "unique_users": 0, "scroll75_users": 0, "completion_rate": 0},
         ],
         "categories": [
-            {"category": "近視矯正",   "article_count": 4, "total_views": 1310},
-            {"category": "乾眼症",     "article_count": 3, "total_views":  980},
-            {"category": "青光眼",     "article_count": 2, "total_views":  775},
-            {"category": "白內障",     "article_count": 2, "total_views":  634},
-            {"category": "視網膜疾病", "article_count": 2, "total_views":  432},
-            {"category": "隱形眼鏡",   "article_count": 2, "total_views":  386},
-            {"category": "老花眼",     "article_count": 1, "total_views":  234},
-            {"category": "其他",       "article_count": 3, "total_views":  324},
+            {"category": "（版型測試）分類 A", "article_count": 0, "total_views": 0},
+            {"category": "（版型測試）分類 B", "article_count": 0, "total_views": 0},
         ],
         "hospital_qr": {
             "cceye-taipei": {
-                "consult":  {"curr_sessions": 48, "curr_users": 41, "prev_sessions": 52},
-                "counter":  {"curr_sessions": 31, "curr_users": 28, "prev_sessions": 27},
-                "waitting": {"curr_sessions": 94, "curr_users": 86, "prev_sessions": 88},
-                "tvwall":   {"curr_sessions": 62, "curr_users": 55, "prev_sessions": 58},
+                "consult":  {"curr_sessions": 0, "curr_users": 0, "prev_sessions": 0},
+                "counter":  {"curr_sessions": 0, "curr_users": 0, "prev_sessions": 0},
+                "waitting": {"curr_sessions": 0, "curr_users": 0, "prev_sessions": 0},
+                "tvwall":   {"curr_sessions": 0, "curr_users": 0, "prev_sessions": 0},
             },
             "cceye-banqiao": {
-                "consult":  {"curr_sessions": 35, "curr_users": 30, "prev_sessions": 28},
-                "counter":  {"curr_sessions": 22, "curr_users": 20, "prev_sessions": 18},
-                "waitting": {"curr_sessions": 71, "curr_users": 65, "prev_sessions": 64},
-                "tvwall":   {"curr_sessions": 44, "curr_users": 39, "prev_sessions": 40},
+                "consult":  {"curr_sessions": 0, "curr_users": 0, "prev_sessions": 0},
+                "counter":  {"curr_sessions": 0, "curr_users": 0, "prev_sessions": 0},
+                "waitting": {"curr_sessions": 0, "curr_users": 0, "prev_sessions": 0},
+                "tvwall":   {"curr_sessions": 0, "curr_users": 0, "prev_sessions": 0},
             },
         },
         "scroll": {
-            "scroll_25": {"curr_count": 6820, "curr_users": 2341, "prev_count": 6210},
-            "scroll_50": {"curr_count": 4930, "curr_users": 1720, "prev_count": 4490},
-            "scroll_75": {"curr_count": 3180, "curr_users": 1124, "prev_count": 2890},
-            "article_pv_curr": 5640,
-            "article_pv_prev": 5120,
+            "scroll_25": {"curr_count": 0, "curr_users": 0, "prev_count": 0},
+            "scroll_50": {"curr_count": 0, "curr_users": 0, "prev_count": 0},
+            "scroll_75": {"curr_count": 0, "curr_users": 0, "prev_count": 0},
+            "article_pv_curr": 0,
+            "article_pv_prev": 0,
         },
         "reserve": {
-            "curr_clicks": 312, "curr_users": 218,
-            "prev_clicks": 287, "prev_users": 199,
+            "curr_clicks": 0, "curr_users": 0,
+            "prev_clicks": 0, "prev_users": 0,
         },
     }
 
