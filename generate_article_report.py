@@ -229,7 +229,7 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
         return _weekly_sample_data()
 
     from google.cloud import bigquery
-    client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=CONFIG["BQ_LOCATION"])
+    client = bigquery.Client(project=CONFIG["BQ_PROJECT"])
     t = bq_table()
 
     def run(sql):
@@ -672,7 +672,7 @@ def main():
         except ImportError:
             print("❌ pip install google-cloud-bigquery")
             sys.exit(1)
-        client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=CONFIG["BQ_LOCATION"])
+        client = bigquery.Client(project=CONFIG["BQ_PROJECT"])
         sql    = q5_article_analysis(build_table_path(), d_from, d_to)
         print(f"🔍 查詢 BigQuery 文章四象限（{date_from_str} – {date_to_str}）...")
         rows = run_query(client, sql)
