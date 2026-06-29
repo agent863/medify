@@ -379,7 +379,7 @@ def make_sample_data():
 
 def fetch_all_data(ws, we, ps, pe):
     from google.cloud import bigquery
-    client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=CONFIG["BQ_LOCATION"])
+    client = bigquery.Client(project=CONFIG["BQ_PROJECT"])
     t = bq_table()
 
     def run(sql):
