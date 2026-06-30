@@ -229,7 +229,7 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
         return _weekly_sample_data()
 
     from google.cloud import bigquery
-    # Auto-detect dataset location by probing candidate regions
+# Auto-detect dataset location by probing candidate regions
     _CANDIDATE_LOCS = list(dict.fromkeys(filter(None, [
         CONFIG.get("BQ_LOCATION"),
         "asia-southeast1", "asia-east1", "asia-east2",
@@ -239,20 +239,16 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
     for _c in _CANDIDATE_LOCS:
         try:
             _tc = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_c)
-            list(_tc.query(
-                f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}`"
-                f".INFORMATION_SCHEMA.TABLES LIMIT 1"
-            ).result())
+            _psql = f"SELECT COUNT(*) as _n FROM `" + CONFIG["BQ_PROJECT"] + "." + CONFIG["BQ_DATASET"] + ".events_*` WHERE _TABLE_SUFFIX >= '20260101' LIMIT 1"
+            list(_tc.query(_psql).result())
             _loc = _c
-            print(f"📍 Dataset location confirmed: {_loc}")
             break
         except Exception as _ce:
             if "not found in location" in str(_ce).lower():
-                print(f"   ❌ not in {_c}")
+                print(f"   not in {_c}")
                 continue
             else:
                 _loc = _c
-                print(f"   📍 Location likely {_c}: {str(_ce)[:60]}")
                 break
     if _loc is None:
         _loc = CONFIG.get("BQ_LOCATION") or "US"
@@ -699,30 +695,26 @@ def main():
         except ImportError:
             print("❌ pip install google-cloud-bigquery")
             sys.exit(1)
-        # Auto-detect dataset location by probing candidate regions
-        _CANDIDATE_LOCS2 = list(dict.fromkeys(filter(None, [
+# Auto-detect dataset location by probing candidate regions
+        _CANDS2 = list(dict.fromkeys(filter(None, [
             CONFIG.get("BQ_LOCATION"),
             "asia-southeast1", "asia-east1", "asia-east2",
             "asia-northeast1", "US",
         ])))
         _loc2 = None
-        for _c2 in _CANDIDATE_LOCS2:
+        for _c2 in _CANDS2:
             try:
                 _tc2 = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_c2)
-                list(_tc2.query(
-                    f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}`"
-                    f".INFORMATION_SCHEMA.TABLES LIMIT 1"
-                ).result())
+                _psql2 = f"SELECT COUNT(*) as _n FROM `" + CONFIG["BQ_PROJECT"] + "." + CONFIG["BQ_DATASET"] + ".events_*` WHERE _TABLE_SUFFIX >= '20260101' LIMIT 1"
+                list(_tc2.query(_psql2).result())
                 _loc2 = _c2
-                print(f"📍 Dataset location confirmed: {_loc2}")
                 break
             except Exception as _ce2:
                 if "not found in location" in str(_ce2).lower():
-                    print(f"   ❌ not in {_c2}")
+                    print(f"   not in {_c2}")
                     continue
                 else:
                     _loc2 = _c2
-                    print(f"   📍 Location likely {_c2}: {str(_ce2)[:60]}")
                     break
         if _loc2 is None:
             _loc2 = CONFIG.get("BQ_LOCATION") or "US"
