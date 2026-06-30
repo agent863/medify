@@ -379,11 +379,23 @@ def make_sample_data():
 
 def fetch_all_data(ws, we, ps, pe):
     from google.cloud import bigquery
-    # Auto-discover dataset location so queries route to the correct region
-    _tmp = bigquery.Client(project=CONFIG["BQ_PROJECT"])
+    # Auto-discover dataset location via direct REST API (avoids biglake.namespaces.get requirement)
     try:
-        ds = _tmp.get_dataset(f"{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}")
-        _loc = ds.location
+        import google.auth
+        import google.auth.transport.requests as _ga_transport
+        import urllib.request as _urllib_req
+        import json as _json_mod
+        _creds, _ = google.auth.default()
+        _auth_req = _ga_transport.Request()
+        _creds.refresh(_auth_req)
+        _ds_url = (
+            f"https://bigquery.googleapis.com/bigquery/v2/projects/"
+            f"{CONFIG['BQ_PROJECT']}/datasets/{CONFIG['BQ_DATASET']}"
+        )
+        _req = _urllib_req.Request(_ds_url, headers={"Authorization": f"Bearer {_creds.token}"})
+        with _urllib_req.urlopen(_req) as _resp:
+            _ds_info = _json_mod.loads(_resp.read())
+        _loc = _ds_info.get("location")
         print(f"📍 BigQuery dataset location: {_loc}")
     except Exception as _e:
         _loc = CONFIG.get("BQ_LOCATION") or None
