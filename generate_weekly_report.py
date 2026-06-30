@@ -380,9 +380,16 @@ def fetch_all_data(ws, we, ps, pe):
     from google.cloud import bigquery
     # Auto-discover dataset location by probing known regions
     location = None
-    _probe_locs = ["asia", "asia-east1", "asia-southeast1", "asia-northeast1",
-                   "asia-east2", "asia-northeast2", "asia-northeast3",
-                   "US", "EU", "us-central1", "europe-west1"]
+    _probe_locs = [
+        "asia-east1", "asia-east2",
+        "asia-southeast1", "asia-southeast2",
+        "asia-northeast1", "asia-northeast2", "asia-northeast3",
+        "asia-south1", "asia-south2",
+        "australia-southeast1",
+        "us-central1", "us-east1", "us-west1",
+        "europe-west1", "europe-west2", "europe-west3", "europe-west4",
+        "US", "EU",
+    ]
     _t = bq_table()
     for _loc in _probe_locs:
         try:
@@ -396,7 +403,8 @@ def fetch_all_data(ws, we, ps, pe):
             print(f"📍 BigQuery dataset location: {location}")
             break
         except Exception as _pe:
-            if "not found in location" in str(_pe).lower():
+            _pe_str = str(_pe).lower()
+            if "not found in location" in _pe_str or "does not support this operation" in _pe_str:
                 print(f"   ✗ Not in {_loc}")
             else:
                 print(f"   ✗ {_loc}: {_pe}")
