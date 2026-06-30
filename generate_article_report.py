@@ -248,8 +248,8 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
         _loc = _ds_info.get("location")
         print(f"📍 BigQuery dataset location: {_loc}")
     except Exception as _e:
-        _loc = CONFIG.get("BQ_LOCATION") or None
-        print(f"⚠️  Could not auto-detect location ({_e}), using: {_loc}")
+        _loc = None  # Let BigQuery auto-detect from dataset reference
+        print(f"⚠️  Could not auto-detect location ({_e}), using auto-detect")
     client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc)
     t = bq_table()
 
@@ -712,8 +712,8 @@ def main():
             _loc2 = _ds_info.get("location")
             print(f"📍 BigQuery dataset location: {_loc2}")
         except Exception as _e2:
-            _loc2 = CONFIG.get("BQ_LOCATION") or None
-            print(f"⚠️  Could not auto-detect location ({_e2}), using: {_loc2}")
+            _loc2 = None  # Let BigQuery auto-detect from dataset reference
+            print(f"⚠️  Could not auto-detect location ({_e2}), using auto-detect")
         client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc2)
         sql    = q5_article_analysis(build_table_path(), d_from, d_to)
         print(f"🔍 查詢 BigQuery 文章四象限（{date_from_str} – {date_to_str}）...")
