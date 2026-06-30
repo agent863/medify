@@ -379,7 +379,7 @@ def make_sample_data():
 
 def fetch_all_data(ws, we, ps, pe):
     from google.cloud import bigquery
-    # Auto-detect dataset location by probing candidate regions with a test query
+# Auto-detect dataset location by probing candidate regions
     _CANDIDATE_LOCS = list(dict.fromkeys(filter(None, [
         CONFIG.get("BQ_LOCATION"),
         "asia-southeast1", "asia-east1", "asia-east2",
@@ -389,24 +389,27 @@ def fetch_all_data(ws, we, ps, pe):
     for _c in _CANDIDATE_LOCS:
         try:
             _tc = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_c)
-            list(_tc.query(
-                f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}`"
-                f".INFORMATION_SCHEMA.TABLES LIMIT 1"
-            ).result())
+            _probe_sql = (
+                f"SELECT COUNT(*) as _n FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}.events_*`"
+                f" WHERE _TABLE_SUFFIX >= '20260101' LIMIT 1"
+            )
+            list(_tc.query(_probe_sql).result())
             _loc = _c
             print(f"📍 Dataset location confirmed: {_loc}")
             break
         except Exception as _ce:
-            if "not found in location" in str(_ce).lower():
-                print(f"   ❌ not in {_c}")
+            _ce_str = str(_ce)
+            if "not found in location" in _ce_str.lower():
+                print(f"   not in {_c}")
                 continue
             else:
+                # Different error means location routing worked — use this location
                 _loc = _c
-                print(f"   📍 Location likely {_c} (non-location error: {str(_ce)[:60]})")
+                print(f"📍 Location {_c} (probe: {_ce_str[:50]})")
                 break
     if _loc is None:
         _loc = CONFIG.get("BQ_LOCATION") or "US"
-        print(f"⚠️  All locations failed, using fallback: {_loc}")
+        print(f"All probe locations failed, using: {_loc}")
     client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc)
     t = bq_table()
 
