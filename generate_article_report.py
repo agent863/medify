@@ -235,7 +235,8 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
         import google.auth.transport.requests as _ga_transport
         import urllib.request as _urllib_req
         import json as _json_mod
-        _creds, _ = google.auth.default()
+        _BQ_SCOPE = 'https://www.googleapis.com/auth/bigquery.readonly'
+        _creds, _ = google.auth.default(scopes=[_BQ_SCOPE])
         _auth_req = _ga_transport.Request()
         _creds.refresh(_auth_req)
         _ds_url = (
@@ -699,7 +700,8 @@ def main():
             import google.auth.transport.requests as _ga_transport2
             import urllib.request as _urllib_req2
             import json as _json_mod2
-            _creds2, _ = google.auth.default()
+            _BQ_SCOPE2 = 'https://www.googleapis.com/auth/bigquery.readonly'
+            _creds2, _ = google.auth.default(scopes=[_BQ_SCOPE2])
             _auth_req2 = _ga_transport2.Request()
             _creds2.refresh(_auth_req2)
             _ds_url2 = (
