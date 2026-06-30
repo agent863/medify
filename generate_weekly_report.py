@@ -396,7 +396,7 @@ def fetch_all_data(ws, we, ps, pe):
     for _loc in _probe_locs:
         try:
             _pc = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc)
-            _probe_sql = f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}.INFORMATION_SCHEMA.TABLES` LIMIT 1"
+            _probe_sql = f"SELECT table_name FROM `{CONFIG['BQ_DATASET']}.INFORMATION_SCHEMA.TABLES` LIMIT 1"
             list(_pc.query(_probe_sql).result())
             location = _loc
             print(f"📍 BigQuery dataset location: {location}")
