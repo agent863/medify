@@ -379,28 +379,34 @@ def make_sample_data():
 
 def fetch_all_data(ws, we, ps, pe):
     from google.cloud import bigquery
-    # Auto-discover dataset location via direct REST API (avoids biglake.namespaces.get requirement)
-    try:
-        import google.auth
-        import google.auth.transport.requests as _ga_transport
-        import urllib.request as _urllib_req
-        import json as _json_mod
-        _BQ_SCOPE = 'https://www.googleapis.com/auth/bigquery.readonly'
-        _creds, _ = google.auth.default(scopes=[_BQ_SCOPE])
-        _auth_req = _ga_transport.Request()
-        _creds.refresh(_auth_req)
-        _ds_url = (
-            f"https://bigquery.googleapis.com/bigquery/v2/projects/"
-            f"{CONFIG['BQ_PROJECT']}/datasets/{CONFIG['BQ_DATASET']}"
-        )
-        _req = _urllib_req.Request(_ds_url, headers={"Authorization": f"Bearer {_creds.token}"})
-        with _urllib_req.urlopen(_req) as _resp:
-            _ds_info = _json_mod.loads(_resp.read())
-        _loc = _ds_info.get("location")
-        print(f"📍 BigQuery dataset location: {_loc}")
-    except Exception as _e:
-        _loc = CONFIG.get("BQ_LOCATION") or None
-        print(f"⚠️  Could not auto-detect location ({_e}), using: {_loc}")
+    # Auto-detect dataset location by probing candidate regions with a test query
+    _CANDIDATE_LOCS = list(dict.fromkeys(filter(None, [
+        CONFIG.get("BQ_LOCATION"),
+        "asia-southeast1", "asia-east1", "asia-east2",
+        "asia-northeast1", "US",
+    ])))
+    _loc = None
+    for _c in _CANDIDATE_LOCS:
+        try:
+            _tc = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_c)
+            list(_tc.query(
+                f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}`"
+                f".INFORMATION_SCHEMA.TABLES LIMIT 1"
+            ).result())
+            _loc = _c
+            print(f"📍 Dataset location confirmed: {_loc}")
+            break
+        except Exception as _ce:
+            if "not found in location" in str(_ce).lower():
+                print(f"   ❌ not in {_c}")
+                continue
+            else:
+                _loc = _c
+                print(f"   📍 Location likely {_c} (non-location error: {str(_ce)[:60]})")
+                break
+    if _loc is None:
+        _loc = CONFIG.get("BQ_LOCATION") or "US"
+        print(f"⚠️  All locations failed, using fallback: {_loc}")
     client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc)
     t = bq_table()
 
