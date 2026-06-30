@@ -393,17 +393,21 @@ def fetch_all_data(ws, we, ps, pe):
         "US", "EU",
     ]
     _t = bq_table()
+    _t_probe = bq_table()
     for _loc in _probe_locs:
         try:
             _pc = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc)
-            _probe_sql = f"SELECT table_name FROM `{CONFIG['BQ_DATASET']}.INFORMATION_SCHEMA.TABLES` LIMIT 1"
+            _probe_sql = (
+                f"SELECT COUNT(*) AS c FROM {_t_probe} "
+                f"WHERE _TABLE_SUFFIX >= '20000101'"
+            )
             list(_pc.query(_probe_sql).result())
             location = _loc
             print(f"📍 BigQuery dataset location: {location}")
             break
         except Exception as _pe:
             _pe_str = str(_pe).lower()
-            if "not found in location" in _pe_str or "does not support this operation" in _pe_str:
+            if ("not found in location" in _pe_str and "dataset" in _pe_str) or "does not support this operation" in _pe_str:
                 # Wrong region — dataset exists elsewhere
                 print(f"   ✗ Not in {_loc}")
             elif "not found" in _pe_str:
@@ -413,7 +417,7 @@ def fetch_all_data(ws, we, ps, pe):
                 break
             else:
                 print(f"   ✗ {_loc}: {_pe}")
-                break
+                continue
     if location is None:
         print("⚠️ Could not detect location — falling back to BQ_LOCATION secret")
         location = CONFIG.get("BQ_LOCATION") or None
