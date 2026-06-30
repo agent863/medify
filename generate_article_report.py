@@ -252,7 +252,7 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
     for _c in _CANDIDATE_LOCS:
         try:
             _tc = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_c)
-            _psql = f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}.INFORMATION_SCHEMA.TABLES` LIMIT 1"
+            _psql = f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}`.INFORMATION_SCHEMA.TABLES LIMIT 1"
             list(_tc.query(_psql).result())
             _loc = _c
             break
@@ -261,8 +261,13 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
                 print(f"   not in {_c}")
                 continue
             else:
-                _loc = _c
-                break
+                if 'access denied' in str(_ce).lower() or 'permission' in str(_ce).lower() or 'forbidden' in str(_ce).lower():
+                    print(f"📍 Location confirmed (permission error): {_c} — {str(_ce)[:120]}")
+                    _loc = _c
+                    break
+                else:
+                    print(f"   probe error at {_c}: {str(_ce)[:150]}")
+                    continue
     if _loc is None:
         _loc = CONFIG.get("BQ_LOCATION") or "US"
     client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc)
@@ -731,7 +736,7 @@ def main():
         for _c2 in _CANDS2:
             try:
                 _tc2 = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_c2)
-                _psql2 = f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}.INFORMATION_SCHEMA.TABLES` LIMIT 1"
+                _psql2 = f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}`.INFORMATION_SCHEMA.TABLES LIMIT 1"
                 list(_tc2.query(_psql2).result())
                 _loc2 = _c2
                 break
@@ -739,9 +744,13 @@ def main():
                 if "not found in location" in str(_ce2).lower():
                     print(f"   not in {_c2}")
                     continue
-                else:
+                elif 'access denied' in str(_ce2).lower() or 'permission' in str(_ce2).lower() or 'forbidden' in str(_ce2).lower():
+                    print(f"📍 Location confirmed (permission error): {_c2} — {str(_ce2)[:120]}")
                     _loc2 = _c2
                     break
+                else:
+                    print(f"   probe error at {_c2}: {str(_ce2)[:150]}")
+                    continue
         if _loc2 is None:
             _loc2 = CONFIG.get("BQ_LOCATION") or "US"
         client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc2)
