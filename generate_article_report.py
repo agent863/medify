@@ -233,7 +233,9 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
     _CANDIDATE_LOCS = list(dict.fromkeys(filter(None, [
         CONFIG.get("BQ_LOCATION"),
         "asia-southeast1", "asia-east1", "asia-east2",
-        "asia-northeast1", "US",
+        "asia-northeast1", "asia-northeast2", "asia-northeast3",
+        "asia-south1", "asia-southeast2", "australia-southeast1",
+        "US", "us-central1", "EU", "europe-west1",
     ])))
     _loc = None
     for _c in _CANDIDATE_LOCS:
@@ -699,7 +701,9 @@ def main():
         _CANDS2 = list(dict.fromkeys(filter(None, [
             CONFIG.get("BQ_LOCATION"),
             "asia-southeast1", "asia-east1", "asia-east2",
-            "asia-northeast1", "US",
+            "asia-northeast1", "asia-northeast2", "asia-northeast3",
+            "asia-south1", "asia-southeast2", "australia-southeast1",
+            "US", "us-central1", "EU", "europe-west1",
         ])))
         _loc2 = None
         for _c2 in _CANDS2:
