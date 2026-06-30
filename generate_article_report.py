@@ -245,7 +245,7 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
     for _ploc in _probe_locs:
         try:
             _pc = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_ploc)
-            _probe_sql = f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}.INFORMATION_SCHEMA.TABLES` LIMIT 1"
+            _probe_sql = f"SELECT table_name FROM `{CONFIG['BQ_DATASET']}.INFORMATION_SCHEMA.TABLES` LIMIT 1"
             list(_pc.query(_probe_sql).result())
             _loc = _ploc
             print(f"📍 BigQuery dataset location: {_loc}")
@@ -719,7 +719,7 @@ def main():
             for _ploc2 in _probe_locs2:
                 try:
                     _pc2 = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_ploc2)
-                    _probe_sql2 = f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}.INFORMATION_SCHEMA.TABLES` LIMIT 1"
+                    _probe_sql2 = f"SELECT table_name FROM `{CONFIG['BQ_DATASET']}.INFORMATION_SCHEMA.TABLES` LIMIT 1"
                     list(_pc2.query(_probe_sql2).result())
                     _loc2 = _ploc2
                     print(f"📍 BigQuery dataset location: {_loc2}")
