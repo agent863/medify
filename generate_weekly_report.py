@@ -385,7 +385,8 @@ def fetch_all_data(ws, we, ps, pe):
         import google.auth.transport.requests as _ga_transport
         import urllib.request as _urllib_req
         import json as _json_mod
-        _creds, _ = google.auth.default()
+        _BQ_SCOPE = 'https://www.googleapis.com/auth/bigquery.readonly'
+        _creds, _ = google.auth.default(scopes=[_BQ_SCOPE])
         _auth_req = _ga_transport.Request()
         _creds.refresh(_auth_req)
         _ds_url = (
