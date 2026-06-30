@@ -11,7 +11,6 @@ generate_weekly_report.py
   5. 各醫院 QR Code 報告
   6. Scroll 事件分析
   7. 預約按鈕點擊
-
 用法：
   python generate_weekly_report.py                  # 自動偵測上週
   python generate_weekly_report.py --week W26       # 指定週次
@@ -383,7 +382,9 @@ def fetch_all_data(ws, we, ps, pe):
     _CANDIDATE_LOCS = list(dict.fromkeys(filter(None, [
         CONFIG.get("BQ_LOCATION"),
         "asia-southeast1", "asia-east1", "asia-east2",
-        "asia-northeast1", "US",
+        "asia-northeast1", "asia-northeast2", "asia-northeast3",
+        "asia-south1", "asia-southeast2", "australia-southeast1",
+        "US", "us-central1", "EU", "europe-west1",
     ])))
     _loc = None
     for _c in _CANDIDATE_LOCS:
