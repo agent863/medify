@@ -232,9 +232,16 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
     # Auto-discover dataset location by probing known regions
     _loc = None
     _t_probe = bq_table()
-    _probe_locs = ["asia", "asia-east1", "asia-southeast1", "asia-northeast1",
-                   "asia-east2", "asia-northeast2", "asia-northeast3",
-                   "US", "EU", "us-central1", "europe-west1"]
+    _probe_locs = [
+        "asia-east1", "asia-east2",
+        "asia-southeast1", "asia-southeast2",
+        "asia-northeast1", "asia-northeast2", "asia-northeast3",
+        "asia-south1", "asia-south2",
+        "australia-southeast1",
+        "us-central1", "us-east1", "us-west1",
+        "europe-west1", "europe-west2", "europe-west3", "europe-west4",
+        "US", "EU",
+    ]
     for _ploc in _probe_locs:
         try:
             _pc = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_ploc)
@@ -247,7 +254,8 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
             print(f"📍 BigQuery dataset location: {_loc}")
             break
         except Exception as _pe:
-            if "not found in location" in str(_pe).lower():
+            _pe_s = str(_pe).lower()
+            if "not found in location" in _pe_s or "does not support this operation" in _pe_s:
                 print(f"   ✗ Not in {_ploc}")
             else:
                 print(f"   ✗ {_ploc}: {_pe}")
@@ -701,9 +709,16 @@ def main():
         # Auto-discover dataset location by probing known regions
             _loc2 = None
             _t_probe2 = bq_table()
-            _probe_locs2 = ["asia", "asia-east1", "asia-southeast1", "asia-northeast1",
-                            "asia-east2", "asia-northeast2", "asia-northeast3",
-                            "US", "EU", "us-central1", "europe-west1"]
+            _probe_locs2 = [
+                "asia-east1", "asia-east2",
+                "asia-southeast1", "asia-southeast2",
+                "asia-northeast1", "asia-northeast2", "asia-northeast3",
+                "asia-south1", "asia-south2",
+                "australia-southeast1",
+                "us-central1", "us-east1", "us-west1",
+                "europe-west1", "europe-west2", "europe-west3", "europe-west4",
+                "US", "EU",
+            ]
             for _ploc2 in _probe_locs2:
                 try:
                     _pc2 = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_ploc2)
@@ -716,7 +731,8 @@ def main():
                     print(f"📍 BigQuery dataset location: {_loc2}")
                     break
                 except Exception as _pe2:
-                    if "not found in location" in str(_pe2).lower():
+                    _pe2_s = str(_pe2).lower()
+                    if "not found in location" in _pe2_s or "does not support this operation" in _pe2_s:
                         print(f"   ✗ Not in {_ploc2}")
                     else:
                         print(f"   ✗ {_ploc2}: {_pe2}")
