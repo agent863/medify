@@ -245,18 +245,25 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
     for _ploc in _probe_locs:
         try:
             _pc = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_ploc)
-            _probe_sql = f"SELECT table_name FROM `{CONFIG['BQ_DATASET']}.INFORMATION_SCHEMA.TABLES` LIMIT 1"
+            _probe_sql = (
+                f"SELECT COUNT(*) AS c FROM {_t_probe} "
+                f"WHERE _TABLE_SUFFIX >= '20000101'"
+            )
             list(_pc.query(_probe_sql).result())
             _loc = _ploc
             print(f"📍 BigQuery dataset location: {_loc}")
             break
         except Exception as _pe:
             _pe_s = str(_pe).lower()
-            if "not found in location" in _pe_s or "does not support this operation" in _pe_s:
+            if ("not found in location" in _pe_s and "dataset" in _pe_s) or "does not support this operation" in _pe_s:
                 print(f"   ✗ Not in {_ploc}")
+            elif "not found" in _pe_s:
+                _loc = _ploc
+                print(f"📍 Dataset in {_ploc} (no events tables yet)")
+                break
             else:
                 print(f"   ✗ {_ploc}: {_pe}")
-                break
+                continue
     if _loc is None:
         print("⚠️ Could not detect location — falling back to BQ_LOCATION secret")
         _loc = CONFIG.get("BQ_LOCATION") or None
@@ -719,18 +726,25 @@ def main():
             for _ploc2 in _probe_locs2:
                 try:
                     _pc2 = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_ploc2)
-                    _probe_sql2 = f"SELECT table_name FROM `{CONFIG['BQ_DATASET']}.INFORMATION_SCHEMA.TABLES` LIMIT 1"
+                    _probe_sql2 = (
+                        f"SELECT COUNT(*) AS c FROM {_t_probe} "
+                        f"WHERE _TABLE_SUFFIX >= '20000101'"
+                    )
                     list(_pc2.query(_probe_sql2).result())
                     _loc2 = _ploc2
                     print(f"📍 BigQuery dataset location: {_loc2}")
                     break
                 except Exception as _pe2:
                     _pe2_s = str(_pe2).lower()
-                    if "not found in location" in _pe2_s or "does not support this operation" in _pe2_s:
+                    if ("not found in location" in _pe2_s and "dataset" in _pe2_s) or "does not support this operation" in _pe2_s:
                         print(f"   ✗ Not in {_ploc2}")
+                    elif "not found" in _pe2_s:
+                        _loc2 = _ploc2
+                        print(f"📍 Dataset in {_ploc2} (no events tables yet)")
+                        break
                     else:
                         print(f"   ✗ {_ploc2}: {_pe2}")
-                        break
+                        continue
             if _loc2 is None:
                 print("⚠️ Could not detect location — falling back to BQ_LOCATION secret")
                 _loc2 = CONFIG.get("BQ_LOCATION") or None
