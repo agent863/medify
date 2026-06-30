@@ -378,52 +378,28 @@ def make_sample_data():
 
 def fetch_all_data(ws, we, ps, pe):
     from google.cloud import bigquery
-# Auto-detect dataset location by probing candidate regions
-    _CANDIDATE_LOCS = list(dict.fromkeys(filter(None, [
-        CONFIG.get("BQ_LOCATION"),
-        "asia-southeast1", "asia-east1", "asia-east2",
-        "asia-northeast1", "asia-northeast2", "asia-northeast3",
-        "asia-south1", "asia-south2", "asia-southeast2",
-        "australia-southeast1", "australia-southeast2",
-        "asia",
-        "US", "us-central1", "us-east1", "us-east4", "us-east5",
-        "us-west1", "us-west2", "us-west3", "us-west4", "us-south1",
-        "northamerica-northeast1", "northamerica-northeast2",
-        "southamerica-east1", "southamerica-west1",
-        "EU", "europe-west1", "europe-west2", "europe-west3",
-        "europe-west4", "europe-west6", "europe-west8", "europe-west9",
-        "europe-west10", "europe-west12",
-        "europe-north1", "europe-central2", "europe-southwest1",
-        "me-central1", "me-central2", "me-west1",
-        "africa-south1",
-    ])))
-    _loc = None
-    for _c in _CANDIDATE_LOCS:
-        try:
-            _tc = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_c)
-            _probe_sql = f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}`.INFORMATION_SCHEMA.TABLES LIMIT 1"
-            list(_tc.query(_probe_sql).result())
-            _loc = _c
-            print(f"📍 Dataset location confirmed: {_loc}")
-            break
-        except Exception as _ce:
-            _ce_str = str(_ce)
-            if "not found in location" in _ce_str.lower():
-                print(f"   not in {_c}")
-                continue
-            else:
-                # Check if it's a permissions error (location routing worked but no IS permission)
-                if 'access denied' in _ce_str.lower() or 'permission' in _ce_str.lower() or 'forbidden' in _ce_str.lower():
-                    print(f"📍 Location confirmed (permission error): {_c} — {_ce_str[:120]}")
-                    _loc = _c
-                    break
-                else:
-                    print(f"   probe error at {_c}: {_ce_str[:150]}")
-                    continue
-    if _loc is None:
-        _loc = CONFIG.get("BQ_LOCATION") or "US"
-        print(f"All probe locations failed, using: {_loc}")
-    client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc)
+    # Auto-discover dataset location via direct REST API (avoids probing all regions)
+    try:
+        import google.auth
+        import google.auth.transport.requests as _ga_transport
+        import urllib.request as _urllib_req
+        import json as _json_mod
+        _creds, _ = google.auth.default()
+        _auth_req = _ga_transport.Request()
+        _creds.refresh(_auth_req)
+        _ds_url = (
+            f"https://bigquery.googleapis.com/bigquery/v2/projects/"
+            f"{CONFIG['BQ_PROJECT']}/datasets/{CONFIG['BQ_DATASET']}"
+        )
+        _req = _urllib_req.Request(_ds_url, headers={"Authorization": f"Bearer {_creds.token}"})
+        with _urllib_req.urlopen(_req) as _resp:
+            _ds_info = _json_mod.loads(_resp.read())
+        location = _ds_info.get("location")
+        print(f"📍 BigQuery dataset location: {location}")
+    except Exception as e:
+        location = CONFIG.get("BQ_LOCATION") or None
+        print(f"⚠️  Could not auto-detect location ({e}), using: {location}")
+    client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=location)
     t = bq_table()
 
     def run(sql):
