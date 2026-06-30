@@ -229,27 +229,32 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
         return _weekly_sample_data()
 
     from google.cloud import bigquery
-    # Auto-discover dataset location via direct REST API
-    try:
-        import google.auth
-        import google.auth.transport.requests as _ga_transport
-        import urllib.request as _urllib_req
-        import json as _json_mod
-        _creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-        _auth_req = _ga_transport.Request()
-        _creds.refresh(_auth_req)
-        _ds_url = (
-            f"https://bigquery.googleapis.com/bigquery/v2/projects/"
-            f"{CONFIG['BQ_PROJECT']}/datasets/{CONFIG['BQ_DATASET']}"
-        )
-        _req = _urllib_req.Request(_ds_url, headers={"Authorization": f"Bearer {_creds.token}"})
-        with _urllib_req.urlopen(_req) as _resp:
-            _ds_info = _json_mod.loads(_resp.read())
-        _loc = _ds_info.get("location")
-        print(f"📍 BigQuery dataset location: {_loc}")
-    except Exception as _e:
-        _loc = None  # Let BigQuery auto-detect from dataset reference
-        print(f"⚠️  Could not auto-detect location ({_e}), using auto-detect")
+    # Auto-discover dataset location by probing known regions
+    _loc = None
+    _t_probe = bq_table()
+    _probe_locs = ["asia", "asia-east1", "asia-southeast1", "asia-northeast1",
+                   "asia-east2", "asia-northeast2", "asia-northeast3",
+                   "US", "EU", "us-central1", "europe-west1"]
+    for _ploc in _probe_locs:
+        try:
+            _pc = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_ploc)
+            _probe_sql = (
+                f"SELECT COUNT(*) AS c FROM {_t_probe} "
+                f"WHERE _TABLE_SUFFIX BETWEEN '20260101' AND '20260630'"
+            )
+            list(_pc.query(_probe_sql).result())
+            _loc = _ploc
+            print(f"📍 BigQuery dataset location: {_loc}")
+            break
+        except Exception as _pe:
+            if "not found in location" in str(_pe).lower():
+                print(f"   ✗ Not in {_ploc}")
+            else:
+                print(f"   ✗ {_ploc}: {_pe}")
+                break
+    if _loc is None:
+        print("⚠️ Could not detect location — falling back to BQ_LOCATION secret")
+        _loc = CONFIG.get("BQ_LOCATION") or None
     client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc)
     t = bq_table()
 
@@ -693,27 +698,32 @@ def main():
         except ImportError:
             print("❌ pip install google-cloud-bigquery")
             sys.exit(1)
-        # Auto-discover dataset location via direct REST API
-        try:
-            import google.auth
-            import google.auth.transport.requests as _ga_transport
-            import urllib.request as _urllib_req
-            import json as _json_mod
-            _creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-            _auth_req = _ga_transport.Request()
-            _creds.refresh(_auth_req)
-            _ds_url = (
-                f"https://bigquery.googleapis.com/bigquery/v2/projects/"
-                f"{CONFIG['BQ_PROJECT']}/datasets/{CONFIG['BQ_DATASET']}"
-            )
-            _req = _urllib_req.Request(_ds_url, headers={"Authorization": f"Bearer {_creds.token}"})
-            with _urllib_req.urlopen(_req) as _resp:
-                _ds_info = _json_mod.loads(_resp.read())
-            _loc2 = _ds_info.get("location")
-            print(f"📍 BigQuery dataset location: {_loc2}")
-        except Exception as _e2:
-            _loc2 = None  # Let BigQuery auto-detect from dataset reference
-            print(f"⚠️  Could not auto-detect location ({_e2}), using auto-detect")
+        # Auto-discover dataset location by probing known regions
+            _loc2 = None
+            _t_probe2 = bq_table()
+            _probe_locs2 = ["asia", "asia-east1", "asia-southeast1", "asia-northeast1",
+                            "asia-east2", "asia-northeast2", "asia-northeast3",
+                            "US", "EU", "us-central1", "europe-west1"]
+            for _ploc2 in _probe_locs2:
+                try:
+                    _pc2 = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_ploc2)
+                    _probe_sql2 = (
+                        f"SELECT COUNT(*) AS c FROM {_t_probe2} "
+                        f"WHERE _TABLE_SUFFIX BETWEEN '20260101' AND '20260630'"
+                    )
+                    list(_pc2.query(_probe_sql2).result())
+                    _loc2 = _ploc2
+                    print(f"📍 BigQuery dataset location: {_loc2}")
+                    break
+                except Exception as _pe2:
+                    if "not found in location" in str(_pe2).lower():
+                        print(f"   ✗ Not in {_ploc2}")
+                    else:
+                        print(f"   ✗ {_ploc2}: {_pe2}")
+                        break
+            if _loc2 is None:
+                print("⚠️ Could not detect location — falling back to BQ_LOCATION secret")
+                _loc2 = CONFIG.get("BQ_LOCATION") or None
         client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc2)
         sql    = q5_article_analysis(build_table_path(), d_from, d_to)
         print(f"🔍 查詢 BigQuery 文章四象限（{date_from_str} – {date_to_str}）...")
