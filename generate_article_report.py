@@ -229,28 +229,33 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
         return _weekly_sample_data()
 
     from google.cloud import bigquery
-    # Auto-discover dataset location via direct REST API (avoids biglake.namespaces.get requirement)
-    try:
-        import google.auth
-        import google.auth.transport.requests as _ga_transport
-        import urllib.request as _urllib_req
-        import json as _json_mod
-        _BQ_SCOPE = 'https://www.googleapis.com/auth/bigquery.readonly'
-        _creds, _ = google.auth.default(scopes=[_BQ_SCOPE])
-        _auth_req = _ga_transport.Request()
-        _creds.refresh(_auth_req)
-        _ds_url = (
-            f"https://bigquery.googleapis.com/bigquery/v2/projects/"
-            f"{CONFIG['BQ_PROJECT']}/datasets/{CONFIG['BQ_DATASET']}"
-        )
-        _req = _urllib_req.Request(_ds_url, headers={"Authorization": f"Bearer {_creds.token}"})
-        with _urllib_req.urlopen(_req) as _resp:
-            _ds_info = _json_mod.loads(_resp.read())
-        _loc = _ds_info.get("location")
-        print(f"📍 BigQuery dataset location: {_loc}")
-    except Exception as _e:
-        _loc = CONFIG.get("BQ_LOCATION") or None
-        print(f"⚠️  Could not auto-detect location ({_e}), using: {_loc}")
+    # Auto-detect dataset location by probing candidate regions
+    _CANDIDATE_LOCS = list(dict.fromkeys(filter(None, [
+        CONFIG.get("BQ_LOCATION"),
+        "asia-southeast1", "asia-east1", "asia-east2",
+        "asia-northeast1", "US",
+    ])))
+    _loc = None
+    for _c in _CANDIDATE_LOCS:
+        try:
+            _tc = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_c)
+            list(_tc.query(
+                f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}`"
+                f".INFORMATION_SCHEMA.TABLES LIMIT 1"
+            ).result())
+            _loc = _c
+            print(f"📍 Dataset location confirmed: {_loc}")
+            break
+        except Exception as _ce:
+            if "not found in location" in str(_ce).lower():
+                print(f"   ❌ not in {_c}")
+                continue
+            else:
+                _loc = _c
+                print(f"   📍 Location likely {_c}: {str(_ce)[:60]}")
+                break
+    if _loc is None:
+        _loc = CONFIG.get("BQ_LOCATION") or "US"
     client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc)
     t = bq_table()
 
@@ -694,28 +699,33 @@ def main():
         except ImportError:
             print("❌ pip install google-cloud-bigquery")
             sys.exit(1)
-        # Auto-discover dataset location via direct REST API (avoids biglake.namespaces.get requirement)
-        try:
-            import google.auth
-            import google.auth.transport.requests as _ga_transport2
-            import urllib.request as _urllib_req2
-            import json as _json_mod2
-            _BQ_SCOPE2 = 'https://www.googleapis.com/auth/bigquery.readonly'
-            _creds2, _ = google.auth.default(scopes=[_BQ_SCOPE2])
-            _auth_req2 = _ga_transport2.Request()
-            _creds2.refresh(_auth_req2)
-            _ds_url2 = (
-                f"https://bigquery.googleapis.com/bigquery/v2/projects/"
-                f"{CONFIG['BQ_PROJECT']}/datasets/{CONFIG['BQ_DATASET']}"
-            )
-            _req2 = _urllib_req2.Request(_ds_url2, headers={"Authorization": f"Bearer {_creds2.token}"})
-            with _urllib_req2.urlopen(_req2) as _resp2:
-                _ds_info2 = _json_mod2.loads(_resp2.read())
-            _loc2 = _ds_info2.get("location")
-            print(f"📍 BigQuery dataset location: {_loc2}")
-        except Exception as _e2:
-            _loc2 = CONFIG.get("BQ_LOCATION") or None
-            print(f"⚠️  Could not auto-detect location ({_e2}), using: {_loc2}")
+        # Auto-detect dataset location by probing candidate regions
+        _CANDIDATE_LOCS2 = list(dict.fromkeys(filter(None, [
+            CONFIG.get("BQ_LOCATION"),
+            "asia-southeast1", "asia-east1", "asia-east2",
+            "asia-northeast1", "US",
+        ])))
+        _loc2 = None
+        for _c2 in _CANDIDATE_LOCS2:
+            try:
+                _tc2 = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_c2)
+                list(_tc2.query(
+                    f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}`"
+                    f".INFORMATION_SCHEMA.TABLES LIMIT 1"
+                ).result())
+                _loc2 = _c2
+                print(f"📍 Dataset location confirmed: {_loc2}")
+                break
+            except Exception as _ce2:
+                if "not found in location" in str(_ce2).lower():
+                    print(f"   ❌ not in {_c2}")
+                    continue
+                else:
+                    _loc2 = _c2
+                    print(f"   📍 Location likely {_c2}: {str(_ce2)[:60]}")
+                    break
+        if _loc2 is None:
+            _loc2 = CONFIG.get("BQ_LOCATION") or "US"
         client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc2)
         sql    = q5_article_analysis(build_table_path(), d_from, d_to)
         print(f"🔍 查詢 BigQuery 文章四象限（{date_from_str} – {date_to_str}）...")
