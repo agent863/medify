@@ -401,7 +401,7 @@ def fetch_all_data(ws, we, ps, pe):
     for _c in _CANDIDATE_LOCS:
         try:
             _tc = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_c)
-            _probe_sql = f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}.INFORMATION_SCHEMA.TABLES` LIMIT 1"
+            _probe_sql = f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}`.INFORMATION_SCHEMA.TABLES LIMIT 1"
             list(_tc.query(_probe_sql).result())
             _loc = _c
             print(f"📍 Dataset location confirmed: {_loc}")
@@ -412,10 +412,14 @@ def fetch_all_data(ws, we, ps, pe):
                 print(f"   not in {_c}")
                 continue
             else:
-                # Different error means location routing worked — use this location
-                _loc = _c
-                print(f"📍 Location {_c} (probe: {_ce_str[:50]})")
-                break
+                # Check if it's a permissions error (location routing worked but no IS permission)
+                if 'access denied' in _ce_str.lower() or 'permission' in _ce_str.lower() or 'forbidden' in _ce_str.lower():
+                    print(f"📍 Location confirmed (permission error): {_c} — {_ce_str[:120]}")
+                    _loc = _c
+                    break
+                else:
+                    print(f"   probe error at {_c}: {_ce_str[:150]}")
+                    continue
     if _loc is None:
         _loc = CONFIG.get("BQ_LOCATION") or "US"
         print(f"All probe locations failed, using: {_loc}")
