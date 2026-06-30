@@ -379,6 +379,8 @@ def make_sample_data():
 def fetch_all_data(ws, we, ps, pe):
     from google.cloud import bigquery
     # Auto-discover dataset location by probing known regions
+    # Key logic: BigQuery returns "not found in location X" for WRONG region;
+    # for the CORRECT region it either returns data or "not found" (table missing)
     location = None
     _probe_locs = [
         "asia-east1", "asia-east2",
@@ -394,10 +396,7 @@ def fetch_all_data(ws, we, ps, pe):
     for _loc in _probe_locs:
         try:
             _pc = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc)
-            _probe_sql = (
-                f"SELECT COUNT(*) AS c FROM {_t} "
-                f"WHERE _TABLE_SUFFIX BETWEEN '20260101' AND '20260630'"
-            )
+            _probe_sql = f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}.INFORMATION_SCHEMA.TABLES` LIMIT 1"
             list(_pc.query(_probe_sql).result())
             location = _loc
             print(f"📍 BigQuery dataset location: {location}")
@@ -405,7 +404,13 @@ def fetch_all_data(ws, we, ps, pe):
         except Exception as _pe:
             _pe_str = str(_pe).lower()
             if "not found in location" in _pe_str or "does not support this operation" in _pe_str:
+                # Wrong region — dataset exists elsewhere
                 print(f"   ✗ Not in {_loc}")
+            elif "not found" in _pe_str:
+                # Right region but no matching tables (empty dataset or different prefix)
+                location = _loc
+                print(f"📍 Dataset in {_loc} (no events tables yet)")
+                break
             else:
                 print(f"   ✗ {_loc}: {_pe}")
                 break
