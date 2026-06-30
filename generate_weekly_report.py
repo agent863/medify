@@ -385,23 +385,23 @@ def fetch_all_data(ws, we, ps, pe):
         "asia-northeast1", "asia-northeast2", "asia-northeast3",
         "asia-south1", "asia-south2", "asia-southeast2",
         "australia-southeast1", "australia-southeast2",
+        "asia",
         "US", "us-central1", "us-east1", "us-east4", "us-east5",
         "us-west1", "us-west2", "us-west3", "us-west4", "us-south1",
         "northamerica-northeast1", "northamerica-northeast2",
         "southamerica-east1", "southamerica-west1",
         "EU", "europe-west1", "europe-west2", "europe-west3",
         "europe-west4", "europe-west6", "europe-west8", "europe-west9",
+        "europe-west10", "europe-west12",
         "europe-north1", "europe-central2", "europe-southwest1",
-        "me-central1", "me-west1", "africa-south1",
+        "me-central1", "me-central2", "me-west1",
+        "africa-south1",
     ])))
     _loc = None
     for _c in _CANDIDATE_LOCS:
         try:
             _tc = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_c)
-            _probe_sql = (
-                f"SELECT COUNT(*) as _n FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}.events_*`"
-                f" WHERE _TABLE_SUFFIX >= '20260101' LIMIT 1"
-            )
+            _probe_sql = f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}.INFORMATION_SCHEMA.TABLES` LIMIT 1"
             list(_tc.query(_probe_sql).result())
             _loc = _c
             print(f"📍 Dataset location confirmed: {_loc}")
