@@ -235,7 +235,7 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
         import google.auth.transport.requests as _ga_transport
         import urllib.request as _urllib_req
         import json as _json_mod
-        _creds, _ = google.auth.default()
+        _creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
         _auth_req = _ga_transport.Request()
         _creds.refresh(_auth_req)
         _ds_url = (
@@ -699,7 +699,7 @@ def main():
             import google.auth.transport.requests as _ga_transport
             import urllib.request as _urllib_req
             import json as _json_mod
-            _creds, _ = google.auth.default()
+            _creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
             _auth_req = _ga_transport.Request()
             _creds.refresh(_auth_req)
             _ds_url = (
