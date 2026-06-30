@@ -397,8 +397,8 @@ def fetch_all_data(ws, we, ps, pe):
         location = _ds_info.get("location")
         print(f"📍 BigQuery dataset location: {location}")
     except Exception as e:
-        location = CONFIG.get("BQ_LOCATION") or None
-        print(f"⚠️  Could not auto-detect location ({e}), using: {location}")
+        location = None  # Let BigQuery auto-detect from dataset reference
+        print(f"⚠️  Could not auto-detect location ({e}), using auto-detect")
     client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=location)
     t = bq_table()
 
