@@ -229,11 +229,23 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
         return _weekly_sample_data()
 
     from google.cloud import bigquery
-    # Auto-discover dataset location so queries route to the correct region
-    _tmp = bigquery.Client(project=CONFIG["BQ_PROJECT"])
+    # Auto-discover dataset location via direct REST API (avoids biglake.namespaces.get requirement)
     try:
-        ds = _tmp.get_dataset(f"{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}")
-        _loc = ds.location
+        import google.auth
+        import google.auth.transport.requests as _ga_transport
+        import urllib.request as _urllib_req
+        import json as _json_mod
+        _creds, _ = google.auth.default()
+        _auth_req = _ga_transport.Request()
+        _creds.refresh(_auth_req)
+        _ds_url = (
+            f"https://bigquery.googleapis.com/bigquery/v2/projects/"
+            f"{CONFIG['BQ_PROJECT']}/datasets/{CONFIG['BQ_DATASET']}"
+        )
+        _req = _urllib_req.Request(_ds_url, headers={"Authorization": f"Bearer {_creds.token}"})
+        with _urllib_req.urlopen(_req) as _resp:
+            _ds_info = _json_mod.loads(_resp.read())
+        _loc = _ds_info.get("location")
         print(f"📍 BigQuery dataset location: {_loc}")
     except Exception as _e:
         _loc = CONFIG.get("BQ_LOCATION") or None
@@ -681,10 +693,23 @@ def main():
         except ImportError:
             print("❌ pip install google-cloud-bigquery")
             sys.exit(1)
-        _tmp2 = bigquery.Client(project=CONFIG["BQ_PROJECT"])
+        # Auto-discover dataset location via direct REST API (avoids biglake.namespaces.get requirement)
         try:
-            ds2 = _tmp2.get_dataset(f"{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}")
-            _loc2 = ds2.location
+            import google.auth
+            import google.auth.transport.requests as _ga_transport2
+            import urllib.request as _urllib_req2
+            import json as _json_mod2
+            _creds2, _ = google.auth.default()
+            _auth_req2 = _ga_transport2.Request()
+            _creds2.refresh(_auth_req2)
+            _ds_url2 = (
+                f"https://bigquery.googleapis.com/bigquery/v2/projects/"
+                f"{CONFIG['BQ_PROJECT']}/datasets/{CONFIG['BQ_DATASET']}"
+            )
+            _req2 = _urllib_req2.Request(_ds_url2, headers={"Authorization": f"Bearer {_creds2.token}"})
+            with _urllib_req2.urlopen(_req2) as _resp2:
+                _ds_info2 = _json_mod2.loads(_resp2.read())
+            _loc2 = _ds_info2.get("location")
             print(f"📍 BigQuery dataset location: {_loc2}")
         except Exception as _e2:
             _loc2 = CONFIG.get("BQ_LOCATION") or None
