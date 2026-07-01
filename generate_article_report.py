@@ -230,43 +230,17 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
 
     from google.cloud import bigquery
     # Auto-discover dataset location by probing known regions
-    _loc = None
-    _t_probe = bq_table()
-    _probe_locs = [
-        "asia-east1", "asia-east2",
-        "asia-southeast1", "asia-southeast2",
-        "asia-northeast1", "asia-northeast2", "asia-northeast3",
-        "asia-south1", "asia-south2",
-        "australia-southeast1",
-        "us-central1", "us-east1", "us-west1",
-        "europe-west1", "europe-west2", "europe-west3", "europe-west4",
-        "US", "EU",
-    ]
-    for _ploc in _probe_locs:
-        try:
-            _pc = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_ploc)
-            _probe_sql = (
-                f"SELECT COUNT(*) AS c FROM {_t_probe} "
-                f"WHERE _TABLE_SUFFIX >= '20000101'"
-            )
-            list(_pc.query(_probe_sql).result())
-            _loc = _ploc
-            print(f"📍 BigQuery dataset location: {_loc}")
-            break
-        except Exception as _pe:
-            _pe_s = str(_pe).lower()
-            if ("not found in location" in _pe_s and "dataset" in _pe_s) or "does not support this operation" in _pe_s:
-                print(f"   ✗ Not in {_ploc}")
-            elif "not found" in _pe_s:
-                _loc = _ploc
-                print(f"📍 Dataset in {_ploc} (no events tables yet)")
-                break
-            else:
-                print(f"   ✗ {_ploc}: {_pe}")
-                continue
-    if _loc is None:
-        print("⚠️ Could not detect location — falling back to BQ_LOCATION secret")
+        _loc = None
+    try:
+        _dc = bigquery.Client(project=CONFIG["BQ_PROJECT"])
+        _ds = _dc.get_dataset(CONFIG["BQ_DATASET"])
+        _loc = _ds.location
+        print(f"📍 BigQuery dataset location: {_loc}")
+    except Exception as _ge:
+        print(f"⚠️  get_dataset failed: {_ge}")
         _loc = CONFIG.get("BQ_LOCATION") or None
+        if _loc:
+            print(f"📍 Using BQ_LOCATION fallback: {_loc}")
     client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc)
     t = bq_table()
 
@@ -711,44 +685,18 @@ def main():
             print("❌ pip install google-cloud-bigquery")
             sys.exit(1)
         # Auto-discover dataset location by probing known regions
-            _loc2 = None
-            _t_probe2 = bq_table()
-            _probe_locs2 = [
-                "asia-east1", "asia-east2",
-                "asia-southeast1", "asia-southeast2",
-                "asia-northeast1", "asia-northeast2", "asia-northeast3",
-                "asia-south1", "asia-south2",
-                "australia-southeast1",
-                "us-central1", "us-east1", "us-west1",
-                "europe-west1", "europe-west2", "europe-west3", "europe-west4",
-                "US", "EU",
-            ]
-            for _ploc2 in _probe_locs2:
-                try:
-                    _pc2 = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_ploc2)
-                    _probe_sql2 = (
-                        f"SELECT COUNT(*) AS c FROM {_t_probe} "
-                        f"WHERE _TABLE_SUFFIX >= '20000101'"
-                    )
-                    list(_pc2.query(_probe_sql2).result())
-                    _loc2 = _ploc2
-                    print(f"📍 BigQuery dataset location: {_loc2}")
-                    break
-                except Exception as _pe2:
-                    _pe2_s = str(_pe2).lower()
-                    if ("not found in location" in _pe2_s and "dataset" in _pe2_s) or "does not support this operation" in _pe2_s:
-                        print(f"   ✗ Not in {_ploc2}")
-                    elif "not found" in _pe2_s:
-                        _loc2 = _ploc2
-                        print(f"📍 Dataset in {_ploc2} (no events tables yet)")
-                        break
-                    else:
-                        print(f"   ✗ {_ploc2}: {_pe2}")
-                        continue
-            if _loc2 is None:
-                print("⚠️ Could not detect location — falling back to BQ_LOCATION secret")
+                        _loc2 = None
+            try:
+                _dc2 = bigquery.Client(project=CONFIG["BQ_PROJECT"])
+                _ds2 = _dc2.get_dataset(CONFIG["BQ_DATASET"])
+                _loc2 = _ds2.location
+                print(f"📍 BigQuery dataset location: {_loc2}")
+            except Exception as _ge2:
+                print(f"⚠️  get_dataset failed: {_ge2}")
                 _loc2 = CONFIG.get("BQ_LOCATION") or None
-        client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc2)
+                if _loc2:
+                    print(f"📍 Using BQ_LOCATION fallback: {_loc2}")
+            client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc2)
         sql    = q5_article_analysis(build_table_path(), d_from, d_to)
         print(f"🔍 查詢 BigQuery 文章四象限（{date_from_str} – {date_to_str}）...")
         rows = run_query(client, sql)
