@@ -381,15 +381,27 @@ def fetch_all_data(ws, we, ps, pe):
     # Auto-discover dataset location by probing known regions
     # Key logic: BigQuery returns "not found in location X" for WRONG region;
     # for the CORRECT region it either returns data or "not found" (table missing)
-    # Log location for debugging, but create client WITHOUT location so BQ auto-routes
+    # Detect dataset location and use it for job routing
+    _detected_loc = None
     try:
         _dc0 = bigquery.Client(project=CONFIG["BQ_PROJECT"])
         _ds0 = _dc0.get_dataset(CONFIG["BQ_DATASET"])
-        print(f"📍 Dataset location (info only): {_ds0.location}")
+        _detected_loc = _ds0.location
+        _ds_proj = _ds0.reference.project
+        print(f"📍 Dataset location: {_detected_loc!r}")
+        print(f"🔑 DS proj is_numeric={_ds_proj.isdigit()}, len={len(_ds_proj)}")
     except Exception as _ge0:
-        print(f"⚠️  Could not read dataset metadata: {_ge0}")
-    # Always create without location — BigQuery routes jobs to the correct region automatically
-    client = bigquery.Client(project=CONFIG["BQ_PROJECT"])
+        _detected_loc = CONFIG.get("BQ_LOCATION")
+        _ds_proj = CONFIG["BQ_PROJECT"]
+        print(f"⚠️  Could not detect location: {_ge0}")
+    print(f"🔑 BQ_PROJECT is_numeric={CONFIG['BQ_PROJECT'].isdigit()}, len={len(CONFIG['BQ_PROJECT'])}")
+    client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_detected_loc)
+    try:
+        _tlist = list(client.list_tables(CONFIG["BQ_DATASET"]))
+        print(f"✅ list_tables OK: {len(_tlist)} tables")
+        if _tlist: print(f"  sample: {_tlist[0].table_id[:20]}")
+    except Exception as _e_lt:
+        print(f"❌ list_tables FAILED: {type(_e_lt).__name__}: {str(_e_lt)[:200]}")
     t = bq_table()
 
     def run(sql):
