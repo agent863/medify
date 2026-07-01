@@ -378,10 +378,7 @@ def make_sample_data():
 
 def fetch_all_data(ws, we, ps, pe):
     from google.cloud import bigquery
-    # Auto-discover dataset location by probing known regions
-    # Key logic: BigQuery returns "not found in location X" for WRONG region;
-    # for the CORRECT region it either returns data or "not found" (table missing)
-    # Detect dataset location
+    # Auto-discover dataset location — probe for events tables
     _detected_loc = None
     _ds_proj = CONFIG["BQ_PROJECT"]
     try:
@@ -389,51 +386,52 @@ def fetch_all_data(ws, we, ps, pe):
         _ds0 = _dc0.get_dataset(CONFIG["BQ_DATASET"])
         _detected_loc = _ds0.location
         _ds_proj = _ds0.reference.project
-        print(f"📍 Dataset location: {_detected_loc!r}")
+        print(f"\U0001f4cd Dataset location: {_detected_loc!r}")
     except Exception as _ge0:
         _detected_loc = CONFIG.get("BQ_LOCATION")
-        print(f"⚠️  Could not detect location: {_ge0}")
-    print(f"🔑 BQ_DATASET 1st4: {CONFIG['BQ_DATASET'][:4]!r}, len={len(CONFIG['BQ_DATASET'])}")
-    print(f"🔑 BQ_PROJECT islower={CONFIG['BQ_PROJECT'].islower()}, starts_alpha={CONFIG['BQ_PROJECT'][0].isalpha()}, ends_dash={CONFIG['BQ_PROJECT'][-1]=='-'}")
-    print(f"🔑 ds_proj==BQ_PROJECT: {_ds_proj == CONFIG['BQ_PROJECT']}")
-    # Get true project ID from SA credentials
-    try:
-        _sa_email = getattr(_dc0._credentials, 'service_account_email', None)
-        if _sa_email and '@' in _sa_email:
-            _sa_proj = _sa_email.split('@')[1].replace('.iam.gserviceaccount.com', '')
-            print(f"📧 SA proj (from email): {_sa_proj!r}")
-            print(f"📧 SA proj == BQ_PROJECT: {_sa_proj == CONFIG['BQ_PROJECT']}")
-    except Exception as _e_sa:
-        print(f"⚠️ SA email: {_e_sa}")
+        print(f"\u26a0\ufe0f Could not detect location: {_ge0}")
+    _proj_valid = all(c.isalnum() or c == '-' for c in CONFIG["BQ_PROJECT"])
+    print(f"\U0001f511 BQ_DATASET 1st12: {CONFIG['BQ_DATASET'][:12]!r}, len={len(CONFIG['BQ_DATASET'])}")
+    print(f"\U0001f511 BQ_PROJECT valid_chars={_proj_valid}, len={len(CONFIG['BQ_PROJECT'])}")
     client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_detected_loc)
-    # Direct list_tables on BQ_DATASET
+    # Check BQ_DATASET tables
+    _bq_ds_tables = 0
     try:
-        _bq_tables = list(client.list_tables(CONFIG["BQ_DATASET"]))
-        print(f"📋 list_tables(BQ_DATASET): {len(_bq_tables)} tables")
-        for _tt in _bq_tables[:5]:
-            print(f"  table: {_tt.table_id[:12]!r}")
+        _bq_ds_tables = len(list(client.list_tables(CONFIG["BQ_DATASET"])))
+        print(f"\U0001f4cb list_tables(BQ_DATASET): {_bq_ds_tables} tables")
     except Exception as _e_lt:
-        print(f"❌ list_tables(BQ_DATASET): {type(_e_lt).__name__}: {str(_e_lt)[:200]}")
-    # INFORMATION_SCHEMA check
-    try:
-        _is_rows = list(client.query(
-            f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}.INFORMATION_SCHEMA.TABLES` LIMIT 5"
-        ).result())
-        print(f"📊 INFORMATION_SCHEMA: {len(_is_rows)} tables found")
-        for _r in _is_rows:
-            print(f"  table: {_r.table_name[:20]!r}")
-    except Exception as _e_is:
-        print(f"❌ INFORMATION_SCHEMA({type(_e_is).__name__}): {str(_e_is)[:250]}")
-    # Enumerate ALL datasets
+        print(f"\u274c list_tables(BQ_DATASET): {type(_e_lt).__name__}: {str(_e_lt)[:100]}")
+    # Try candidate datasets to find GA4 events
+    _override_ds = None
+    _candidates = ["analytics_456665733", "ga4", "analytics", "medify_ga4"]
+    for _cand in _candidates:
+        try:
+            _cds = client.get_dataset(_cand)
+            _ctc = len(list(client.list_tables(_cand)))
+            print(f"\U0001f4ca Candidate {_cand!r}: loc={_cds.location!r} tables={_ctc}")
+            if _ctc > 0 and _override_ds is None:
+                _override_ds = _cand
+                _detected_loc = _cds.location
+        except Exception as _ce:
+            print(f"\u2139\ufe0f Candidate {_cand!r}: {type(_ce).__name__}")
+    # Enumerate all visible datasets
     try:
         all_ds = list(client.list_datasets())
-        print(f"📋 Total datasets in project: {len(all_ds)}")
+        print(f"\U0001f4cb All visible datasets: {len(all_ds)}")
         for _d in all_ds[:10]:
-            _tc = len(list(client.list_tables(_d.dataset_id)))
-            _same = _d.dataset_id == CONFIG["BQ_DATASET"]
-            print(f"  ds 1st3={_d.dataset_id[:3]!r} len={len(_d.dataset_id)} same={_same} tables={_tc}")
+            try:
+                _dtc = len(list(client.list_tables(_d.dataset_id)))
+                print(f"  ds={_d.dataset_id!r} tables={_dtc}")
+                if _dtc > 0 and _override_ds is None:
+                    _override_ds = _d.dataset_id
+            except Exception:
+                print(f"  ds={_d.dataset_id!r} (no table access)")
     except Exception as _e_ds:
-        print(f"❌ list_datasets failed: {_e_ds}")
+        print(f"\u274c list_datasets: {_e_ds}")
+    if _override_ds:
+        print(f"\u2705 Auto-discovered dataset: {_override_ds!r} — overriding BQ_DATASET")
+        CONFIG["BQ_DATASET"] = _override_ds
+        client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_detected_loc)
     t = bq_table()
 
     def run(sql):
