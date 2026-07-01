@@ -381,21 +381,15 @@ def fetch_all_data(ws, we, ps, pe):
     # Auto-discover dataset location by probing known regions
     # Key logic: BigQuery returns "not found in location X" for WRONG region;
     # for the CORRECT region it either returns data or "not found" (table missing)
-    # Detect location via get_dataset (no region-probing needed)
-    location = None
+    # Log location for debugging, but create client WITHOUT location so BQ auto-routes
     try:
-        _dc = bigquery.Client(project=CONFIG["BQ_PROJECT"])
-        _ds = _dc.get_dataset(CONFIG["BQ_DATASET"])
-        location = _ds.location
-        print(f"📍 BigQuery dataset location: {location}")
-    except Exception as _ge:
-        print(f"⚠️  get_dataset failed: {_ge}")
-        location = CONFIG.get("BQ_LOCATION") or None
-        if location:
-            print(f"📍 Using BQ_LOCATION fallback: {location}")
-        else:
-            print("❌ No location — queries may fail")
-    client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=location)
+        _dc0 = bigquery.Client(project=CONFIG["BQ_PROJECT"])
+        _ds0 = _dc0.get_dataset(CONFIG["BQ_DATASET"])
+        print(f"📍 Dataset location (info only): {_ds0.location}")
+    except Exception as _ge0:
+        print(f"⚠️  Could not read dataset metadata: {_ge0}")
+    # Always create without location — BigQuery routes jobs to the correct region automatically
+    client = bigquery.Client(project=CONFIG["BQ_PROJECT"])
     t = bq_table()
 
     def run(sql):
