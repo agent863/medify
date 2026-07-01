@@ -393,16 +393,35 @@ def fetch_all_data(ws, we, ps, pe):
     except Exception as _ge0:
         _detected_loc = CONFIG.get("BQ_LOCATION")
         print(f"⚠️  Could not detect location: {_ge0}")
-    print(f"🔑 BQ_DATASET 1st2: {CONFIG['BQ_DATASET'][:2]!r}, len={len(CONFIG['BQ_DATASET'])}")
+    print(f"🔑 BQ_DATASET 1st4: {CONFIG['BQ_DATASET'][:4]!r}, len={len(CONFIG['BQ_DATASET'])}")
+    print(f"🔑 ds_proj==BQ_PROJECT: {_ds_proj == CONFIG['BQ_PROJECT']}")
     client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_detected_loc)
-    # Enumerate ALL datasets to find which has events_* tables
+    # Direct list_tables on BQ_DATASET
+    try:
+        _bq_tables = list(client.list_tables(CONFIG["BQ_DATASET"]))
+        print(f"📋 list_tables(BQ_DATASET): {len(_bq_tables)} tables")
+        for _tt in _bq_tables[:5]:
+            print(f"  table: {_tt.table_id[:12]!r}")
+    except Exception as _e_lt:
+        print(f"❌ list_tables(BQ_DATASET): {type(_e_lt).__name__}: {str(_e_lt)[:200]}")
+    # INFORMATION_SCHEMA check
+    try:
+        _is_rows = list(client.query(
+            f"SELECT table_name FROM `{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}.INFORMATION_SCHEMA.TABLES` LIMIT 5"
+        ).result())
+        print(f"📊 INFORMATION_SCHEMA: {len(_is_rows)} tables found")
+        for _r in _is_rows:
+            print(f"  table: {_r.table_name[:20]!r}")
+    except Exception as _e_is:
+        print(f"❌ INFORMATION_SCHEMA: {type(_e_is).__name__}: {str(_e_is)[:250]}")
+    # Enumerate ALL datasets
     try:
         all_ds = list(client.list_datasets())
         print(f"📋 Total datasets in project: {len(all_ds)}")
         for _d in all_ds[:10]:
             _tc = len(list(client.list_tables(_d.dataset_id)))
             _same = _d.dataset_id == CONFIG["BQ_DATASET"]
-            print(f"  ds len={len(_d.dataset_id)} same={_same} tables={_tc}")
+            print(f"  ds 1st3={_d.dataset_id[:3]!r} len={len(_d.dataset_id)} same={_same} tables={_tc}")
     except Exception as _e_ds:
         print(f"❌ list_datasets failed: {_e_ds}")
     t = bq_table()
