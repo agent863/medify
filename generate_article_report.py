@@ -230,18 +230,8 @@ def fetch_standard_data(d_from: date, d_to: date, dry_run: bool) -> dict | None:
 
     from google.cloud import bigquery
     # Auto-discover dataset location by probing known regions
-        _loc = None
-    try:
-        _dc = bigquery.Client(project=CONFIG["BQ_PROJECT"])
-        _ds = _dc.get_dataset(CONFIG["BQ_DATASET"])
-        _loc = _ds.location
-        print(f"📍 BigQuery dataset location: {_loc}")
-    except Exception as _ge:
-        print(f"⚠️  get_dataset failed: {_ge}")
-        _loc = CONFIG.get("BQ_LOCATION") or None
-        if _loc:
-            print(f"📍 Using BQ_LOCATION fallback: {_loc}")
-    client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc)
+    # BQ client without location — BigQuery auto-routes
+    client = bigquery.Client(project=CONFIG["BQ_PROJECT"])
     t = bq_table()
 
     def run(sql):
@@ -685,18 +675,8 @@ def main():
             print("❌ pip install google-cloud-bigquery")
             sys.exit(1)
         # Auto-discover dataset location by probing known regions
-                        _loc2 = None
-            try:
-                _dc2 = bigquery.Client(project=CONFIG["BQ_PROJECT"])
-                _ds2 = _dc2.get_dataset(CONFIG["BQ_DATASET"])
-                _loc2 = _ds2.location
-                print(f"📍 BigQuery dataset location: {_loc2}")
-            except Exception as _ge2:
-                print(f"⚠️  get_dataset failed: {_ge2}")
-                _loc2 = CONFIG.get("BQ_LOCATION") or None
-                if _loc2:
-                    print(f"📍 Using BQ_LOCATION fallback: {_loc2}")
-            client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc2)
+            # BQ client without location — BigQuery auto-routes
+            client = bigquery.Client(project=CONFIG["BQ_PROJECT"])
         sql    = q5_article_analysis(build_table_path(), d_from, d_to)
         print(f"🔍 查詢 BigQuery 文章四象限（{date_from_str} – {date_to_str}）...")
         rows = run_query(client, sql)
