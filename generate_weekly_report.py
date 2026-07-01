@@ -394,7 +394,17 @@ def fetch_all_data(ws, we, ps, pe):
         _detected_loc = CONFIG.get("BQ_LOCATION")
         print(f"⚠️  Could not detect location: {_ge0}")
     print(f"🔑 BQ_DATASET 1st4: {CONFIG['BQ_DATASET'][:4]!r}, len={len(CONFIG['BQ_DATASET'])}")
+    print(f"🔑 BQ_PROJECT islower={CONFIG['BQ_PROJECT'].islower()}, starts_alpha={CONFIG['BQ_PROJECT'][0].isalpha()}, ends_dash={CONFIG['BQ_PROJECT'][-1]=='-'}")
     print(f"🔑 ds_proj==BQ_PROJECT: {_ds_proj == CONFIG['BQ_PROJECT']}")
+    # Get true project ID from SA credentials
+    try:
+        _sa_email = getattr(_dc0._credentials, 'service_account_email', None)
+        if _sa_email and '@' in _sa_email:
+            _sa_proj = _sa_email.split('@')[1].replace('.iam.gserviceaccount.com', '')
+            print(f"📧 SA proj (from email): {_sa_proj!r}")
+            print(f"📧 SA proj == BQ_PROJECT: {_sa_proj == CONFIG['BQ_PROJECT']}")
+    except Exception as _e_sa:
+        print(f"⚠️ SA email: {_e_sa}")
     client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_detected_loc)
     # Direct list_tables on BQ_DATASET
     try:
@@ -413,7 +423,7 @@ def fetch_all_data(ws, we, ps, pe):
         for _r in _is_rows:
             print(f"  table: {_r.table_name[:20]!r}")
     except Exception as _e_is:
-        print(f"❌ INFORMATION_SCHEMA: {type(_e_is).__name__}: {str(_e_is)[:250]}")
+        print(f"❌ INFORMATION_SCHEMA({type(_e_is).__name__}): {str(_e_is)[:250]}")
     # Enumerate ALL datasets
     try:
         all_ds = list(client.list_datasets())
