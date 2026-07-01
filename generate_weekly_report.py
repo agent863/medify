@@ -381,46 +381,20 @@ def fetch_all_data(ws, we, ps, pe):
     # Auto-discover dataset location by probing known regions
     # Key logic: BigQuery returns "not found in location X" for WRONG region;
     # for the CORRECT region it either returns data or "not found" (table missing)
+    # Detect location via get_dataset (no region-probing needed)
     location = None
-    _probe_locs = [
-        "asia-east1", "asia-east2",
-        "asia-southeast1", "asia-southeast2",
-        "asia-northeast1", "asia-northeast2", "asia-northeast3",
-        "asia-south1", "asia-south2",
-        "australia-southeast1",
-        "us-central1", "us-east1", "us-west1",
-        "europe-west1", "europe-west2", "europe-west3", "europe-west4",
-        "US", "EU",
-    ]
-    _t = bq_table()
-    _t_probe = bq_table()
-    for _loc in _probe_locs:
-        try:
-            _pc = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=_loc)
-            _probe_sql = (
-                f"SELECT COUNT(*) AS c FROM {_t_probe} "
-                f"WHERE _TABLE_SUFFIX >= '20000101'"
-            )
-            list(_pc.query(_probe_sql).result())
-            location = _loc
-            print(f"📍 BigQuery dataset location: {location}")
-            break
-        except Exception as _pe:
-            _pe_str = str(_pe).lower()
-            if ("not found in location" in _pe_str and "dataset" in _pe_str) or "does not support this operation" in _pe_str:
-                # Wrong region — dataset exists elsewhere
-                print(f"   ✗ Not in {_loc}")
-            elif "not found" in _pe_str:
-                # Right region but no matching tables (empty dataset or different prefix)
-                location = _loc
-                print(f"📍 Dataset in {_loc} (no events tables yet)")
-                break
-            else:
-                print(f"   ✗ {_loc}: {_pe}")
-                continue
-    if location is None:
-        print("⚠️ Could not detect location — falling back to BQ_LOCATION secret")
+    try:
+        _dc = bigquery.Client(project=CONFIG["BQ_PROJECT"])
+        _ds = _dc.get_dataset(CONFIG["BQ_DATASET"])
+        location = _ds.location
+        print(f"📍 BigQuery dataset location: {location}")
+    except Exception as _ge:
+        print(f"⚠️  get_dataset failed: {_ge}")
         location = CONFIG.get("BQ_LOCATION") or None
+        if location:
+            print(f"📍 Using BQ_LOCATION fallback: {location}")
+        else:
+            print("❌ No location — queries may fail")
     client = bigquery.Client(project=CONFIG["BQ_PROJECT"], location=location)
     t = bq_table()
 
