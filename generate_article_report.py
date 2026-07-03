@@ -29,7 +29,8 @@ args = parser.parse_args()
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-BQ_PROJECT = os.environ.get("BQ_PROJECT", "my-bq-project")
+BQ_PROJECT = os.environ.get("BQ_PROJECT", "my-bq-project")   # billing project
+BQ_DATA_PROJECT = os.environ.get("BQ_DATA_PROJECT", os.environ.get("BQ_PROJECT", "my-bq-project"))  # data project
 BQ_DATASET = os.environ.get("BQ_DATASET", "my_dataset")
 
 now = datetime.now()
@@ -60,7 +61,7 @@ FROM (
     event_name,
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location') AS page_location,
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_title')    AS page_title
-  FROM `{BQ_PROJECT}.{BQ_DATASET}.events_*`
+  FROM `{BQ_DATA_PROJECT}.{BQ_DATASET}.events_*`
   WHERE _TABLE_SUFFIX BETWEEN
     FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY))
     AND FORMAT_DATE('%Y%m%d', CURRENT_DATE())
