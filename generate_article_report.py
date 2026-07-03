@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
 generate_article_report.py
-Monthly HTML report for Doctor-10 article performance (last 30 days).
+Monthly HTML report for Doctor-10 article performance.
 
 Usage:
-  python generate_article_report.py                  # full run
-  python generate_article_report.py --dry-run        # print SQL + generate sample HTML
-  python generate_article_report.py --month M06      # override month label
-  python generate_article_report.py --no-push        # skip git push
+  python generate_article_report.py                                    # auto: previous calendar month
+  python generate_article_report.py --date-from 2026-05-01 --date-to 2026-05-31
+  python generate_article_report.py --month M05                        # override month label in filename
+  python generate_article_report.py --dry-run                          # print SQL + sample HTML, no BQ
+  python generate_article_report.py --no-push                          # generate HTML but skip git push
 """
 
 import argparse
+import calendar
 import os
 import subprocess
 import sys
@@ -21,30 +23,49 @@ import statistics
 # CLI args
 # ---------------------------------------------------------------------------
 parser = argparse.ArgumentParser(description="Generate Doctor-10 monthly article report")
-parser.add_argument("--dry-run", action="store_true", help="Print SQL only; generate sample HTML")
-parser.add_argument("--month", default=None, help="Override month label, e.g. M06")
-parser.add_argument("--no-push", action="store_true", help="Generate HTML but skip git push")
+parser.add_argument("--date-from", default=None, help="Start date YYYY-MM-DD (default: 1st of prev month)")
+parser.add_argument("--date-to",   default=None, help="End date   YYYY-MM-DD (default: last of prev month)")
+parser.add_argument("--month",     default=None, help="Override month label in filename, e.g. M05")
+parser.add_argument("--dry-run",   action="store_true", help="Print SQL only; generate sample HTML, no BQ")
+parser.add_argument("--no-push",   action="store_true", help="Generate HTML but skip git push")
 args = parser.parse_args()
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-BQ_PROJECT = os.environ.get("BQ_PROJECT", "my-bq-project")   # billing project
-BQ_DATA_PROJECT = os.environ.get("BQ_DATA_PROJECT", os.environ.get("BQ_PROJECT", "my-bq-project"))  # data project
-BQ_DATASET = os.environ.get("BQ_DATASET", "my_dataset")
+BQ_PROJECT  = os.environ.get("BQ_PROJECT",  "my-bq-project")
+BQ_DATASET  = os.environ.get("BQ_DATASET",  "my_dataset")
+BQ_LOCATION = os.environ.get("BQ_LOCATION", "asia-east1")
 
 now = datetime.now()
-YEAR = now.strftime("%Y")
-MONTH_NUM = now.strftime("%m")            # "06"
-MONTH_LABEL = args.month if args.month else f"M{MONTH_NUM}"  # "M06"
-REPORT_DATE_LABEL = f"{YEAR}年{MONTH_NUM}月"                 # "2026年06月"
-REPORT_PERIOD_END = now.strftime("%Y-%m-%d")
-REPORT_PERIOD_START = (now - timedelta(days=30)).strftime("%Y-%m-%d")
+
+# Determine date range — default to previous full calendar month
+if args.date_from and args.date_to:
+    DATE_FROM = args.date_from   # e.g. "2026-05-01"
+    DATE_TO   = args.date_to     # e.g. "2026-05-31"
+else:
+    # Previous month
+    first_of_this_month = now.replace(day=1)
+    last_of_prev        = first_of_this_month - timedelta(days=1)
+    first_of_prev       = last_of_prev.replace(day=1)
+    DATE_FROM = first_of_prev.strftime("%Y-%m-%d")
+    DATE_TO   = last_of_prev.strftime("%Y-%m-%d")
+
+# Derive year/month from DATE_FROM for labels
+dt_from = datetime.strptime(DATE_FROM, "%Y-%m-%d")
+YEAR        = dt_from.strftime("%Y")
+MONTH_NUM   = dt_from.strftime("%m")
+MONTH_LABEL = args.month if args.month else f"M{MONTH_NUM}"
+REPORT_DATE_LABEL = f"{YEAR}年{MONTH_NUM}月"
 
 HTML_FILENAME = f"report-{YEAR}-{MONTH_LABEL}-article-analysis.html"
 
+# BQ date suffix format (YYYYMMDD)
+BQ_FROM = DATE_FROM.replace("-", "")
+BQ_TO   = DATE_TO.replace("-", "")
+
 # ---------------------------------------------------------------------------
-# BigQuery SQL (same as Q5 in run_post_view_queries.py)
+# BigQuery SQL (same logic as Q5 in run_post_view_queries.py)
 # ---------------------------------------------------------------------------
 SQL = f"""
 SELECT
@@ -61,10 +82,8 @@ FROM (
     event_name,
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location') AS page_location,
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_title')    AS page_title
-  FROM `{BQ_DATA_PROJECT}.{BQ_DATASET}.events_*`
-  WHERE _TABLE_SUFFIX BETWEEN
-    FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY))
-    AND FORMAT_DATE('%Y%m%d', CURRENT_DATE())
+  FROM `{BQ_PROJECT}.{BQ_DATASET}.events_*`
+  WHERE _TABLE_SUFFIX BETWEEN '{BQ_FROM}' AND '{BQ_TO}'
     AND event_name IN ('page_view', 'scroll_75')
 )
 WHERE (
@@ -88,12 +107,12 @@ if args.dry_run:
 # ---------------------------------------------------------------------------
 def fetch_bq_data():
     from google.cloud import bigquery  # type: ignore
-    client = bigquery.Client(project=BQ_PROJECT)
+    client = bigquery.Client(project=BQ_PROJECT, location=BQ_LOCATION)
     rows = list(client.query(SQL).result())
     return [
         {
-            "page_location": r.page_location,
-            "page_title": r.page_title or r.page_location,
+            "page_location":   r.page_location,
+            "page_title":      r.page_title or r.page_location,
             "page_view_count": r.page_view_count or 0,
             "scroll_75_count": r.scroll_75_count or 0,
             "completion_rate": float(r.completion_rate or 0),
@@ -124,51 +143,35 @@ if args.dry_run:
     data = SAMPLE_ARTICLES
     print(f"Using {len(data)} sample articles for HTML generation.\n")
 else:
-    print("Fetching data from BigQuery …")
+    print(f"Fetching data from BigQuery ({DATE_FROM} → {DATE_TO}) …")
     data = fetch_bq_data()
     print(f"Fetched {len(data)} articles.")
 
 # ---------------------------------------------------------------------------
-# Compute median threshold
+# Compute thresholds (median)
 # ---------------------------------------------------------------------------
 if data:
-    views = [r["page_view_count"] for r in data]
+    views     = [r["page_view_count"] for r in data]
+    cr_values = [r["completion_rate"]  for r in data]
     median_threshold = statistics.median(views)
+    cr_median        = statistics.median(cr_values)
 else:
     median_threshold = 0
+    cr_median        = 50.0
 
-print(f"Median page_view_count: {median_threshold}")
+print(f"Median views: {median_threshold}  |  Median completion: {cr_median:.1f}%")
 
 # ---------------------------------------------------------------------------
 # Segment into 4 quadrants
-# Also compute completion_rate median for "高/低符合預期" split
 # ---------------------------------------------------------------------------
-if data:
-    cr_values = [r["completion_rate"] for r in data]
-    cr_median = statistics.median(cr_values)
-else:
-    cr_median = 50.0
-
 def segment(row):
-    high_traffic = row["page_view_count"] >= median_threshold
-    high_completion = row["completion_rate"] >= cr_median
-    return (high_traffic, high_completion)
+    return (row["page_view_count"] >= median_threshold,
+            row["completion_rate"]  >= cr_median)
 
-q1 = [r for r in data if segment(r) == (True, True)]    # 高流量 × 高符合預期
-q2 = [r for r in data if segment(r) == (True, False)]   # 高流量 × 低符合預期
-q3 = [r for r in data if segment(r) == (False, True)]   # 低流量 × 高符合預期
-q4 = [r for r in data if segment(r) == (False, False)]  # 低流量 × 低符合預朞
-
-# Sort within each quadrant and take top 10
-q1.sort(key=lambda r: r["page_view_count"], reverse=True)
-q2.sort(key=lambda r: r["page_view_count"], reverse=True)
-q3.sort(key=lambda r: r["completion_rate"], reverse=True)
-q4.sort(key=lambda r: r["page_view_count"], reverse=True)
-
-q1 = q1[:10]
-q2 = q2[:10]
-q3 = q3[:10]
-q4 = q4[:10]
+q1 = sorted([r for r in data if segment(r) == (True,  True)],  key=lambda r: r["page_view_count"], reverse=True)[:10]
+q2 = sorted([r for r in data if segment(r) == (True,  False)], key=lambda r: r["page_view_count"], reverse=True)[:10]
+q3 = sorted([r for r in data if segment(r) == (False, True)],  key=lambda r: r["completion_rate"],  reverse=True)[:10]
+q4 = sorted([r for r in data if segment(r) == (False, False)], key=lambda r: r["page_view_count"], reverse=True)[:10]
 
 # ---------------------------------------------------------------------------
 # HTML helpers
@@ -176,34 +179,26 @@ q4 = q4[:10]
 def short_title(row):
     title = row["page_title"]
     if not title or title == row["page_location"]:
-        # fallback: use last path segment
-        segs = row["page_location"].rstrip("/").split("/")
+        segs  = row["page_location"].rstrip("/").split("/")
         title = segs[-1] if segs else row["page_location"]
     return title
 
-def build_table(rows, accent_color, empty_msg="（無資料）"):
+def build_table(rows, accent_color):
     if not rows:
-        return f'<p class="empty-msg">{empty_msg}</p>'
-    cols_style = f"background:{accent_color};"
-    html = '<table><thead><tr>'
-    html += f'<th style="{cols_style}">排名</th>'
-    html += f'<th style="{cols_style}">文章標題</th>'
-    html += f'<th style="{cols_style}">瀏覽數</th>'
-    html += f'<th style="{cols_style}">閱讀完成數</th>'
-    html += f'<th style="{cols_style}">符合預期度(%)</th>'
-    html += '</tr></thead><tbody>'
+        return '<p class="empty-msg">（無資料）</p>'
+    s  = f'background:{accent_color};'
+    h  = '<table><thead><tr>'
+    h += f'<th style="{s}">排名</th><th style="{s}">文章標題</th>'
+    h += f'<th style="{s}">瀏覽數</th><th style="{s}">閱讀完成數</th><th style="{s}">符合預期度(%)</th>'
+    h += '</tr></thead><tbody>'
     for i, row in enumerate(rows, 1):
-        title = short_title(row)
-        url = row["page_location"]
-        html += f"""<tr>
-          <td class="center">{i}</td>
-          <td><a href="{url}" target="_blank" rel="noopener">{title}</a></td>
-          <td class="center">{row['page_view_count']:,}</td>
-          <td class="center">{row['scroll_75_count']:,}</td>
-          <td class="center">{row['completion_rate']:.1f}%</td>
-        </tr>"""
-    html += '</tbody></table>'
-    return html
+        t = short_title(row)
+        u = row["page_location"]
+        h += f'<tr><td class="c">{i}</td><td><a href="{u}" target="_blank" rel="noopener">{t}</a></td>'
+        h += f'<td class="c">{row["page_view_count"]:,}</td><td class="c">{row["scroll_75_count"]:,}</td>'
+        h += f'<td class="c">{row["completion_rate"]:.1f}%</td></tr>'
+    h += '</tbody></table>'
+    return h
 
 GENERATED_AT = now.strftime("%Y-%m-%d %H:%M")
 
@@ -217,297 +212,105 @@ HTML = f"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>文章表現月報 | Doctor-10 | {REPORT_DATE_LABEL}</title>
 <style>
-  /* ── Reset ── */
-  *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
-
-  /* ── Tokens ── */
-  :root {{
-    --bg: #f6f8fb;
-    --navy-start: #0f3460;
-    --navy-end: #1a5276;
-    --card-bg: #ffffff;
-    --card-border: #e6ebf2;
-    --text-primary: #1a2332;
-    --text-secondary: #5a6a7a;
-    --font: -apple-system, BlinkMacSystemFont, "PingFang TC", "Microsoft JhengHei", Arial, sans-serif;
-    --radius: 12px;
-  }}
-
-  body {{
-    font-family: var(--font);
-    background: var(--bg);
-    color: var(--text-primary);
-    min-height: 100vh;
-  }}
-
-  /* ── Lock screen ── */
-  #lock-screen {{
-    position: fixed; inset: 0;
-    background: linear-gradient(135deg, var(--navy-start), var(--navy-end));
-    display: flex; align-items: center; justify-content: center;
-    z-index: 9999;
-  }}
-  .lock-box {{
-    background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.18);
-    border-radius: 20px;
-    padding: 48px 40px;
-    text-align: center;
-    width: 360px;
-    backdrop-filter: blur(12px);
-  }}
-  .lock-icon {{ font-size: 52px; margin-bottom: 16px; }}
-  .lock-title {{ color: #fff; font-size: 20px; font-weight: 600; margin-bottom: 6px; }}
-  .lock-sub {{ color: rgba(255,255,255,0.65); font-size: 13px; margin-bottom: 28px; }}
-  .lock-box input[type="password"] {{
-    width: 100%;
-    padding: 14px 18px;
-    font-size: 18px;
-    letter-spacing: 6px;
-    border: none;
-    border-radius: 10px;
-    background: rgba(255,255,255,0.15);
-    color: #fff;
-    text-align: center;
-    outline: none;
-    margin-bottom: 16px;
-    transition: background 0.2s;
-  }}
-  .lock-box input[type="password"]::placeholder {{ letter-spacing: 2px; color: rgba(255,255,255,0.45); font-size: 14px; }}
-  .lock-box input[type="password"]:focus {{ background: rgba(255,255,255,0.25); }}
-  .lock-btn {{
-    width: 100%;
-    padding: 14px;
-    background: rgba(255,255,255,0.9);
-    color: var(--navy-start);
-    border: none;
-    border-radius: 10px;
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity 0.2s;
-    font-family: var(--font);
-  }}
-  .lock-btn:hover {{ opacity: 0.88; }}
-  .lock-error {{ color: #ff8080; font-size: 13px; margin-top: 12px; min-height: 18px; }}
-
-  /* ── Main content (hidden until unlock) ── */
-  #main-content {{ display: none; }}
-
-  /* ── Header ── */
-  .report-header {{
-    background: linear-gradient(135deg, var(--navy-start), var(--navy-end));
-    color: #fff;
-    padding: 36px 40px 32px;
-  }}
-  .report-header h1 {{ font-size: 26px; font-weight: 700; margin-bottom: 6px; }}
-  .report-header .subtitle {{ font-size: 14px; opacity: 0.75; }}
-
-  /* ── Container ── */
-  .container {{ max-width: 1100px; margin: 0 auto; padding: 32px 24px; }}
-
-  /* ── Summary cards ── */
-  .summary-grid {{
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 16px;
-    margin-bottom: 36px;
-  }}
-  .summary-card {{
-    background: var(--card-bg);
-    border: 1px solid var(--card-border);
-    border-radius: var(--radius);
-    padding: 20px 24px;
-    text-align: center;
-  }}
-  .summary-card .label {{ font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .5px; }}
-  .summary-card .value {{ font-size: 26px; font-weight: 700; color: var(--navy-start); }}
-
-  /* ── Section ── */
-  .section {{
-    background: var(--card-bg);
-    border: 1px solid var(--card-border);
-    border-radius: var(--radius);
-    margin-bottom: 28px;
-    overflow: hidden;
-  }}
-  .section-header {{
-    padding: 18px 24px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }}
-  .section-header h2 {{ font-size: 16px; font-weight: 600; color: #fff; }}
-  .section-header .badge {{
-    font-size: 11px;
-    background: rgba(255,255,255,0.2);
-    color: #fff;
-    border-radius: 20px;
-    padding: 2px 10px;
-  }}
-  .section-body {{ padding: 0; }}
-
-  /* ── Table ── */
-  table {{ width: 100%; border-collapse: collapse; font-size: 14px; }}
-  thead tr {{ }}
-  th {{
-    padding: 11px 16px;
-    text-align: left;
-    font-size: 12px;
-    font-weight: 600;
-    color: #fff;
-    white-space: nowrap;
-  }}
-  td {{
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--card-border);
-    vertical-align: middle;
-    color: var(--text-primary);
-  }}
-  td.center {{ text-align: center; }}
-  tr:last-child td {{ border-bottom: none; }}
-  tr:hover td {{ background: #f9fbfe; }}
-  td a {{ color: var(--navy-start); text-decoration: none; }}
-  td a:hover {{ text-decoration: underline; }}
-
-  .empty-msg {{ padding: 24px; color: var(--text-secondary); text-align: center; font-size: 14px; }}
-
-  /* ── Footer ── */
-  .report-footer {{
-    text-align: center;
-    padding: 28px;
-    font-size: 12px;
-    color: var(--text-secondary);
-    border-top: 1px solid var(--card-border);
-    margin-top: 16px;
-  }}
-
-  /* ── Responsive ── */
-  @media (max-width: 640px) {{
-    .report-header {{ padding: 24px 16px; }}
-    .container {{ padding: 20px 12px; }}
-    th, td {{ padding: 10px 10px; }}
-  }}
+*,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
+:root{{--bg:#f6f8fb;--n0:#0f3460;--n1:#1a5276;--cb:#fff;--bo:#e6ebf2;--tp:#1a2332;--ts:#5a6a7a;--font:-apple-system,BlinkMacSystemFont,"PingFang TC","Microsoft JhengHei",Arial,sans-serif;--r:12px}}
+body{{font-family:var(--font);background:var(--bg);color:var(--tp);min-height:100vh}}
+#is{{position:fixed;inset:0;background:linear-gradient(135deg,var(--n0),var(--n1));display:flex;align-items:center;justify-content:center;z-index:9999}}
+.lb{{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:20px;padding:48px 40px;text-align:center;width:360px;backdrop-filter:blur(12px)}}
+.li{{font-size:52px;margin-bottom:16px}}
+.lt{{color:#fff;font-size:20px;font-weight:600;margin-bottom:6px}}
+.ls{{color:rgba(255,255,255,.65);font-size:13px;margin-bottom:28px}}
+.lb input[type=password]{{width:100%;padding:14px 18px;font-size:18px;letter-spacing:6px;border:none;border-radius:10px;background:rgba(255,255,255,.15);color:#fff;text-align:center;outline:none;margin-bottom:16px;transition:background .2s}}
+.lb input[type=password]::placeholder{{letter-spacing:2px;color:rgba(255,255,255,.45);font-size:14px}}
+.lb input[type=password]:focus{{background:rgba(255,255,255,.25)}}
+.lbtn{{width:100%;padding:14px;background:rgba(255,255,255,.9);color:var(--n0);border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;font-family:var(--font)}}
+.lerr{{color:#ff8080;font-size:13px;margin-top:12px;min-height:18px}}
+#mc{{display:none}}
+.rh{{background:linear-gradient(135deg,var(--n0),var(--n1));color:#fff;padding:36px 40px 32px}}
+.rh h1{{font-size:26px;font-weight:700;margin-bottom:6px}}
+.rh .sub{{font-size:14px;opacity:.75}}
+.wrap{{max-width:1100px;margin:0 auto;padding:32px 24px}}
+.sg{{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:36px}}
+.sc{{background:var(--cb);border:1px solid var(--bo);border-radius:var(--r);padding:20px 24px;text-align:center}}
+.sc .lbl{{font-size:12px;color:var(--ts);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}}
+.sc .val{{font-size:26px;font-weight:700;color:var(--n0)}}
+.sec{{background:var(--cb);border:1px solid var(--bo);border-radius:var(--r);margin-bottom:28px;overflow:hidden}}
+.sh{{padding:18px 24px;display:flex;align-items:center;gap:10px}}
+.sh h2{{font-size:16px;font-weight:600;color:#fff}}
+.sh .bdg{{font-size:11px;background:rgba(255,255,255,.2);color:#fff;border-radius:20px;padding:2px 10px}}
+table{{width:100%;border-collapse:collapse;font-size:14px}}
+th{{padding:11px 16px;text-align:left;font-size:12px;font-weight:600;color:#fff;white-space:nowrap}}
+td{{padding:12px 16px;border-bottom:1px solid var(--bo);vertical-align:middle}}
+td.c{{text-align:center}}
+tr:last-child td{{border-bottom:none}}
+tr:hover td{{background:#f9fbfe}}
+td a{{color:var(--n0);text-decoration:none}}
+td a:hover{{text-decoration:underline}}
+.empty-msg{{padding:24px;color:var(--ts);text-align:center;font-size:14px}}
+.rf{{text-align:center;padding:28px;font-size:12px;color:var(--ts);border-top:1px solid var(--bo);margin-top:16px}}
+@media(max-width:640px){{.rh{{padding:24px 16px}}.wrap{{padding:20px 12px}}th,td{{padding:10px}}}}
 </style>
 </head>
 <body>
 
-<!-- ══════════════════ LOCK SCREEN ══════════════════ -->
-<div id="lock-screen">
-  <div class="lock-box">
-    <div class="lock-icon">🔒</div>
-    <div class="lock-title">文章表現月報</div>
-    <div class="lock-sub">Doctor-10 · {REPORT_DATE_LABEL} · 請輸入密碼查看</div>
-    <input type="password" id="pwd-input" placeholder="輸入密碼" maxlength="20"
-           onkeydown="if(event.key==='Enter')checkPwd()">
-    <button class="lock-btn" onclick="checkPwd()">解鎖報告</button>
-    <div class="lock-error" id="lock-error"></div>
+<div id="ls">
+  <div class="lb">
+    <div class="li">🔒</div>
+    <div class="lt">文章表現月報</div>
+    <div class="ls">Doctor-10 · {REPORT_DATE_LABEL} · 請輸入密碼查看</div>
+    <input type="password" id="pw" placeholder="輸入密碼" maxlength="20" onkeydown="if(event.key==='Enter')chk()">
+    <button class="lbtn" onclick="chk()">解鎖報告</button>
+    <div class="lerr" id="le"></div>
   </div>
 </div>
 
-<!-- ══════════════════ MAIN CONTENT ══════════════════ -->
-<div id="main-content">
-
-  <!-- Header -->
-  <div class="report-header">
+<div id="mc">
+  <div class="rh">
     <h1>📖 文章表現月報</h1>
-    <div class="subtitle">Doctor-10 · {REPORT_DATE_LABEL} · 數據來源：GA4</div>
+    <div class="sub">Doctor-10 · {REPORT_DATE_LABEL} · 數據來源：GA4</div>
   </div>
-
-  <div class="container">
-
-    <!-- Summary cards -->
-    <div class="summary-grid">
-      <div class="summary-card">
-        <div class="label">分析期間</div>
-        <div class="value" style="font-size:16px;margin-top:4px;">{REPORT_PERIOD_START}<br>→ {REPORT_PERIOD_END}</div>
-      </div>
-      <div class="summary-card">
-        <div class="label">分析文章數</div>
-        <div class="value">{len(data)}</div>
-      </div>
-      <div class="summary-card">
-        <div class="label">流量中位數</div>
-        <div class="value">{int(median_threshold):,}</div>
-      </div>
-      <div class="summary-card">
-        <div class="label">符合預期度中位數</div>
-        <div class="value">{cr_median:.1f}%</div>
-      </div>
+  <div class="wrap">
+    <div class="sg">
+      <div class="sc"><div class="lbl">分析期間</div><div class="val" style="font-size:15px;margin-top:4px">{DATE_FROM}<br>→ {DATE_TO}</div></div>
+      <div class="sc"><div class="lbl">分析文章數</div><div class="val">{len(data)}</div></div>
+      <div class="sc"><div class="lbl">流量中位數</div><div class="val">{int(median_threshold):,}</div></div>
+      <div class="sc"><div class="lbl">符合預期度中位數</div><div class="val">{cr_median:.1f}%</div></div>
     </div>
 
-    <!-- Section header banner -->
-    <div style="background:linear-gradient(135deg,#0f3460,#1a5276);border-radius:12px;padding:20px 24px;margin-bottom:28px;color:#fff;">
-      <h2 style="font-size:18px;font-weight:700;">📖 Doctor-10 文章表現分析（近30天）</h2>
-      <p style="font-size:13px;opacity:.75;margin-top:4px;">依流量與閱讀完成度分為四象限，每欄顯示前 10 篇</p>
+    <div style="background:linear-gradient(135deg,#0f3460,#1a5276);border-radius:12px;padding:20px 24px;margin-bottom:28px;color:#fff">
+      <h2 style="font-size:18px;font-weight:700">📖 Doctor-10 文章表現分析（{DATE_FROM} ～ {DATE_TO}）</h2>
+      <p style="font-size:13px;opacity:.75;margin-top:4px">依流量與閱讀完成度分為四象限，每欄顯示前 10 篇</p>
     </div>
 
-    <!-- Q1: 高流量 × 高符合預期 — green -->
-    <div class="section">
-      <div class="section-header" style="background:#1e7e34;">
-        <h2>🔥 高流量 × 高符合預期（表現最佳）</h2>
-        <span class="badge">{len(q1)} 篇</span>
-      </div>
-      <div class="section-body">
-        {build_table(q1, "#1e7e34")}
-      </div>
+    <div class="sec">
+      <div class="sh" style="background:#1e7e34"><h2>🔥 高流量 × 高符合預期（表現最佳）</h2><span class="bdg">{len(q1)} 篇</span></div>
+      <div>{build_table(q1,"#1e7e34")}</div>
+    </div>
+    <div class="sec">
+      <div class="sh" style="background:#d4660a"><h2>⚠️ 高流量 × 低符合預期（流量好，讀者跑掉）</h2><span class="bdg">{len(q2)} 篇</span></div>
+      <div>{build_table(q2,"#d4660a")}</div>
+    </div>
+    <div class="sec">
+      <div class="sh" style="background:#1565c0"><h2>💎 低流量 × 高符合預期（隱藏寶石）</h2><span class="bdg">{len(q3)} 篇</span></div>
+      <div>{build_table(q3,"#1565c0")}</div>
+    </div>
+    <div class="sec">
+      <div class="sh" style="background:#b71c1c"><h2>🔻 低流量 × 低符合預期（需要關注）</h2><span class="bdg">{len(q4)} 篇</span></div>
+      <div>{build_table(q4,"#b71c1c")}</div>
     </div>
 
-    <!-- Q2: 高流量 × 低符合預期 — orange -->
-    <div class="section">
-      <div class="section-header" style="background:#d4660a;">
-        <h2>⚠️ 高流量 × 低符合預期（流量好，讀者跑掉）</h2>
-        <span class="badge">{len(q2)} 篇</span>
-      </div>
-      <div class="section-body">
-        {build_table(q2, "#d4660a")}
-      </div>
-    </div>
-
-    <!-- Q3: 低流量 × 高符合預期 — blue -->
-    <div class="section">
-      <div class="section-header" style="background:#1565c0;">
-        <h2>💎 低流量 × 高符合預期（隱藏寶石）</h2>
-        <span class="badge">{len(q3)} 篇</span>
-      </div>
-      <div class="section-body">
-        {build_table(q3, "#1565c0")}
-      </div>
-    </div>
-
-    <!-- Q4: 低流量 × 低符合預期 — red -->
-    <div class="section">
-      <div class="section-header" style="background:#b71c1c;">
-        <h2>🔻 低流量 × 低符合預期（需要關注）</h2>
-        <span class="badge">{len(q4)} 篇</span>
-      </div>
-      <div class="section-body">
-        {build_table(q4, "#b71c1c")}
-      </div>
-    </div>
-
-    <!-- Footer -->
-    <div class="report-footer">
-      數據來源：GA4 &nbsp;|&nbsp; 報告生成時間：{GENERATED_AT} &nbsp;|&nbsp; Doctor-10 文章分析月報
-    </div>
-
-  </div><!-- /container -->
-</div><!-- /main-content -->
+    <div class="rf">數據來源：GA4 &nbsp;|&nbsp; 報告生成時間：{GENERATED_AT} &nbsp;|&nbsp; Doctor-10 文章分析月報</div>
+  </div>
+</div>
 
 <script>
-  const CORRECT = "9053";
-  function checkPwd() {{
-    var v = document.getElementById("pwd-input").value.trim();
-    if (v === CORRECT) {{
-      document.getElementById("lock-screen").style.display = "none";
-      document.getElementById("main-content").style.display = "block";
-    }} else {{
-      document.getElementById("lock-error").textContent = "密碼錯誤，請再試一次";
-      document.getElementById("pwd-input").value = "";
-    }}
-  }}
+const C="9053";
+function chk(){{
+  var v=document.getElementById("pw").value.trim();
+  if(v===C){{document.getElementById("ls").style.display="none";document.getElementById("mc").style.display="block"}}
+  else{{document.getElementById("le").textContent="密碼錯誤，請再試一次";document.getElementById("pw").value=""}}
+}}
 </script>
-
 </body>
 </html>
 """
@@ -517,7 +320,6 @@ HTML = f"""<!DOCTYPE html>
 # ---------------------------------------------------------------------------
 with open(HTML_FILENAME, "w", encoding="utf-8") as f:
     f.write(HTML)
-
 print(f"HTML written → {HTML_FILENAME}")
 
 # ---------------------------------------------------------------------------
@@ -527,15 +329,10 @@ if args.dry_run or args.no_push:
     print("Skipping git push (--dry-run or --no-push).")
 else:
     commit_msg = f"月報 {MONTH_LABEL}：Doctor-10 文章分析"
-    cmds = [
-        ["git", "add", HTML_FILENAME],
-        ["git", "commit", "-m", commit_msg],
-        ["git", "push"],
-    ]
-    for cmd in cmds:
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            print(f"ERROR running {' '.join(cmd)}:\n{result.stderr}", file=sys.stderr)
+    for cmd in [["git","add",HTML_FILENAME],["git","commit","-m",commit_msg],["git","push"]]:
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode != 0:
+            print(f"ERROR: {' '.join(cmd)}\n{r.stderr}", file=sys.stderr)
             sys.exit(1)
         print(f"✓ {' '.join(cmd)}")
-    print(f"Done! Report pushed: {HTML_FILENAME}")
+    print(f"Done! {HTML_FILENAME}")
