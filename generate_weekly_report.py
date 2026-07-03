@@ -60,11 +60,13 @@ LOCATION_UTM = {
 # ─── 設定 ──────────────────────────────────────────────────────────────────────
 
 CONFIG = {
-    "BQ_PROJECT":  os.environ.get("BQ_PROJECT", "YOUR_PROJECT"),
-    "BQ_DATASET":  os.environ.get("BQ_DATASET", "YOUR_DATASET"),
-    "BQ_LOCATION": os.environ.get("BQ_LOCATION", "asia-east1"),
-    "PASSWORD":    "9053",
-    "OUTPUT_DIR":  Path(__file__).parent,
+    "BQ_PROJECT":      os.environ.get("BQ_PROJECT", "YOUR_PROJECT"),   # billing project
+    "BQ_DATA_PROJECT": os.environ.get("BQ_DATA_PROJECT",               # data project
+                           os.environ.get("BQ_PROJECT", "YOUR_PROJECT")),
+    "BQ_DATASET":      os.environ.get("BQ_DATASET", "YOUR_DATASET"),
+    "BQ_LOCATION":     os.environ.get("BQ_LOCATION", "asia-east1"),
+    "PASSWORD":        "9053",
+    "OUTPUT_DIR":      Path(__file__).parent,
 }
 
 
@@ -93,7 +95,7 @@ def get_week_range(week_label=None):
 # ─── BigQuery SQL ──────────────────────────────────────────────────────────────
 
 def bq_table():
-    return f"`{CONFIG['BQ_PROJECT']}.{CONFIG['BQ_DATASET']}.events_*`"
+    return f"`{CONFIG['BQ_DATA_PROJECT']}.{CONFIG['BQ_DATASET']}.events_*`"
 
 
 def sql_site_kpi(t, ws, we, ps, pe):
