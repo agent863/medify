@@ -33,9 +33,10 @@ jobs:
 
       - name: Generate
         env:
-          BQ_PROJECT:  ${{ secrets.BQ_PROJECT }}
-          BQ_DATASET:  ${{ secrets.BQ_DATASET }}
-          BQ_LOCATION: ${{ secrets.BQ_LOCATION }}
+          BQ_PROJECT:      ${{ secrets.BQ_PROJECT }}
+          BQ_DATA_PROJECT: ${{ secrets.BQ_DATA_PROJECT }}
+          BQ_DATASET:      ${{ secrets.BQ_DATASET }}
+          BQ_LOCATION:     ${{ secrets.BQ_LOCATION }}
         run: |
           if [[ -n "${{ github.event.inputs.week }}" ]]; then
             python generate_weekly_report.py \
