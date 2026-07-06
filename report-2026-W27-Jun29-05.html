@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Medify 週報 W27 (2026/06/29 - 07/05)</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    background: #f4f6f9;
+    color: #1f2937;
+  }
+  /* ---------- Password Gate ---------- */
+  #gate {
+    position: fixed;
+    inset: 0;
+    background: linear-gradient(135deg, #1e3a5f, #2c5282);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 999;
+  }
+  #gate .box {
+    background: #fff;
+    padding: 40px 36px;
+    border-radius: 12px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+    width: 320px;
+    text-align: center;
+  }
+  #gate h2 { margin: 0 0 6px; font-size: 20px; color: #1e3a5f; }
+  #gate p { margin: 0 0 20px; font-size: 13px; color: #6b7280; }
+  #gate input {
+    width: 100%;
+    padding: 12px 14px;
+    font-size: 16px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    text-align: center;
+    letter-spacing: 4px;
+    margin-bottom: 12px;
+  }
+  #gate button {
+    width: 100%;
+    padding: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+    background: #2c5282;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  #gate button:hover { background: #1e3a5f; }
+  #pw-error { display: none; color: #dc2626; font-size: 12px; margin-top: 8px; }
+
+  /* ---------- Report ---------- */
+  #report { display: none; max-width: 1000px; margin: 0 auto; padding: 28px 20px 60px; }
+  .header {
+    background: linear-gradient(135deg, #1e3a5f, #2c5282);
+    color: #fff;
+    border-radius: 14px;
+    padding: 28px 32px;
+    margin-bottom: 24px;
+  }
+  .header h1 { margin: 0 0 6px; font-size: 24px; }
+  .header p { margin: 0; opacity: 0.85; font-size: 14px; }
+
+  .section { margin-bottom: 32px; }
+  .section-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: #1e3a5f;
+    margin-bottom: 14px;
+    padding-left: 10px;
+    border-left: 4px solid #2c5282;
+  }
+
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+  }
+  .kpi-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 18px 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .kpi-card .label { font-size: 12px; color: #6b7280; margin-bottom: 6px; }
+  .kpi-card .value { font-size: 26px; font-weight: 700; color: #1f2937; }
+  .kpi-card .delta { font-size: 12px; margin-top: 6px; font-weight: 600; }
+  .delta.up { color: #059669; }
+  .delta.down { color: #dc2626; }
+
+  table.rank {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  table.rank th, table.rank td {
+    padding: 12px 14px;
+    text-align: left;
+    font-size: 13px;
+    border-bottom: 1px solid #eef0f3;
+  }
+  table.rank th { background: #f0f4f8; color: #374151; font-weight: 600; }
+  table.rank td.num { text-align: right; font-weight: 600; color: #2c5282; }
+  table.rank tr:last-child td { border-bottom: none; }
+  table.rank td.rank-idx { width: 34px; color: #9ca3af; font-weight: 700; }
+
+  .doctor-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+  }
+  .doctor-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 18px 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .doctor-card h3 { margin: 0 0 12px; font-size: 15px; color: #1e3a5f; }
+  .doctor-card .row { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; color: #4b5563; }
+  .doctor-card .row b { color: #1f2937; }
+  .doctor-card .empty { font-size: 13px; color: #9ca3af; font-style: italic; }
+  .doctor-card .qr-list { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e5e7eb; }
+  .doctor-card .qr-list div { display: flex; justify-content: space-between; font-size: 12px; color: #6b7280; margin-bottom: 4px; }
+
+  ul.insights { background: #fff; border-radius: 12px; padding: 20px 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin: 0; }
+  ul.insights li { font-size: 14px; line-height: 1.7; color: #374151; margin-bottom: 10px; }
+  ul.insights li:last-child { margin-bottom: 0; }
+
+  .note {
+    font-size: 12px;
+    color: #9ca3af;
+    margin-top: 6px;
+  }
+  .footer { text-align: center; font-size: 12px; color: #9ca3af; margin-top: 40px; }
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="box">
+    <h2>Medify 週報</h2>
+    <p>請輸入密碼以檢視本週報告</p>
+    <input type="password" id="pw" placeholder="••••" maxlength="10" inputmode="numeric">
+    <button onclick="checkPw()">解鎖</button>
+    <div id="pw-error">密碼錯誤，請再試一次</div>
+  </div>
+</div>
+
+<div id="report">
+
+  <div class="header">
+    <h1>Medify 週報 — W27</h1>
+    <p>週期：2026/06/29 (一) – 2026/07/05 (日)　｜　與前週 (06/22–06/28) 比較</p>
+  </div>
+
+  <!-- Section 1: GA4 KPI + 文章排行 -->
+  <div class="section">
+    <div class="section-title">全站 GA4 關鍵指標</div>
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="label">活躍使用者</div>
+        <div class="value">72</div>
+        <div class="delta down">↓ 8.9% 較前週</div>
+      </div>
+      <div class="kpi-card">
+        <div class="label">新使用者</div>
+        <div class="value">58</div>
+        <div class="delta down">↓ 13.4% 較前週</div>
+      </div>
+      <div class="kpi-card">
+        <div class="label">平均參與時間 / 使用者</div>
+        <div class="value">1分19秒</div>
+        <div class="delta up">↑ 77.5% 較前週</div>
+      </div>
+      <div class="kpi-card">
+        <div class="label">事件數</div>
+        <div class="value">1,323</div>
+        <div class="delta up">↑ 27.6% 較前週</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">本週文章互動排行（前 10 名）</div>
+    <table class="rank">
+      <thead>
+        <tr><th style="width:34px">#</th><th>文章標題</th><th class="num" style="width:90px">互動次數</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="rank-idx">1</td><td>手術原理｜傳統老花雷射與新式LBV老花雷射有何不同？</td><td class="num">6</td></tr>
+        <tr><td class="rank-idx">2</td><td>手術原理｜何謂老花？幾度才算嚴重？幾度適合雷射治療？</td><td class="num">4</td></tr>
+        <tr><td class="rank-idx">3</td><td>眼睛常常好乾嗎？我的乾眼症會好嗎？乾眼症常見原因、成因</td><td class="num">4</td></tr>
+        <tr><td class="rank-idx">4</td><td>術後恢復｜老花雷射後的眩光、乾眼症該怎麼辦？</td><td class="num">4</td></tr>
+        <tr><td class="rank-idx">5</td><td>3C產品如何傷眼？兒童近視失控會怎樣？一次搞懂矯正與預防</td><td class="num">2</td></tr>
+        <tr><td class="rank-idx">6</td><td>常見Q&amp;A｜別人術後視力1.5我才1.0！是不是我手術失敗了？</td><td class="num">2</td></tr>
+        <tr><td class="rank-idx">7</td><td>SMILE Pro 2.0 近視雷射手術案例分享：五大常見「可不可以做」的真實案例解析</td><td class="num">1</td></tr>
+        <tr><td class="rank-idx">8</td><td>手術原理｜不用一次看清楚，老花雷射可以做「階段式調整」</td><td class="num">1</td></tr>
+        <tr><td class="rank-idx">9</td><td>手術原理｜老花了要做近視雷射手術還是LBV老花雷射手術？</td><td class="num">1</td></tr>
+        <tr><td class="rank-idx">10</td><td>案例分享｜42歲 蘇先生：下雨天不用擦眼鏡！眼睛整日不乾濕，隔日正常工作</td><td class="num">1</td></tr>
+      </tbody>
+    </table>
+    <div class="note">＊排行依 GA4 Explore「post_card_click」文章卡片點擊事件計數；post_view 事件本身未附帶文章標題參數，故以此作為互動熱度代理指標。</div>
+  </div>
+
+  <!-- Section 2: 各醫師卡片 -->
+  <div class="section">
+    <div class="section-title">醫師頁面表現</div>
+    <div class="doctor-grid">
+      <div class="doctor-card">
+        <h3>Doctor-10（何宜儒醫師）</h3>
+        <div class="row"><span>主頁瀏覽量</span><b>149</b></div>
+        <div class="row"><span>使用者數</span><b>60</b></div>
+        <div class="qr-list">
+          <div><span>QR｜掛號櫃檯</span><span>108</span></div>
+          <div><span>QR｜手術等候區</span><span>22</span></div>
+          <div><span>QR｜候診區</span><span>9</span></div>
+        </div>
+      </div>
+      <div class="doctor-card">
+        <h3>Doctor-43</h3>
+        <div class="empty">本週 Looker Studio 報表無此醫師獨立數據</div>
+      </div>
+      <div class="doctor-card">
+        <h3>Doctor-44</h3>
+        <div class="empty">本週 Looker Studio 報表無此醫師獨立數據</div>
+      </div>
+      <div class="doctor-card">
+        <h3>Doctor-76</h3>
+        <div class="empty">本週 Looker Studio 報表無此醫師獨立數據</div>
+      </div>
+    </div>
+    <div class="note">＊Looker Studio「Report_by_doctor」的醫師篩選器本期僅列出「何宜儒醫師」與「其他」二值，Doctor-43 / 44 / 76 本週可能無獨立流量或未納入此篩選維度，建議確認追蹤設定。</div>
+  </div>
+
+  <!-- Section 6: 本週洞察 -->
+  <div class="section">
+    <div class="section-title">本週洞察</div>
+    <ul class="insights">
+      <li><b>互動深度提升，觸及廣度下降：</b>本週活躍使用者與新使用者均下滑（分別 ↓8.9%、↓13.4%），但平均參與時間大幅成長 77.5%、事件數成長 27.6%，顯示雖然訪客量減少，但停留下來的使用者互動更深入。</li>
+      <li><b>何宜儒醫師頁面貢獻顯著：</b>Doctor-10 單一頁面貢獻 149 次瀏覽，約占全站事件量相當比重，且 QR「掛號櫃檯」導流占比達 72%（108/139），為主要轉換入口。</li>
+      <li><b>老花雷射主題持續熱門：</b>本週文章互動前 4 名中有 3 篇與「老花雷射」相關（LBV 對比、老花度數、術後恢復），顯示此主題使用者關注度高，可作為後續內容或衛教素材優先方向。</li>
+      <li><b>多位醫師頁面缺乏數據：</b>Doctor-43、44、76 在 Looker Studio 報表中本週查無獨立紀錄，建議確認 GA4／Looker 的醫師篩選維度設定是否完整涵蓋所有醫師頁面。</li>
+    </ul>
+  </div>
+
+  <div class="footer">
+    Medify 週報自動化系統　｜　資料來源：Google Analytics 4、Looker Studio　｜　產出時間：2026-07-06
+  </div>
+
+</div>
+
+<script>
+const CORRECT = '9053';
+function checkPw() {
+  if (document.getElementById('pw').value === CORRECT) {
+    document.getElementById('gate').style.display = 'none';
+    document.getElementById('report').style.display = 'block';
+  } else {
+    document.getElementById('pw-error').style.display = 'block';
+    document.getElementById('pw').value = '';
+    document.getElementById('pw').focus();
+  }
+}
+document.getElementById('pw').addEventListener('keypress', e => { if (e.key === 'Enter') checkPw(); });
+</script>
+
+</body>
+</html>
