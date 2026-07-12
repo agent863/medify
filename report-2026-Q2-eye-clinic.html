@@ -3,8 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>眼科診所 × Medify｜數位內容行銷表現報告｜2026 Q2</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+<title>眼科 × Medify 數位內容行銷成效報告 2026 Q2</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
   :root {
@@ -16,372 +15,264 @@
     --light2:  #EDF7F9;
     --success: #76C0A5;
     --warn:    #F59E0B;
-    --danger:  #EF4444;
-    --g1:      #2C2C2C;
-    --g2:      #424242;
-    --g3:      #636363;
-    --g4:      #959595;
-    --g5:      #AEAEAE;
-    --g7:      #E8E8E8;
-    --g8:      #F7F7F7;
-    --white:   #FFFFFF;
-    --bg:      #EDF7F9;
-    --radius:  16px;
-    --shadow:  0 4px 20px rgba(81,119,186,.10);
+    --g1: #2C2C2C; --g2: #424242; --g3: #636363; --g4: #959595;
+    --g7: #E8E8E8; --white: #FFFFFF; --bg: #EDF7F9;
+    --radius: 16px; --shadow: 0 4px 20px rgba(81,119,186,.10);
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
-    background: var(--bg);
-    color: var(--g1);
-    line-height: 1.6;
-  }
-  .material-symbols-outlined {
-    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-    vertical-align: middle;
-    line-height: 1;
-    display: inline-block;
-  }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif; background: var(--bg); color: var(--g1); line-height: 1.6; }
 
-  /* ── HEADER ── */
+  /* HEADER */
   .header {
     background: linear-gradient(135deg, #44BDDB 0%, #1793BA 55%, #5177BA 100%);
-    color: #fff;
-    padding: 52px 48px 44px;
-    position: relative;
-    overflow: hidden;
+    color: #fff; padding: 52px 48px 44px; position: relative; overflow: hidden;
   }
   .header::before {
-    content: '';
-    position: absolute; inset: 0;
-    background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.07'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    content: ''; position: absolute; inset: 0;
+    background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none'%3E%3Cg fill='%23ffffff' fill-opacity='0.07'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
   }
   .header-inner { position: relative; max-width: 1040px; margin: 0 auto; }
   .header-logo { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; }
   .logo-badge {
-    background: rgba(255,255,255,.20);
-    border: 1px solid rgba(255,255,255,.35);
-    border-radius: 12px;
-    padding: 8px 18px;
-    font-size: 15px;
-    font-weight: 700;
-    letter-spacing: .5px;
-    backdrop-filter: blur(4px);
+    background: rgba(255,255,255,.20); border: 1px solid rgba(255,255,255,.35);
+    border-radius: 12px; padding: 8px 18px; font-size: 15px; font-weight: 700;
+    letter-spacing: .5px; backdrop-filter: blur(4px);
   }
   .logo-x { font-size: 18px; opacity: .65; }
-  .header h1 { font-size: 30px; font-weight: 800; letter-spacing: -.5px; margin-bottom: 12px; }
-  .header .subtitle { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .header .subtitle span {
-    background: rgba(255,255,255,.18);
-    border-radius: 20px;
-    padding: 5px 14px;
-    font-size: 13px;
-    opacity: .92;
-    display: flex; align-items: center; gap: 6px;
+  .header h1 { font-size: 30px; font-weight: 800; letter-spacing: -.5px; margin-bottom: 14px; }
+  .header .meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 13px; opacity: .88; }
+  .header .meta span {
+    background: rgba(255,255,255,.15); border-radius: 20px;
+    padding: 5px 14px; border: 1px solid rgba(255,255,255,.25);
   }
-  .header .subtitle .material-symbols-outlined { font-size: 15px; }
 
-  /* ── LAYOUT ── */
+  /* LAYOUT */
   .page { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
   section { margin: 36px 0; }
   .section-title {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 2.5px;
-    text-transform: uppercase;
-    color: var(--accent);
-    margin-bottom: 14px;
-    display: flex; align-items: center; gap: 10px;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 14px; display: flex; align-items: center; gap: 10px;
   }
-  .section-title::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: linear-gradient(to right, var(--light1), transparent);
-  }
+  .section-title::after { content: ''; flex: 1; height: 1px; background: linear-gradient(to right, var(--light1), transparent); }
 
-  /* ── KPI CARDS ── */
-  .kpi-grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; }
-  @media (max-width: 640px) { .kpi-grid-3 { grid-template-columns: 1fr; } }
+  /* METRICS GRID */
+  .metrics-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; }
+  @media (max-width: 768px) { .metrics-grid { grid-template-columns: repeat(2,1fr); } }
 
-  .kpi-card {
-    background: var(--white);
-    border-radius: var(--radius);
-    padding: 28px 22px;
-    box-shadow: var(--shadow);
-    position: relative;
-    overflow: hidden;
-    transition: transform .2s;
-  }
-  .kpi-card:hover { transform: translateY(-2px); }
-  .kpi-card::before {
-    content: '';
-    position: absolute; top: 0; left: 0; right: 0;
-    height: 3px;
-    background: linear-gradient(to right, var(--primary), var(--accent));
-  }
-  .kpi-icon { color: var(--accent); margin-bottom: 10px; }
-  .kpi-icon .material-symbols-outlined { font-size: 26px; }
-  .kpi-value { font-size: 36px; font-weight: 800; color: var(--dark1); line-height: 1; margin-bottom: 6px; }
-  .kpi-label { font-size: 13px; color: var(--g2); font-weight: 600; letter-spacing: .3px; margin-bottom: 4px; }
-  .kpi-note { font-size: 11px; color: var(--g4); margin-top: 4px; }
-
-  /* ── PANEL ── */
-  .panel { background: var(--white); border-radius: var(--radius); padding: 28px; box-shadow: var(--shadow); }
-  .panel h4 {
-    font-size: 14px; font-weight: 700; margin-bottom: 16px; color: var(--g1);
-    display: flex; align-items: center; gap: 8px;
-  }
-  .panel h4 .material-symbols-outlined { font-size: 18px; color: var(--accent); }
-
-  /* ── METRIC 2-COL ── */
-  .metrics-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  @media (max-width: 640px) { .metrics-2 { grid-template-columns: 1fr; } }
   .metric-card {
-    background: var(--white); border-radius: var(--radius); padding: 32px 24px;
-    box-shadow: var(--shadow); text-align: center; position: relative; overflow: hidden;
+    background: var(--white); border-radius: var(--radius); padding: 24px 20px;
+    box-shadow: var(--shadow); position: relative; overflow: hidden;
   }
   .metric-card::before {
     content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
     background: linear-gradient(to right, var(--primary), var(--accent));
   }
-  .metric-big { font-size: 52px; font-weight: 900; line-height: 1; margin-bottom: 8px; }
-  .metric-label { font-size: 12px; color: var(--g4); font-weight: 600; letter-spacing: .5px; text-transform: uppercase; }
+  .metric-icon { font-size: 20px; margin-bottom: 10px; }
+  .metric-value { font-size: 34px; font-weight: 900; color: var(--dark1); line-height: 1; margin-bottom: 6px; }
+  .metric-label { font-size: 13px; font-weight: 600; color: var(--g2); margin-bottom: 3px; }
+  .metric-note { font-size: 11px; color: var(--g4); }
 
-  /* ── CHAMPION BADGE ── */
-  .champion-badge {
-    position: absolute; top: 14px; right: 14px;
-    background: linear-gradient(135deg, #FFD44D, #F59E0B);
-    color: #7C4A00; font-size: 10px; font-weight: 700; letter-spacing: .5px;
-    border-radius: 20px; padding: 3px 9px;
-    display: flex; align-items: center; gap: 3px;
+  /* PANEL */
+  .panel { background: var(--white); border-radius: var(--radius); padding: 28px; box-shadow: var(--shadow); }
+  .panel-title { font-size: 14px; font-weight: 700; color: var(--g1); margin-bottom: 20px; }
+  .chart-wrapper { position: relative; height: 260px; }
+
+  /* SCROLL SECTION */
+  .scroll-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 480px) { .scroll-grid { grid-template-columns: 1fr; } }
+
+  .scroll-card {
+    background: var(--white); border-radius: var(--radius); padding: 32px 24px;
+    box-shadow: var(--shadow); text-align: center; position: relative; overflow: hidden;
   }
-  .champion-badge .material-symbols-outlined { font-size: 12px; color: #7C4A00; }
+  .scroll-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(to right, #D1D5DB, #9CA3AF);
+  }
+  .scroll-type { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--g4); margin-bottom: 12px; }
+  .scroll-val { font-size: 40px; font-weight: 900; color: #C4C4C4; line-height: 1; margin-bottom: 8px; }
+  .scroll-desc { font-size: 13px; font-weight: 600; color: var(--g3); margin-bottom: 10px; }
+  .scroll-warn { font-size: 11px; color: var(--warn); background: #FEF3C7; border-radius: 8px; padding: 6px 10px; display: inline-block; }
 
-  /* ── DONUT ── */
-  .donut-wrap { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; }
+  /* DONUT */
+  .donut-wrap { display: flex; align-items: center; gap: 32px; flex-wrap: wrap; }
   .donut-legend { flex: 1; min-width: 160px; }
-  .donut-legend-row { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; font-size: 13px; color: var(--g2); }
-  .dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
-  .legend-pct { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--g4); }
+  .legend-row { display: flex; align-items: center; gap: 10px; margin-bottom: 11px; font-size: 13px; color: var(--g2); }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .legend-pct { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--g4); }
 
-  /* ── INSIGHT BOX ── */
-  .insight {
-    background: var(--light2); border-left: 4px solid var(--accent);
-    border-radius: 0 12px 12px 0; padding: 14px 18px; font-size: 13px; color: var(--g1);
-    margin-top: 14px; line-height: 1.75; display: flex; gap: 10px; align-items: flex-start;
-  }
-  .insight .material-symbols-outlined {
-    font-size: 18px; color: var(--accent); flex-shrink: 0; margin-top: 2px;
-    font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20;
-  }
-  .insight strong { color: var(--accent); font-weight: 700; }
-
-  /* ── DATA NOTE ── */
-  .data-note {
-    background: #FFF7ED; border: 1px solid #FED7AA; border-radius: 10px;
-    padding: 10px 16px; font-size: 12px; color: #92400E; margin-bottom: 16px;
-    display: flex; align-items: center; gap: 8px;
-  }
-  .data-note .material-symbols-outlined { font-size: 16px; color: #F59E0B; flex-shrink: 0; }
-
-  /* ── CHART WRAPPER ── */
-  .chart-wrapper { position: relative; height: 240px; }
-
-  /* ── FOOTER ── */
-  .footer {
-    background: var(--g1); color: rgba(255,255,255,.45); text-align: center;
-    padding: 28px; margin-top: 60px; font-size: 12px;
-  }
+  /* FOOTER */
+  .footer { background: var(--g1); color: rgba(255,255,255,.45); text-align: center; padding: 28px; margin-top: 60px; font-size: 12px; line-height: 2; }
   .footer strong { color: rgba(255,255,255,.75); }
 </style>
 </head>
 <body>
 
-<!-- ══════════════════════════════════════════ HEADER -->
 <div class="header">
   <div class="header-inner">
     <div class="header-logo">
-      <span class="logo-badge">眼科診所</span>
+      <span class="logo-badge">眼科醫院</span>
       <span class="logo-x">×</span>
       <span class="logo-badge">Medify</span>
     </div>
-    <h1>數位內容行銷表現報告</h1>
-    <div class="subtitle">
-      <span>
-        <span class="material-symbols-outlined">calendar_today</span>
-        2026年4月 – 6튗（Q2）
-      </span>
-      <span>
-        <span class="material-symbols-outlined">bar_chart</span>
-        資料來源：GA4 BigQuery
-      </span>
-      <span>
-        <span class="material-symbols-outlined">local_hospital</span>
-        院區數位診療內容
-      </span>
+    <h1>數位內容行銷成效報告　2026 Q2</h1>
+    <div class="meta">
+      <span>📅 2026年4月1日 – 6月30日</span>
+      <span>📊 數據來源：GA4 Data API</span>
+      <span>🏥 眼科醫師內容篩選（9位）</span>
     </div>
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════ BODY -->
 <div class="page">
 
-  <!-- ── 核心閱讀指標 ── -->
+  <!-- 1. 平均每篇文章瀏覽數 + 3. 平均每日瀏覽數 + 4. 平均參與度 + 總篇數 -->
   <section>
-    <div class="section-title">核心閱讀指標</div>
-    <div class="kpi-grid-3">
+    <div class="section-title">核心指標</div>
+    <div class="metrics-grid">
 
-      <div class="kpi-card">
-        <div class="kpi-icon"><span class="material-symbols-outlined">article</span></div>
-        <div class="kpi-value" style="color:var(--dark1)">5</div>
-        <div class="kpi-label">平均每篇文章瀏覽數</div>
-        <div class="kpi-note">次 / 篇（眼科文章 686 次 ÷ 141 篇）</div>
+      <div class="metric-card">
+        <div class="metric-icon">📄</div>
+        <div class="metric-value">5.8</div>
+        <div class="metric-label">平均每篇文章瀏覽數</div>
+        <div class="metric-note">次 / 篇（眼科 497 次 ÷ 86 篇）</div>
       </div>
 
-      <div class="kpi-card">
-        <div class="kpi-icon"><span class="material-symbols-outlined">today</span></div>
-        <div class="kpi-value" style="color:var(--dark2)">88.3</div>
-        <div class="kpi-label">平均每日瀏覽數</div>
-        <div class="kpi-note">次 / 天（全站 8,033 次 ÷ 91 天）</div>
+      <div class="metric-card">
+        <div class="metric-icon">📅</div>
+        <div class="metric-value">88.3</div>
+        <div class="metric-label">平均每日瀏覽數</div>
+        <div class="metric-note">次 / 天（全站 8,033 次 ÷ 91 天）</div>
       </div>
 
-      <div class="kpi-card">
-        <div class="kpi-icon"><span class="material-symbols-outlined">ads_click</span></div>
-        <div class="kpi-value" style="color:var(--accent)">49.4%</div>
-        <div class="kpi-label">平均參與度</div>
-        <div class="kpi-note">Engagement Rate（GA4 Sessions）</div>
+      <div class="metric-card">
+        <div class="metric-icon">🎯</div>
+        <div class="metric-value">49.4%</div>
+        <div class="metric-label">平均參與度</div>
+        <div class="metric-note">Engagement Rate（GA4 Sessions）</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-icon">📚</div>
+        <div class="metric-value">86</div>
+        <div class="metric-label">眼科文章總篇數</div>
+        <div class="metric-note">Q2 有流量的眼科醫師文章</div>
       </div>
 
     </div>
   </section>
 
-  <!-- ── 每週平均文章瀏覽趨勢 ── -->
+  <!-- 2. 平均每篇文章瀏覽數的每週曲線圖 -->
   <section>
-    <div class="section-title">平均每篇文章瀏覽數・每週趨勢（4/1–6/30）</div>
+    <div class="section-title">眼科文章每週瀏覽趨勢</div>
     <div class="panel">
-      <h4>
-        <span class="material-symbols-outlined">show_chart</span>
-        每週平均瀏覽次數 / 篇
-      </h4>
+      <div class="panel-title">📈 眼科文章週瀏覽量（2026 Q2，週數 14–27）</div>
       <div class="chart-wrapper">
         <canvas id="weeklyChart"></canvas>
       </div>
     </div>
   </section>
 
-  <!-- ── 閱讀行為 ── -->
+  <!-- 5. 深度閱讀數 + 6. 完成閱讀數 -->
   <section>
-    <div class="section-title">文章閱讀行為分析</div>
-    <div class="metrics-2">
-      <div class="metric-card">
-        <div class="champion-badge">
-          <span class="material-symbols-outlined">workspace_premium</span>Good
-        </div>
-        <div class="metric-big" style="color:var(--dark1)">74.8%</div>
-        <div class="metric-label">深度閱讀率（Scroll 50%）</div>
+    <div class="section-title">文章閱讀行為（深度 / 完成）</div>
+    <div class="scroll-grid">
+
+      <div class="scroll-card">
+        <div class="scroll-type">深度閱讀數　SCROLL 50%</div>
+        <div class="scroll-val">—</div>
+        <div class="scroll-desc">深度閱讀率</div>
+        <div class="scroll-warn">⚠ GA4 尚未設定 scroll 事件追蹤，數據不可用</div>
       </div>
-      <div class="metric-card">
-        <div class="metric-big" style="color:var(--success)">66.5%</div>
-        <div class="metric-label">完成閱讀率（Scroll 75%）</div>
+
+      <div class="scroll-card">
+        <div class="scroll-type">完成閱讀數　SCROLL 75%</div>
+        <div class="scroll-val">—</div>
+        <div class="scroll-desc">完成閱讀率</div>
+        <div class="scroll-warn">⚠ GA4 尚未設定 scroll 事件追蹤，數據不可用</div>
       </div>
-    </div>
-    <div class="insight">
-      <span class="material-symbols-outlined">lightbulb</span>
-      <span>讀者願意深入閱讀至接近尾聲，文章品質表現亮眼。深度閱讀率 <strong>74.8%</strong>，超過三分之二的讀者完整閱讀到 75% 以上。</span>
+
     </div>
   </section>
 
-  <!-- ── 各分類佔比 ── -->
+  <!-- 7. 各分類佔比 -->
   <section>
-    <div class="section-title">文章分類瀏覽分布（4/1–6/30）</div>
+    <div class="section-title">眼科文章各分類佔比</div>
     <div class="panel">
-      <h4>
-        <span class="material-symbols-outlined">library_books</span>
-        各分類佔比
-      </h4>
+      <div class="panel-title">🍩 文章瀏覽分類分布（共 497 次，2026 Q2）</div>
       <div class="donut-wrap">
-        <svg viewBox="0 0 160 160" width="160" height="160" style="flex-shrink:0">
+
+        <svg viewBox="0 0 160 160" width="172" height="172" style="flex-shrink:0">
+          <!-- circumference = 2π×54 ≈ 339.29 -->
+          <!-- 近視雷射手術 31.6% → 107.2 -->
           <circle r="54" cx="80" cy="80" fill="none" stroke="#44BDDB" stroke-width="28"
-            stroke-dasharray="88.2 251.1" stroke-dashoffset="0" transform="rotate(-90 80 80)"/>
-          <circle r="54" cx="80" cy="80" fill="none" stroke="#FF7B7B" stroke-width="28"
-            stroke-dasharray="69.2 270.1" stroke-dashoffset="-88.2" transform="rotate(-90 80 80)"/>
-          <circle r="54" cx="80" cy="80" fill="none" stroke="#FFB547" stroke-width="28"
-            stroke-dasharray="60.1 279.2" stroke-dashoffset="-157.4" transform="rotate(-90 80 80)"/>
+            stroke-dasharray="107.2 232.1" stroke-dashoffset="0" transform="rotate(-90 80 80)"/>
+          <!-- 老花雷射 LBV 18.3% → 62.1 -->
+          <circle r="54" cx="80" cy="80" fill="none" stroke="#5177BA" stroke-width="28"
+            stroke-dasharray="62.1 277.2" stroke-dashoffset="-107.2" transform="rotate(-90 80 80)"/>
+          <!-- 近視控制 14.5% → 49.2 -->
           <circle r="54" cx="80" cy="80" fill="none" stroke="#76C0A5" stroke-width="28"
-            stroke-dasharray="37.3 302" stroke-dashoffset="-217.5" transform="rotate(-90 80 80)"/>
+            stroke-dasharray="49.2 290.1" stroke-dashoffset="-169.3" transform="rotate(-90 80 80)"/>
+          <!-- 乾眼症治療 13.1% → 44.5 -->
+          <circle r="54" cx="80" cy="80" fill="none" stroke="#FFB547" stroke-width="28"
+            stroke-dasharray="44.5 294.8" stroke-dashoffset="-218.5" transform="rotate(-90 80 80)"/>
+          <!-- 白內障 8.4% → 28.5 -->
           <circle r="54" cx="80" cy="80" fill="none" stroke="#A78BFA" stroke-width="28"
-            stroke-dasharray="37.3 302" stroke-dashoffset="-254.8" transform="rotate(-90 80 80)"/>
+            stroke-dasharray="28.5 310.8" stroke-dashoffset="-263.0" transform="rotate(-90 80 80)"/>
+          <!-- 老花矯正 4.2% → 14.3 -->
+          <circle r="54" cx="80" cy="80" fill="none" stroke="#FF7B7B" stroke-width="28"
+            stroke-dasharray="14.3 325.0" stroke-dashoffset="-291.5" transform="rotate(-90 80 80)"/>
+          <!-- 其他 9.9% → 33.6 -->
           <circle r="54" cx="80" cy="80" fill="none" stroke="#BFBFBF" stroke-width="28"
-            stroke-dasharray="50.6 288.7" stroke-dashoffset="-292.1" transform="rotate(-90 80 80)"/>
-          <text x="80" y="84" text-anchor="middle" font-size="15" font-weight="800" fill="#2C2C2C">181</text>
-          <text x="80" y="97" text-anchor="middle" font-size="10" fill="#959595">次瀏覽</text>
+            stroke-dasharray="33.6 305.7" stroke-dashoffset="-305.8" transform="rotate(-90 80 80)"/>
+          <circle r="40" cx="80" cy="80" fill="white"/>
+          <text x="80" y="83" text-anchor="middle" font-size="15" font-weight="800" fill="#2C2C2C" font-family="sans-serif">497</text>
+          <text x="80" y="96" text-anchor="middle" font-size="10" fill="#959595" font-family="sans-serif">次瀏覽</text>
         </svg>
+
         <div class="donut-legend">
-          <div class="donut-legend-row">
-            <div class="dot" style="background:#44BDDB"></div>
-            <span>近視雷射</span>
-            <span class="legend-pct">26.0%</span>
-          </div>
-          <div class="donut-legend-row">
-            <div class="dot" style="background:#FF7B7B"></div>
-            <span>乾眼症治療</span>
-            <span class="legend-pct">20.4%</span>
-          </div>
-          <div class="donut-legend-row">
-            <div class="dot" style="background:#FFB547"></div>
-            <span>白內障手術</span>
-            <span class="legend-pct">17.7%</span>
-          </div>
-          <div class="donut-legend-row">
-            <div class="dot" style="background:#76C0A5"></div>
-            <span>老花雷射手術</span>
-            <span class="legend-pct">11.0%</span>
-          </div>
-          <div class="donut-legend-row">
-            <div class="dot" style="background:#A78BFA"></div>
-            <span>精選影音</span>
-            <span class="legend-pct">11.0%</span>
-          </div>
-          <div class="donut-legend-row">
-            <div class="dot" style="background:#BFBFBF"></div>
-            <span>其他</span>
-            <span class="legend-pct">14.9%</span>
-          </div>
+          <div class="legend-row"><div class="legend-dot" style="background:#44BDDB"></div>近視雷射手術<span class="legend-pct">31.6%</span></div>
+          <div class="legend-row"><div class="legend-dot" style="background:#5177BA"></div>老花雷射 LBV<span class="legend-pct">18.3%</span></div>
+          <div class="legend-row"><div class="legend-dot" style="background:#76C0A5"></div>近視控制<span class="legend-pct">14.5%</span></div>
+          <div class="legend-row"><div class="legend-dot" style="background:#FFB547"></div>乾眼症治療<span class="legend-pct">13.1%</span></div>
+          <div class="legend-row"><div class="legend-dot" style="background:#A78BFA"></div>白內障<span class="legend-pct">8.4%</span></div>
+          <div class="legend-row"><div class="legend-dot" style="background:#FF7B7B"></div>老花矯正<span class="legend-pct">4.2%</span></div>
+          <div class="legend-row"><div class="legend-dot" style="background:#BFBFBF"></div>其他<span class="legend-pct">9.9%</span></div>
         </div>
-      </div>
-      <div class="insight" style="margin-top:12px">
-        <span class="material-symbols-outlined">search</span>
-        <span>近視雷射、乾眼症、白內障手術三大眼科核心主題合計佔 <strong>64.1%</strong>，與診所臨床專長高度吻合。</span>
+
       </div>
     </div>
   </section>
 
-</div><!-- /page -->
+</div>
 
-<!-- ══════════════════════════════════════════ FOOTER -->
 <div class="footer">
-  <strong>眼科診所 × Medify 數位內容行銷表現報告</strong><br>
-  資料期間：2026年4月1日 – 6튗月30日（Q2）<br>
-  資料來源：GA4 Data API（property 456665733，眼科醫師篩選：doctor-10/44/94/95/97/99/101/102/103）<br>
-  本報告所有數據均來自真實事件資料，僅供內部參考使用。
+  <strong>眼科 × Medify 數位內容行銷成效報告　2026 Q2</strong><br>
+  統計期間：2026年4月1日 – 6圈30日｜數據來源：GA4 Data API（property 456665733）<br>
+  眼科醫師範圍：doctor-10 / 44 / 94 / 95 / 97 / 99 / 101 / 102 / 103<br>
+  ⚠ Scroll 事件（深度閱讀/完成閱讀）需於 GA4 設定後方可取得，本期數據不可用。
 </div>
 
 <script>
-(function() {
-  const ctx = document.getElementById('weeklyChart').getContext('2d');
-  const weeks = ['4/5','4/12','4/19','4/26','5/3','5/10','5/17','5/24','5/31','6/7','6/14','6/21','6/28'];
-  // GA4 實際週別瀏覽數（全站，2026 Q2）
-  const data = [405, 872, 663, 517, 608, 635, 963, 715, 727, 691, 423, 304, 248];
+(function () {
+  var ctx = document.getElementById('weeklyChart').getContext('2d');
+  var labels = ['4/5','4/12','4/19','4/26','5/3','5/10','5/17','5/24','5/31','6/7','6/14','6/21','6/28','7/5'];
+  var data   = [29, 45, 31, 8, 29, 44, 37, 37, 69, 92, 22, 27, 14, 13];
+
   new Chart(ctx, {
     type: 'line',
     data: {
-      labels: weeks,
+      labels: labels,
       datasets: [{
-        label: '每週全站瀏覽數（次）',
+        label: '眼科文章週瀏覽數（次）',
         data: data,
         borderColor: '#44BDDB',
-        backgroundColor: 'rgba(68,189,219,0.10)',
+        backgroundColor: function(ctx) {
+          var g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 260);
+          g.addColorStop(0, 'rgba(68,189,219,0.22)');
+          g.addColorStop(1, 'rgba(68,189,219,0.01)');
+          return g;
+        },
         borderWidth: 2.5,
         pointBackgroundColor: '#5177BA',
         pointBorderColor: '#fff',
@@ -389,11 +280,34 @@
         pointRadius: 5,
         pointHoverRadius: 7,
         fill: true,
-        tension: 0.4
+        tension: 0.38
       }]
     },
-    options: {responsive: true,maintainAspectRatio: false,plugins: {legend: {display: false},tooltip: {backgroundColor: '#2C2C2C',titleColor: '#fff',bodyColor: 'rgba(255,255,255,.8)',padding: 10,callbacks:{label: ctx => ` ${ctx.parsed.y} 次/篇（示意）`}}},scales: {x: {grid: {color: '#f0f0f0'},ticks: {font: {size: 11},color: '#959595'}},y: {beginAtZero: true,grid: {color: '#f0f0f0'},ticks: {font: {size: 11},color: '#959595',callback: v => v + ' 次'}}}}
-    });
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#2C2C2C',
+          titleColor: '#fff',
+          bodyColor: 'rgba(255,255,255,.82)',
+          padding: 10,
+          callbacks: {
+            label: function(c) { return '  眼科文章：' + c.parsed.y + ' 次'; }
+          }
+        }
+      },
+      scales: {
+        x: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 11 }, color: '#959595' } },
+        y: {
+          beginAtZero: true,
+          grid: { color: '#f0f0f0' },
+          ticks: { font: { size: 11 }, color: '#959595', callback: function(v) { return v + ' 次'; } }
+        }
+      }
+    }
+  });
 })();
 </script>
 
