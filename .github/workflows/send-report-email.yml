@@ -1,0 +1,43 @@
+name: Send Report Email
+
+on:
+  workflow_dispatch:
+    inputs:
+      report_url:
+        description: 'Published report URL'
+        required: true
+      recipient:
+        description: 'Email recipient'
+        required: true
+        default: 'robin@medify.com.tw'
+      subject:
+        description: 'Email subject'
+        required: true
+        default: 'Medify 報告已上線'
+
+jobs:
+  send-email:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send email via Gmail
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: medify.agent@gmail.com
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: ${{ github.event.inputs.subject }}
+          to: ${{ github.event.inputs.recipient }}
+          from: Medify Agent <medify.agent@gmail.com>
+          body: |
+            您好，
+
+            最新的 Medify 數位內容行銷表現報告已上線：
+
+            ${{ github.event.inputs.report_url }}
+
+            請點選上方連結查看完整報告。
+
+            —
+            Medify 自動通知系統
