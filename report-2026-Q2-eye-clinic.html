@@ -73,6 +73,23 @@
   .art-rank { font-size: 11px; font-weight: 800; color: var(--g4); min-width: 14px; line-height: 1.6; flex-shrink: 0; }
   .art-views { font-size: 12px; font-weight: 700; color: var(--primary); min-width: 34px; text-align: right; line-height: 1.6; flex-shrink: 0; }
   .art-title { font-size: 12px; color: var(--g2); line-height: 1.5; }
+
+  /* QUADRANT */
+  .quad-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .quad-grid { grid-template-columns: 1fr; } }
+  .quad-card { background: var(--white); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+  .quad-hd { padding: 14px 20px 12px; }
+  .quad-hd-top { font-size: 14px; font-weight: 800; margin-bottom: 3px; }
+  .quad-hd-sub { font-size: 11px; opacity: .8; }
+  .quad-body { padding: 4px 16px 16px; }
+  .quad-row { display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; border-bottom: 1px solid #f4f4f4; }
+  .quad-row:last-child { border-bottom: none; }
+  .quad-rank { font-size: 11px; font-weight: 800; color: var(--g4); min-width: 16px; flex-shrink: 0; line-height: 1.6; }
+  .quad-nums { display: flex; flex-direction: column; min-width: 56px; flex-shrink: 0; text-align: right; }
+  .quad-v { font-size: 12px; font-weight: 700; color: var(--primary); }
+  .quad-r { font-size: 11px; color: var(--g4); }
+  .quad-t { font-size: 12px; color: var(--g2); line-height: 1.45; }
+  .quad-meta { font-size: 11px; color: var(--g4); padding: 8px 16px 0; }
 </style>
 </head>
 <body>
@@ -222,6 +239,84 @@
         <div class="art-row"><span class="art-rank">2</span><span class="art-views">4次</span><span class="art-title">60歲要做老花雷射還是白內障手術？如何評估？(下篇)</span></div>
         <div class="art-row"><span class="art-rank">3</span><span class="art-views">2次</span><span class="art-title">LBV裸視美老花雷射可以一次解決老花、近視、散光嗎？</span></div>
       </div>
+    </div>
+  </section>
+
+  <!-- 四象限分析 -->
+  <section>
+    <div class="section-title">文章四象限分析（Q2 瀏覽數 × 完成率）</div>
+    <div class="quad-meta" style="margin-bottom:14px;background:var(--light2);border-radius:10px;padding:10px 16px;font-size:11px;color:var(--g3)">
+      切割中位數 — 瀏覽數中位數：<strong>2 次</strong>　完成率中位數：<strong>0%</strong>（高完成度定義：scroll_75 事件 &gt; 0）　共 107 篇眼科文章參與計算
+    </div>
+    <div class="quad-grid">
+
+      <div class="quad-card">
+        <div class="quad-hd" style="background:#76C0A5;color:#fff">
+          <div class="quad-hd-top">🔥 表現最佳</div>
+          <div class="quad-hd-sub">高流量 × 高完成度　共 9 篇　按瀏覽數排</div>
+        </div>
+        <div class="quad-body">
+          <div class="quad-row"><span class="quad-rank">1</span><div class="quad-nums"><span class="quad-v">55次</span><span class="quad-r">1.8%</span></div><span class="quad-t">3C產品如何傷眼？兒童近視失控會怎樣？一次搞懂矯正與預防</span></div>
+          <div class="quad-row"><span class="quad-rank">2</span><div class="quad-nums"><span class="quad-v">34次</span><span class="quad-r">17.6%</span></div><span class="quad-t">乾眼治療</span></div>
+          <div class="quad-row"><span class="quad-rank">3</span><div class="quad-nums"><span class="quad-v">9次</span><span class="quad-r">11.1%</span></div><span class="quad-t">近視雷射手術</span></div>
+          <div class="quad-row"><span class="quad-rank">4</span><div class="quad-nums"><span class="quad-v">9次</span><span class="quad-r">11.1%</span></div><span class="quad-t">老花雷射術後的乾眼與視力適應：藥水與保養指南</span></div>
+          <div class="quad-row"><span class="quad-rank">5</span><div class="quad-nums"><span class="quad-v">8次</span><span class="quad-r">12.5%</span></div><span class="quad-t">熱門文章</span></div>
+          <div class="quad-row"><span class="quad-rank">6</span><div class="quad-nums"><span class="quad-v">6次</span><span class="quad-r">16.7%</span></div><span class="quad-t">近視控制療程</span></div>
+          <div class="quad-row"><span class="quad-rank">7</span><div class="quad-nums"><span class="quad-v">4次</span><span class="quad-r">25.0%</span></div><span class="quad-t">測試文章首圖(2)（引用）</span></div>
+          <div class="quad-row"><span class="quad-rank">8</span><div class="quad-nums"><span class="quad-v">2次</span><span class="quad-r">50.0%</span></div><span class="quad-t">近視雷射</span></div>
+          <div class="quad-row"><span class="quad-rank">9</span><div class="quad-nums"><span class="quad-v">2次</span><span class="quad-r">50.0%</span></div><span class="quad-t">白內障手術術後照護與乾眼管理：必知的用藥與日常保養</span></div>
+        </div>
+      </div>
+
+      <div class="quad-card">
+        <div class="quad-hd" style="background:#F59E0B;color:#fff">
+          <div class="quad-hd-top">⚠️ 流量好但讀者跑掉</div>
+          <div class="quad-hd-sub">高流量 × 低完成度　共 59 篇　按瀏覽數排（前10）</div>
+        </div>
+        <div class="quad-body">
+          <div class="quad-row"><span class="quad-rank">1</span><div class="quad-nums"><span class="quad-v">63次</span><span class="quad-r">0%</span></div><span class="quad-t">近視雷射術後的乾眼症與保養：藥水使用與日常照護完整指南</span></div>
+          <div class="quad-row"><span class="quad-rank">2</span><div class="quad-nums"><span class="quad-v">28次</span><span class="quad-r">0%</span></div><span class="quad-t">乾眼症會好嗎？如何治療？乾眼症如何發生與日常保養</span></div>
+          <div class="quad-row"><span class="quad-rank">3</span><div class="quad-nums"><span class="quad-v">27次</span><span class="quad-r">0%</span></div><span class="quad-t">眼睛常常好乾！我的乾眼症會好嗎？乾眼症常見原因、成因</span></div>
+          <div class="quad-row"><span class="quad-rank">4</span><div class="quad-nums"><span class="quad-v">25次</span><span class="quad-r">0%</span></div><span class="quad-t">LBV裸視美老花雷射可以一次解決老花、近視、散光嗎？</span></div>
+          <div class="quad-row"><span class="quad-rank">5</span><div class="quad-nums"><span class="quad-v">21次</span><span class="quad-r">0%</span></div><span class="quad-t">近視雷射、老花雷射、白內障術後為什麼要點眼藥水？</span></div>
+          <div class="quad-row"><span class="quad-rank">6</span><div class="quad-nums"><span class="quad-v">20次</span><span class="quad-r">0%</span></div><span class="quad-t">LBV 老花雷射：術前、術中、術後注意事項一次看懂</span></div>
+          <div class="quad-row"><span class="quad-rank">7</span><div class="quad-nums"><span class="quad-v">19次</span><span class="quad-r">0%</span></div><span class="quad-t">近視雷射手術安全嗎？設備差異與手術醫師經驗的重要性</span></div>
+          <div class="quad-row"><span class="quad-rank">8</span><div class="quad-nums"><span class="quad-v">15次</span><span class="quad-r">0%</span></div><span class="quad-t">LBV 老花雷射（術前術中術後注意事項）</span></div>
+          <div class="quad-row"><span class="quad-rank">9</span><div class="quad-nums"><span class="quad-v">12次</span><span class="quad-r">0%</span></div><span class="quad-t">老花雷射手術</span></div>
+          <div class="quad-row"><span class="quad-rank">10</span><div class="quad-nums"><span class="quad-v">10次</span><span class="quad-r">0%</span></div><span class="quad-t">乾眼症一定會惡化嗎？從輕度到重度的治療選擇與日常照護指南</span></div>
+        </div>
+        <div class="quad-meta">注：0% 完成率可能為 scroll_75 事件尚未觸發，建議確認追蹤設定</div>
+      </div>
+
+      <div class="quad-card">
+        <div class="quad-hd" style="background:#5177BA;color:#fff">
+          <div class="quad-hd-top">💎 隱藏寶石</div>
+          <div class="quad-hd-sub">低流量 × 高完成度　共 1 篇　按完成率排</div>
+        </div>
+        <div class="quad-body">
+          <div class="quad-row"><span class="quad-rank">1</span><div class="quad-nums"><span class="quad-v">1次</span><span class="quad-r">100%</span></div><span class="quad-t">視力保健</span></div>
+        </div>
+      </div>
+
+      <div class="quad-card">
+        <div class="quad-hd" style="background:#9CA3AF;color:#fff">
+          <div class="quad-hd-top">🔻 需要關注</div>
+          <div class="quad-hd-sub">低流量 × 低完成度　共 38 篇　按瀏覽數排（前10）</div>
+        </div>
+        <div class="quad-body">
+          <div class="quad-row"><span class="quad-rank">1</span><div class="quad-nums"><span class="quad-v">1次</span><span class="quad-r">0%</span></div><span class="quad-t">青光眼治療</span></div>
+          <div class="quad-row"><span class="quad-rank">2</span><div class="quad-nums"><span class="quad-v">1次</span><span class="quad-r">0%</span></div><span class="quad-t">預防醫學</span></div>
+          <div class="quad-row"><span class="quad-rank">3</span><div class="quad-nums"><span class="quad-v">1次</span><span class="quad-r">0%</span></div><span class="quad-t">乾眼症治療</span></div>
+          <div class="quad-row"><span class="quad-rank">4</span><div class="quad-nums"><span class="quad-v">1次</span><span class="quad-r">0%</span></div><span class="quad-t">飛蚊症</span></div>
+          <div class="quad-row"><span class="quad-rank">5</span><div class="quad-nums"><span class="quad-v">1次</span><span class="quad-r">0%</span></div><span class="quad-t">兒童近視控制</span></div>
+          <div class="quad-row"><span class="quad-rank">6</span><div class="quad-nums"><span class="quad-v">1次</span><span class="quad-r">0%</span></div><span class="quad-t">近視雷射</span></div>
+          <div class="quad-row"><span class="quad-rank">7</span><div class="quad-nums"><span class="quad-v">1次</span><span class="quad-r">0%</span></div><span class="quad-t">人工水晶體怎麼選？先看有沒有散光，再看生活用眼距離！</span></div>
+          <div class="quad-row"><span class="quad-rank">8</span><div class="quad-nums"><span class="quad-v">1次</span><span class="quad-r">0%</span></div><span class="quad-t">青光眼一定會失明嗎？了解青光眼症狀、原因與早期預防關鍵</span></div>
+          <div class="quad-row"><span class="quad-rank">9</span><div class="quad-nums"><span class="quad-v">1次</span><span class="quad-r">0%</span></div><span class="quad-t">青光眼檢查怎麼做？眼壓、視神經與視野檢查完整流程一次搞懂</span></div>
+          <div class="quad-row"><span class="quad-rank">10</span><div class="quad-nums"><span class="quad-v">1次</span><span class="quad-r">0%</span></div><span class="quad-t">青光眼藥水種類有哪些？副作用是什麼？要點一輩子嗎？青光眼用藥須知</span></div>
+        </div>
+      </div>
+
     </div>
   </section>
 </div>
