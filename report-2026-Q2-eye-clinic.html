@@ -20,8 +20,6 @@
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif; background: var(--bg); color: var(--g1); line-height: 1.6; }
-
-  /* HEADER */
   .header {
     background: linear-gradient(135deg, #44BDDB 0%, #1793BA 55%, #5177BA 100%);
     color: #fff; padding: 52px 48px 44px; position: relative; overflow: hidden;
@@ -44,8 +42,6 @@
     background: rgba(255,255,255,.15); border-radius: 20px;
     padding: 5px 14px; border: 1px solid rgba(255,255,255,.25);
   }
-
-  /* LAYOUT */
   .page { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
   section { margin: 36px 0; }
   .section-title {
@@ -53,11 +49,8 @@
     color: var(--accent); margin-bottom: 14px; display: flex; align-items: center; gap: 10px;
   }
   .section-title::after { content: ''; flex: 1; height: 1px; background: linear-gradient(to right, var(--light1), transparent); }
-
-  /* METRICS GRID */
   .metrics-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; }
   @media (max-width: 768px) { .metrics-grid { grid-template-columns: repeat(2,1fr); } }
-
   .metric-card {
     background: var(--white); border-radius: var(--radius); padding: 24px 20px;
     box-shadow: var(--shadow); position: relative; overflow: hidden;
@@ -70,16 +63,11 @@
   .metric-value { font-size: 34px; font-weight: 900; color: var(--dark1); line-height: 1; margin-bottom: 6px; }
   .metric-label { font-size: 13px; font-weight: 600; color: var(--g2); margin-bottom: 3px; }
   .metric-note { font-size: 11px; color: var(--g4); }
-
-  /* PANEL */
   .panel { background: var(--white); border-radius: var(--radius); padding: 28px; box-shadow: var(--shadow); }
   .panel-title { font-size: 14px; font-weight: 700; color: var(--g1); margin-bottom: 20px; }
   .chart-wrapper { position: relative; height: 260px; }
-
-  /* SCROLL SECTION */
   .scroll-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   @media (max-width: 480px) { .scroll-grid { grid-template-columns: 1fr; } }
-
   .scroll-card {
     background: var(--white); border-radius: var(--radius); padding: 32px 24px;
     box-shadow: var(--shadow); text-align: center; position: relative; overflow: hidden;
@@ -91,22 +79,16 @@
   .scroll-type { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--g4); margin-bottom: 12px; }
   .scroll-val { font-size: 40px; font-weight: 900; color: #C4C4C4; line-height: 1; margin-bottom: 8px; }
   .scroll-desc { font-size: 13px; font-weight: 600; color: var(--g3); margin-bottom: 10px; }
-  .scroll-warn { font-size: 11px; color: var(--warn); background: #FEF3C7; border-radius: 8px; padding: 6px 10px; display: inline-block; }
-
-  /* DONUT */
   .donut-wrap { display: flex; align-items: center; gap: 32px; flex-wrap: wrap; }
   .donut-legend { flex: 1; min-width: 160px; }
   .legend-row { display: flex; align-items: center; gap: 10px; margin-bottom: 11px; font-size: 13px; color: var(--g2); }
   .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   .legend-pct { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--g4); }
-
-  /* FOOTER */
   .footer { background: var(--g1); color: rgba(255,255,255,.45); text-align: center; padding: 28px; margin-top: 60px; font-size: 12px; line-height: 2; }
   .footer strong { color: rgba(255,255,255,.75); }
 </style>
 </head>
 <body>
-
 <div class="header">
   <div class="header-inner">
     <div class="header-logo">
@@ -122,46 +104,36 @@
     </div>
   </div>
 </div>
-
 <div class="page">
-
-  <!-- 1. 平均每篇文章瀏覽數 + 3. 平均每日瀏覽數 + 4. 平均參與度 + 總篇數 -->
   <section>
     <div class="section-title">核心指標</div>
     <div class="metrics-grid">
-
       <div class="metric-card">
         <div class="metric-icon">📄</div>
         <div class="metric-value">5.8</div>
         <div class="metric-label">平均每篇文章瀏覽數</div>
         <div class="metric-note">次 / 篇（眼科 497 次 ÷ 86 篇）</div>
       </div>
-
       <div class="metric-card">
         <div class="metric-icon">📅</div>
         <div class="metric-value">88.3</div>
         <div class="metric-label">平均每日瀏覽數</div>
         <div class="metric-note">次 / 天（全站 8,033 次 ÷ 91 天）</div>
       </div>
-
       <div class="metric-card">
         <div class="metric-icon">🎯</div>
         <div class="metric-value">49.4%</div>
         <div class="metric-label">平均參與度</div>
         <div class="metric-note">Engagement Rate（GA4 Sessions）</div>
       </div>
-
       <div class="metric-card">
         <div class="metric-icon">📚</div>
         <div class="metric-value">86</div>
         <div class="metric-label">眼科文章總篇數</div>
         <div class="metric-note">Q2 有流量的眼科醫師文章</div>
       </div>
-
     </div>
   </section>
-
-  <!-- 2. 平均每篇文章瀏覽數的每週曲線圖 -->
   <section>
     <div class="section-title">眼科文章每週瀏覽趨勢</div>
     <div class="panel">
@@ -171,64 +143,47 @@
       </div>
     </div>
   </section>
-
-  <!-- 5. 深度閱讀數 + 6. 完成閱讀數 -->
   <section>
     <div class="section-title">文章閱讀行為（深度 / 完成）</div>
     <div class="scroll-grid">
-
       <div class="scroll-card">
         <div class="scroll-type">深度閱讀數　SCROLL 50%</div>
         <div class="scroll-val" style="color:#5177BA">56.2%</div>
         <div class="scroll-desc">深度閱讀率</div>
         <div class="scroll-note" style="font-size:11px;color:#959595;margin-top:6px">scroll_50 ÷ scroll_25 = 86 ÷ 153</div>
       </div>
-
       <div class="scroll-card">
         <div class="scroll-type">完成閱讀數　SCROLL 75%</div>
         <div class="scroll-val" style="color:#5177BA">45.1%</div>
         <div class="scroll-desc">完成閱讀率</div>
         <div class="scroll-note" style="font-size:11px;color:#959595;margin-top:6px">scroll_75 ÷ scroll_25 = 69 ÷ 153</div>
       </div>
-
     </div>
   </section>
-
-  <!-- 7. 各分類佔比 -->
   <section>
     <div class="section-title">眼科文章各分類佔比</div>
     <div class="panel">
       <div class="panel-title">🍩 文章瀏覽分類分布（共 497 次，2026 Q2）</div>
       <div class="donut-wrap">
-
         <svg viewBox="0 0 160 160" width="172" height="172" style="flex-shrink:0">
-          <!-- circumference = 2π×54 ≈ 339.29 -->
-          <!-- 近視雷射手術 31.6% → 107.2 -->
           <circle r="54" cx="80" cy="80" fill="none" stroke="#44BDDB" stroke-width="28"
             stroke-dasharray="107.2 232.1" stroke-dashoffset="0" transform="rotate(-90 80 80)"/>
-          <!-- 老花雷射 LBV 18.3% → 62.1 -->
           <circle r="54" cx="80" cy="80" fill="none" stroke="#5177BA" stroke-width="28"
             stroke-dasharray="62.1 277.2" stroke-dashoffset="-107.2" transform="rotate(-90 80 80)"/>
-          <!-- 近視控制 14.5% → 49.2 -->
           <circle r="54" cx="80" cy="80" fill="none" stroke="#76C0A5" stroke-width="28"
             stroke-dasharray="49.2 290.1" stroke-dashoffset="-169.3" transform="rotate(-90 80 80)"/>
-          <!-- 乾眼症治療 13.1% → 44.5 -->
           <circle r="54" cx="80" cy="80" fill="none" stroke="#FFB547" stroke-width="28"
             stroke-dasharray="44.5 294.8" stroke-dashoffset="-218.5" transform="rotate(-90 80 80)"/>
-          <!-- 白內障 8.4% → 28.5 -->
           <circle r="54" cx="80" cy="80" fill="none" stroke="#A78BFA" stroke-width="28"
             stroke-dasharray="28.5 310.8" stroke-dashoffset="-263.0" transform="rotate(-90 80 80)"/>
-          <!-- 老花矯正 4.2% → 14.3 -->
           <circle r="54" cx="80" cy="80" fill="none" stroke="#FF7B7B" stroke-width="28"
             stroke-dasharray="14.3 325.0" stroke-dashoffset="-291.5" transform="rotate(-90 80 80)"/>
-          <!-- 其他 9.9% → 33.6 -->
           <circle r="54" cx="80" cy="80" fill="none" stroke="#BFBFBF" stroke-width="28"
             stroke-dasharray="33.6 305.7" stroke-dashoffset="-305.8" transform="rotate(-90 80 80)"/>
           <circle r="40" cx="80" cy="80" fill="white"/>
           <text x="80" y="83" text-anchor="middle" font-size="15" font-weight="800" fill="#2C2C2C" font-family="sans-serif">497</text>
           <text x="80" y="96" text-anchor="middle" font-size="10" fill="#959595" font-family="sans-serif">次瀏覽</text>
         </svg>
-
         <div class="donut-legend">
           <div class="legend-row"><div class="legend-dot" style="background:#44BDDB"></div>近視雷射手術<span class="legend-pct">31.6%</span></div>
           <div class="legend-row"><div class="legend-dot" style="background:#5177BA"></div>老花雷射 LBV<span class="legend-pct">18.3%</span></div>
@@ -238,84 +193,77 @@
           <div class="legend-row"><div class="legend-dot" style="background:#FF7B7B"></div>老花矯正<span class="legend-pct">4.2%</span></div>
           <div class="legend-row"><div class="legend-dot" style="background:#BFBFBF"></div>其他<span class="legend-pct">9.9%</span></div>
         </div>
-
       </div>
     </div>
   </section>
-
 </div>
-
 <div class="footer">
   <strong>眼科 × Medify 數位內容行銷成效報告　2026 Q2</strong><br>
   統計期間：2026年4月1日 – 6月30日｜數據來源：GA4 Data API（property 456665733）<br>
   眼科醫師範圍：doctor-10 / 44 / 94 / 95 / 97 / 99 / 101 / 102 / 103<br>
   Scroll 計算方式：深度閱讀率 = scroll_50 ÷ scroll_25；完成閱讀率 = scroll_75 ÷ scroll_25（分母為真正開始閱讀的訪客）
 </div>
-
 <script>
 (function () {
   var s = document.createElement('script');
   s.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
   s.onload = function() { initChart(); };
   document.head.appendChild(s);
-
   function initChart() {
-  var ctx = document.getElementById('weeklyChart').getContext('2d');
-  var labels = ['4/5','4/12','4/19','4/26','5/3','5/10','5/17','5/24','5/31','6/7','6/14','6/21','6/28','7/5'];
-  var data   = [29, 45, 31, 8, 29, 44, 37, 37, 69, 92, 22, 27, 14, 13];
-
-  new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: labels,
-      datasets: [{
-        label: '眼科文章週瀏覽數（次）',
-        data: data,
-        borderColor: '#44BDDB',
-        backgroundColor: function(ctx) {
-          var g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 260);
-          g.addColorStop(0, 'rgba(68,189,219,0.22)');
-          g.addColorStop(1, 'rgba(68,189,219,0.01)');
-          return g;
+    var ctx = document.getElementById('weeklyChart').getContext('2d');
+    var labels = ['4/5','4/12','4/19','4/26','5/3','5/10','5/17','5/24','5/31','6/7','6/14','6/21','6/28','7/5'];
+    var data   = [29, 45, 31, 8, 29, 44, 37, 37, 69, 92, 22, 27, 14, 13];
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: '眼科文章週瀏覽數（次）',
+          data: data,
+          borderColor: '#44BDDB',
+          backgroundColor: function(ctx) {
+            var g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 260);
+            g.addColorStop(0, 'rgba(68,189,219,0.22)');
+            g.addColorStop(1, 'rgba(68,189,219,0.01)');
+            return g;
+          },
+          borderWidth: 2.5,
+          pointBackgroundColor: '#5177BA',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          fill: true,
+          tension: 0.38
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#2C2C2C',
+            titleColor: '#fff',
+            bodyColor: 'rgba(255,255,255,.82)',
+            padding: 10,
+            callbacks: {
+              label: function(c) { return '  眼科文章：' + c.parsed.y + ' 次'; }
+            }
+          }
         },
-        borderWidth: 2.5,
-        pointBackgroundColor: '#5177BA',
-        pointBorderColor: '#fff',
-        pointBorderWidth: 2,
-        pointRadius: 5,
-        pointHoverRadius: 7,
-        fill: true,
-        tension: 0.38
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: '#2C2C2C',
-          titleColor: '#fff',
-          bodyColor: 'rgba(255,255,255,.82)',
-          padding: 10,
-          callbacks: {
-            label: function(c) { return '  眼科文章：' + c.parsed.y + ' 次'; }
+        scales: {
+          x: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 11 }, color: '#959595' } },
+          y: {
+            beginAtZero: true,
+            grid: { color: '#f0f0f0' },
+            ticks: { font: { size: 11 }, color: '#959595', callback: function(v) { return v + ' 次'; } }
           }
         }
-      },
-      scales: {
-        x: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 11 }, color: '#959595' } },
-        y: {
-          beginAtZero: true,
-          grid: { color: '#f0f0f0' },
-          ticks: { font: { size: 11 }, color: '#959595', callback: function(v) { return v + ' 次'; } }
-        }
       }
-    }
-  });
-  } // end initChart
+    });
+  }
 })();
 </script>
-
 </body>
 </html>
