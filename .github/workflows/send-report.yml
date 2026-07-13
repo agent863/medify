@@ -31,7 +31,7 @@ jobs:
           from email.mime.multipart import MIMEMultipart
           from email.mime.text import MIMEText
 
-          sender = 'agent.medify@gmail.com'
+          sender = 'medify.agent@gmail.com'
           app_password = os.environ['APP_PASSWORD']
           report_url = os.environ['REPORT_URL']
           subject = os.environ['SUBJECT']
@@ -85,7 +85,7 @@ jobs:
             server.ehlo()
             server.login(sender, app_password)
             server.sendmail(sender, recipients, msg.as_bytes())
-            print(f'✅ Email sent to {len(recipients)} recipients!')
+            print(f'Email sent to {len(recipients)} recipients!')
           PYEOF
         env:
           APP_PASSWORD: ${{ inputs.app_password }}
