@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>眼科 × Medify 數位內容行銷成效報告 2026 Q2</title>
+  
   <style>
     :root {
       --primary: #44BDDB;
@@ -61,6 +61,11 @@
       position: relative;
       max-width: 1040px;
       margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
     }
 
     .header-logo {
@@ -577,22 +582,42 @@
       color: var(--g4);
       padding: 8px 16px 0;
     }
+    .medify-white {
+      display: block;
+      width: 120px;
+      max-width: 20vw;
+      height: auto;
+      margin-bottom: 16px;
+    }
+
+    @media (max-width: 480px) {
+      .medify-white {
+        width: 80px;
+        margin-bottom: 12px;
+      }
+    }
+    @media (max-width: 700px) {
+      .header-inner {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+      }
+    }
   </style>
 </head>
 
 <body>
 
+
   <div class="header">
     <div class="header-inner">
-      <div class="header-logo">
-        <span class="logo-badge">眼科醫院</span>
-        <span class="logo-x">×</span>
-        <span class="logo-badge">Medify</span>
-      </div>
-      <h1>數位內容行銷成效報告　2026 Q2</h1>
-      <div class="meta">
-        <span>2026年4月1日 – 6月30日</span>
-        <span>數據來源：GA4 Data API</span>
+      <img class="medify-white" src="medify_logo_wh.png" alt="Medify Logo">
+      <div class="header-content">
+        <h1>眼科文章成效　2026 Q2</h1>
+        <div class="meta">
+          <span>2026年4月1日 – 6月30日</span>
+          <span>數據來源：GA4 Data API</span>
+        </div>
       </div>
     </div>
   </div>
