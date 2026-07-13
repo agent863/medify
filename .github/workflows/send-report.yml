@@ -1,0 +1,93 @@
+name: Send Quarterly Report Email
+
+on:
+  workflow_dispatch:
+    inputs:
+      report_url:
+        description: '季報 URL'
+        required: true
+        default: 'https://htmlpreview.github.io/?https://github.com/agent863/medify/blob/main/report-2026-Q2-eye-clinic.html'
+        type: string
+      subject:
+        description: '信件主旨'
+        required: true
+        default: '【2026 Q2 季報】眼科 × Medify 數位內容行銷成效報告'
+        type: string
+      app_password:
+        description: 'Gmail App Password'
+        required: true
+        type: string
+
+jobs:
+  send-email:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send report email
+        run: |
+          python3 << 'PYEOF'
+          import smtplib
+          import ssl
+          import os
+          from email.mime.multipart import MIMEMultipart
+          from email.mime.text import MIMEText
+
+          sender = 'agent.medify@gmail.com'
+          app_password = os.environ['APP_PASSWORD']
+          report_url = os.environ['REPORT_URL']
+          subject = os.environ['SUBJECT']
+
+          recipients = [
+            'robin@iclarityvision.com',
+            'harry@iclarityvision.com',
+            'james@jlilaw.tw',
+            'brook@iclarityvision.com',
+            'belle@iclarityvision.com',
+            'mia@iclarityvision.com',
+            'ainia@iclarityvision.com'
+          ]
+
+          html_body = f"""<!DOCTYPE html>
+          <html lang="zh-TW"><head><meta charset="UTF-8"></head>
+          <body style="font-family:'Helvetica Neue',Arial,sans-serif;color:#1f2937;background:#f9fafb;margin:0;padding:0;">
+            <div style="max-width:600px;margin:40px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+              <div style="background:linear-gradient(135deg,#0ea5e9 0%,#6366f1 100%);padding:36px 40px;">
+                <p style="margin:0;color:rgba(255,255,255,0.85);font-size:13px;letter-spacing:2px;">MEDIFY × 眼科</p>
+                <h1 style="margin:8px 0 0;color:#fff;font-size:24px;font-weight:700;">2026 Q2 數位內容行銷季報</h1>
+                <p style="margin:8px 0 0;color:rgba(255,255,255,0.8);font-size:14px;">2026 年 4 月 1 日 ─ 6 月 30 日</p>
+              </div>
+              <div style="padding:36px 40px;">
+                <p style="font-size:15px;line-height:1.8;color:#374151;">您好，</p>
+                <p style="font-size:15px;line-height:1.8;color:#374151;">2026 第二季眼科 × Medify 數位內容行銷成效報告已完成，請點擊下方按鈕查看完整報告。</p>
+                <div style="text-align:center;margin:32px 0;">
+                  <a href="{report_url}" style="display:inline-block;background:linear-gradient(135deg,#0ea5e9,#6366f1);color:#fff;text-decoration:none;padding:14px 36px;border-radius:8px;font-size:15px;font-weight:600;">查看完整季報 →</a>
+                </div>
+                <p style="font-size:13px;color:#9ca3af;line-height:1.6;">或複製以下連結至瀏覽器開啟：<br><a href="{report_url}" style="color:#6366f1;word-break:break-all;">{report_url}</a></p>
+                <hr style="border:none;border-top:1px solid #e5e7eb;margin:32px 0;">
+                <p style="font-size:13px;color:#6b7280;">如有任何問題，歡迎回覆此信件。祝商祺</p>
+                <p style="font-size:14px;color:#374151;font-weight:600;">Medify 數位行銷團隊</p>
+              </div>
+              <div style="background:#f3f4f6;padding:20px 40px;text-align:center;">
+                <p style="margin:0;font-size:12px;color:#9ca3af;">© 2026 Medify 醫病關係平台</p>
+              </div>
+            </div>
+          </body></html>"""
+
+          msg = MIMEMultipart('alternative')
+          msg['Subject'] = subject
+          msg['From'] = f'Medify 數位行銷 <{sender}>'
+          msg['To'] = ', '.join(recipients)
+          msg.attach(MIMEText(html_body, 'html', 'utf-8'))
+
+          context = ssl.create_default_context()
+          with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            server.ehlo()
+            server.starttls(context=context)
+            server.ehlo()
+            server.login(sender, app_password)
+            server.sendmail(sender, recipients, msg.as_bytes())
+            print(f'✅ Email sent to {len(recipients)} recipients!')
+          PYEOF
+        env:
+          APP_PASSWORD: ${{ inputs.app_password }}
+          REPORT_URL: ${{ inputs.report_url }}
+          SUBJECT: ${{ inputs.subject }}
