@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Medify 週報 W28（2026/07/06–07/12）</title>
+<style>
+  :root {
+    --primary: #1a73e8; --up: #0d8050; --down: #c23030;
+    --bg: #f5f7fa; --card: #ffffff; --text: #202124; --muted: #5f6368;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+  .container { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  h2 { font-size: 1.25rem; margin: 32px 0 12px; border-left: 4px solid var(--primary); padding-left: 10px; }
+  h3 { font-size: 1.05rem; margin: 16px 0 8px; }
+  .period { color: var(--muted); margin-bottom: 8px; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 12px; }
+  .kpi { background: var(--card); border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .kpi .label { font-size: .82rem; color: var(--muted); }
+  .kpi .value { font-size: 1.7rem; font-weight: 700; margin-top: 2px; }
+  .kpi .delta { font-size: .82rem; font-weight: 600; }
+  .up { color: var(--up); } .down { color: var(--down); }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.08); font-size: .9rem; margin-top: 8px; }
+  th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid #eceff1; }
+  th { background: #eef3fb; font-weight: 600; }
+  td.num, th.num { text-align: right; }
+  .doctor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 12px; }
+  .doctor-card { background: var(--card); border-radius: 10px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .doctor-card h3 { margin-top: 0; color: var(--primary); }
+  .doctor-card .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: .88rem; margin: 8px 0; }
+  .doctor-card .stats .s-label { color: var(--muted); }
+  .doctor-card ul { padding-left: 18px; font-size: .85rem; }
+  .note { font-size: .8rem; color: var(--muted); margin-top: 6px; }
+  .insight { background: var(--card); border-radius: 10px; padding: 18px 22px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-top: 8px; }
+  .insight li { margin: 8px 0 8px 18px; }
+  /* password gate */
+  #gate { min-height: 100vh; display: flex; align-items: center; justify-content: center; flex-direction: column; background: var(--bg); }
+  #gate .box { background: var(--card); padding: 40px 36px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.12); text-align: center; }
+  #gate input { font-size: 1.1rem; padding: 10px 14px; border: 1px solid #cfd8dc; border-radius: 8px; width: 200px; text-align: center; margin-top: 14px; }
+  #gate button { font-size: 1rem; padding: 10px 26px; margin-top: 14px; background: var(--primary); color: #fff; border: none; border-radius: 8px; cursor: pointer; }
+  #pw-error { display: none; color: var(--down); margin-top: 10px; font-size: .88rem; }
+  #report { display: none; }
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="box">
+    <h1>Medify 週報</h1>
+    <p class="period">2026 W28（07/06–07/12）</p>
+    <p>請輸入密碼檢視報告</p>
+    <input type="password" id="pw" placeholder="密碼" autofocus>
+    <br>
+    <button onclick="checkPw()">進入</button>
+    <p id="pw-error">密碼錯誤，請再試一次</p>
+  </div>
+</div>
+
+<div id="report">
+<div class="container">
+  <h1>Medify 週報 W28</h1>
+  <p class="period">報告期間：2026/07/06（一）– 2026/07/12（日）｜週對週比較期間：06/29–07/05</p>
+
+  <!-- Section 1: GA4 -->
+  <h2>Section 1｜GA4 全站數據</h2>
+  <div class="kpi-grid">
+    <div class="kpi"><div class="label">活躍使用者</div><div class="value">102</div><div class="delta up">▲ 41.7%</div></div>
+    <div class="kpi"><div class="label">新使用者</div><div class="value">86</div><div class="delta up">▲ 48.3%</div></div>
+    <div class="kpi"><div class="label">平均參與時間</div><div class="value">1分21秒</div><div class="delta up">▲ 2.4%</div></div>
+    <div class="kpi"><div class="label">事件數</div><div class="value">2,475</div><div class="delta up">▲ 87.1%</div></div>
+  </div>
+
+  <h3>文章瀏覽排行（post_view）前 10 名</h3>
+  <table>
+    <thead><tr><th>#</th><th>文章標題</th><th>醫師</th><th class="num">瀏覽數</th><th class="num">人數</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>白內障手術後多久恢復？洗臉、洗頭、運動與四大禁忌一次看</td><td>doctor-104</td><td class="num">10</td><td class="num">4</td></tr>
+      <tr><td>2</td><td>近視雷射怎麼選？LASIK、SMILE、PRK三種常見術式差異一次看</td><td>doctor-104</td><td class="num">7</td><td class="num">2</td></tr>
+      <tr><td>3</td><td>SMILE近視雷射是什麼？微創飛秒雷射切口小、恢復期與適合族群一次看</td><td>doctor-104</td><td class="num">6</td><td class="num">2</td></tr>
+      <tr><td>4</td><td>人工淚液該怎麼挑？成分、包裝、價格、購買方式與常見問題一次解答</td><td>doctor-104</td><td class="num">5</td><td class="num">2</td></tr>
+      <tr><td>5</td><td>術後恢復｜老花雷射後的眩光、乾眼症該怎麼辦？</td><td>doctor-10</td><td class="num">4</td><td class="num">2</td></tr>
+      <tr><td>6</td><td>脈衝光不只醫美，也能改善乾眼症？瞼板腺阻塞、眼睛乾澀怎麼評估</td><td>doctor-104</td><td class="num">4</td><td class="num">2</td></tr>
+      <tr><td>7</td><td>三焦點人工水晶體是什麼？白內障手術後遠中近視力、還要戴眼鏡嗎？</td><td>doctor-104</td><td class="num">4</td><td class="num">2</td></tr>
+      <tr><td>8</td><td>長焦段人工水晶體是什麼？白內障、老花眼與夜間視力需求怎麼評估</td><td>doctor-104</td><td class="num">4</td><td class="num">2</td></tr>
+      <tr><td>9</td><td>近視雷射術後眼睛乾怎麼辦？乾眼症狀、恢復時間與緩解方法</td><td>doctor-104</td><td class="num">4</td><td class="num">2</td></tr>
+      <tr><td>10</td><td>嗜睡 打鼾 我得了睡眠呼吸中止症嗎？他的治療方式會有哪些？</td><td>default（耳鼻喉科）</td><td class="num">3</td><td class="num">2</td></tr>
+    </tbody>
+  </table>
+
+  <h3>post_view 依醫師分布（GA4 Explore）</h3>
+  <table>
+    <thead><tr><th>doctor_id</th><th class="num">post_view 事件數</th></tr></thead>
+    <tbody>
+      <tr><td>doctor-104</td><td class="num">52</td></tr>
+      <tr><td>doctor-10</td><td class="num">26</td></tr>
+      <tr><td>doctor-43</td><td class="num">14</td></tr>
+      <tr><td>doctor-44</td><td class="num">3</td></tr>
+      <tr><td>doctor-84 / 93 / 99</td><td class="num">各 1</td></tr>
+      <tr><td>other</td><td class="num">2</td></tr>
+    </tbody>
+  </table>
+  <p class="note">註：本週 GA4 post_view 事件未帶 post_title 參數，文章層級排行取自 Looker Studio「文章瀏覽(post_view)」表。</p>
+
+  <!-- Section 2: Doctors -->
+  <h2>Section 2｜各醫師表現（Looker Studio）</h2>
+  <p class="note">全站（Looker）：瀏覽 640｜使用者 105｜新使用者 86｜每位使用者工作階段 1.64｜平均工作階段時長 00:06:07</p>
+  <div class="doctor-grid">
+
+    <div class="doctor-card">
+      <h3>Doctor-10 何宜儒醫師</h3>
+      <div class="stats">
+        <span class="s-label">瀏覽</span><span>109</span>
+        <span class="s-label">使用者</span><span>68</span>
+        <span class="s-label">新使用者</span><span>13</span>
+        <span class="s-label">平均工作階段</span><span>01:12:05</span>
+      </div>
+      <strong style="font-size:.85rem">QR Code 各頁瀏覽</strong>
+      <ul>
+        <li>掛號櫃檯：93 瀏覽 / 49 人（參與度 25%）</li>
+        <li>手術等候區：16 瀏覽 / 13 人（29.4%）</li>
+        <li>候診區：4 瀏覽 / 3 人（50%）</li>
+        <li>台北 TV 牆：1 瀏覽 / 1 人</li>
+      </ul>
+      <p class="note">預約按鈕點擊：1 次</p>
+    </div>
+
+    <div class="doctor-card">
+      <h3>Doctor-43 蔡明劭醫師</h3>
+      <div class="stats">
+        <span class="s-label">瀏覽</span><span>28</span>
+        <span class="s-label">使用者</span><span>20</span>
+        <span class="s-label">新使用者</span><span>8</span>
+        <span class="s-label">平均工作階段</span><span>00:07:49</span>
+      </div>
+      <strong style="font-size:.85rem">重點內容</strong>
+      <ul>
+        <li>主頁文章卡點擊 9 次 / 3 人（站內最高）</li>
+        <li>熱門文章：「(表格) 讓您一覺好眠的 5 種治療方式」5 瀏覽</li>
+        <li>「獨創整合式睡眠手術」4 瀏覽 / 4 人</li>
+      </ul>
+      <p class="note">QR Code：本週無資料</p>
+    </div>
+
+    <div class="doctor-card">
+      <h3>Doctor-44 孫啟欽醫師</h3>
+      <div class="stats">
+        <span class="s-label">瀏覽</span><span>7</span>
+        <span class="s-label">使用者</span><span>5</span>
+        <span class="s-label">新使用者</span><span>1</span>
+        <span class="s-label">平均工作階段</span><span>00:01:30</span>
+      </div>
+      <strong style="font-size:.85rem">重點內容</strong>
+      <ul>
+        <li>白內障手術分類頁 4 瀏覽 / 2 人</li>
+        <li>「白內障手術傷口僅筆尖大」2 瀏覽 / 1 人</li>
+      </ul>
+      <p class="note">QR Code：本週無資料</p>
+    </div>
+
+    <div class="doctor-card">
+      <h3>Doctor-76</h3>
+      <div class="stats">
+        <span class="s-label">瀏覽</span><span>—</span>
+        <span class="s-label">使用者</span><span>—</span>
+      </div>
+      <p class="note">本週 Looker Studio 醫師篩選清單中未出現 Doctor-76，該醫師本週無流量紀錄。建議確認頁面狀態與 QR Code 佈設。</p>
+    </div>
+
+  </div>
+
+  <!-- Section 6: Insights -->
+  <h2>Section 6｜本週洞察</h2>
+  <div class="insight">
+    <ol>
+      <li><strong>全站流量強勁反彈</strong>：活躍使用者 102（▲41.7%）、新使用者 86（▲48.3%）、事件數 2,475（▲87.1%），成長主要由新訪客帶動，行銷觸及有明顯擴大。</li>
+      <li><strong>doctor-104（劉聲宇醫師）內容表現突出</strong>：post_view 佔全站 52%（52/100），白內障與近視雷射主題文章包辦排行前 4 名，新上線內容已成為全站主要文章流量來源。</li>
+      <li><strong>Doctor-10 QR 導流集中於掛號櫃檯</strong>：掛號櫃檯 93 瀏覽 / 49 人，約佔 QR 流量 82%，且平均使用者參與達 7 分鐘；本週並帶來 1 次預約按鈕點擊，實體導流漏斗有效。</li>
+      <li><strong>低流量醫師需關注</strong>：Doctor-44 本週僅 7 瀏覽、Doctor-76 無流量紀錄，建議檢查其 QR Code 佈設與內容更新頻率，以避免頁面閒置。</li>
+    </ol>
+  </div>
+
+  <p class="note" style="margin-top:32px">資料來源：GA4（property 456665733）＋ Looker Studio（Report_by_doctor）｜產出時間：2026/07/13</p>
+</div>
+</div>
+
+<script>
+const CORRECT = '9053';
+function checkPw() {
+  if (document.getElementById('pw').value === CORRECT) {
+    document.getElementById('gate').style.display = 'none';
+    document.getElementById('report').style.display = 'block';
+  } else {
+    document.getElementById('pw-error').style.display = 'block';
+    document.getElementById('pw').value = '';
+    document.getElementById('pw').focus();
+  }
+}
+document.getElementById('pw').addEventListener('keypress', e => { if (e.key === 'Enter') checkPw(); });
+</script>
+
+</body>
+</html>
