@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<title>近視雷射手術衛教</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<style>
+  :root{
+    --bar-bg: #edf7f9;
+    --ui-dark: rgba(20,30,40,.55);
+    --ui-dark-strong: rgba(20,30,40,.82);
+    --accent: #4578bf;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+  html,body{
+    margin:0; padding:0; width:100%; height:100%;
+    background:var(--bar-bg);
+    overflow:hidden;
+    font-family: -apple-system, "PingFang TC", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    overscroll-behavior: none;
+  }
+  #deck{
+    position:fixed; inset:0;
+    touch-action: pan-y;
+  }
+  .slide{
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    opacity:0; visibility:hidden;
+    transition: opacity .28s ease;
+    pointer-events:none;
+  }
+  .slide.active{
+    opacity:1; visibility:visible; pointer-events:auto;
+  }
+  .slide img{
+    max-width:100%; max-height:100%;
+    width:auto; height:auto;
+    display:block;
+    -webkit-user-drag:none; user-select:none;
+    -webkit-touch-callout: none;
+  }
+
+  /* ---------- big left/right nav zones ---------- */
+  .nav-zone{
+    position:fixed; top:0; bottom:0;
+    width:24%; min-width:88px; max-width:220px;
+    z-index:30;
+    display:flex; align-items:center;
+    background: transparent;
+    cursor:pointer;
+    -webkit-user-select:none; user-select:none;
+  }
+  .nav-zone.left{ left:0; justify-content:flex-start; }
+  .nav-zone.right{ right:0; justify-content:flex-end; }
+  .nav-hint{
+    width:56px; height:56px;
+    margin: 0 14px;
+    border-radius:50%;
+    background: var(--ui-dark);
+    display:flex; align-items:center; justify-content:center;
+    opacity:.28;
+    transition: opacity .15s, transform .15s, background .15s;
+    flex-shrink:0;
+  }
+  .nav-zone:active .nav-hint{
+    opacity:.85;
+    transform:scale(.92);
+    background: var(--ui-dark-strong);
+  }
+  .nav-hint svg{ width:26px; height:26px; fill:#fff; }
+  .nav-zone.disabled{ pointer-events:none; }
+  .nav-zone.disabled .nav-hint{ opacity:.08; }
+
+  /* ---------- top bar (menu + progress) ---------- */
+  .top-bar{
+    position:fixed; top:0; left:0; right:0;
+    display:flex; align-items:center; justify-content:space-between;
+    padding: max(14px, env(safe-area-inset-top)) 18px 0;
+    z-index:40;
+    pointer-events:none;
+  }
+  .top-bar > *{ pointer-events:auto; }
+  .icon-btn{
+    width:52px; height:52px; border-radius:50%;
+    background: var(--ui-dark);
+    border:none; display:flex; align-items:center; justify-content:center;
+    color:#fff; cursor:pointer;
+    transition: background .15s, transform .1s;
+  }
+  .icon-btn:active{ background:var(--ui-dark-strong); transform:scale(.94); }
+  .icon-btn svg{ width:24px; height:24px; fill:#fff; }
+  .progress-pill{
+    background: var(--ui-dark);
+    color:#fff; font-size:15px; font-weight:600;
+    padding:10px 18px; border-radius:999px;
+    letter-spacing:.02em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- menu overlay ---------- */
+  .menu-backdrop{
+    position:fixed; inset:0; z-index:50;
+    background: rgba(10,16,24,.55);
+    opacity:0; pointer-events:none;
+    transition: opacity .2s ease;
+  }
+  .menu-backdrop.open{ opacity:1; pointer-events:auto; }
+  .menu-panel{
+    position:fixed; top:0; right:0; bottom:0;
+    width:min(420px, 86vw);
+    background:#fff;
+    z-index:51;
+    box-shadow: -8px 0 30px rgba(0,0,0,.25);
+    transform: translateX(100%);
+    transition: transform .28s cubic-bezier(.4,0,.2,1);
+    display:flex; flex-direction:column;
+    padding-top: env(safe-area-inset-top);
+  }
+  .menu-backdrop.open .menu-panel{ transform: translateX(0); }
+  .menu-header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 18px 20px; border-bottom:1px solid #eef0f2;
+  }
+  .menu-header h2{ margin:0; font-size:19px; color:#22303f; }
+  .menu-close{
+    width:40px; height:40px; border-radius:50%; border:none;
+    background:#f0f2f4; display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+  }
+  .menu-close svg{ width:18px; height:18px; }
+  .menu-list{ list-style:none; margin:0; padding:10px; overflow-y:auto; }
+  .menu-item{
+    display:flex; align-items:center; gap:14px;
+    padding:12px; border-radius:14px;
+    cursor:pointer; margin-bottom:6px;
+    border: 2px solid transparent;
+  }
+  .menu-item:active{ background:#f4f7fa; }
+  .menu-item.current{ border-color:var(--accent); background:#eef3fb; }
+  .menu-item .thumb{
+    width:96px; height:54px; border-radius:8px; overflow:hidden;
+    background:#eaf1f6; flex-shrink:0;
+    border:1px solid #dfe6ec;
+  }
+  .menu-item .thumb img{ width:100%; height:100%; object-fit:cover; }
+  .menu-item .meta{ min-width:0; }
+  .menu-item .num{ font-size:12px; color:#8a97a3; font-weight:700; letter-spacing:.05em; }
+  .menu-item .title{ font-size:16px; color:#22303f; font-weight:600; margin-top:2px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  @media (max-width: 560px){
+    .nav-zone{ width:20%; min-width:64px; }
+    .nav-hint{ width:46px; height:46px; margin:0 8px; }
+    .nav-hint svg{ width:20px; height:20px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="deck">
+  <!-- slides injected by JS -->
+</div>
+
+<div class="nav-zone left" id="zonePrev" aria-label="上一頁">
+  <div class="nav-hint">
+    <svg viewBox="0 0 24 24"><path d="M15.4 7.4 14 6l-6 6 6 6 1.4-1.4L10.8 12z"/></svg>
+  </div>
+</div>
+<div class="nav-zone right" id="zoneNext" aria-label="下一頁">
+  <div class="nav-hint">
+    <svg viewBox="0 0 24 24"><path d="M8.6 16.6 10 18l6-6-6-6-1.4 1.4L13.2 12z"/></svg>
+  </div>
+</div>
+
+<div class="top-bar">
+  <div class="progress-pill" id="progressPill">1 / 5</div>
+  <button class="icon-btn" id="menuBtn" aria-label="開啟選單">
+    <svg viewBox="0 0 24 24"><path d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z"/></svg>
+  </button>
+</div>
+
+<div class="menu-backdrop" id="menuBackdrop">
+  <div class="menu-panel">
+    <div class="menu-header">
+      <h2>投影片選單</h2>
+      <button class="menu-close" id="menuCloseBtn" aria-label="關閉選單">
+        <svg viewBox="0 0 24 24"><path d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z"/></svg>
+      </button>
+    </div>
+    <ul class="menu-list" id="menuList"></ul>
+  </div>
+</div>
+
+<script>
+  const SLIDES = [
+    { file: "slides/slide1.jpg", title: "術式差異 PRK / LASIK / SMILE" },
+    { file: "slides/slide2.jpg", title: "手術怎麼看 綠光定位" },
+    { file: "slides/slide3.jpg", title: "手術注意事項" },
+    { file: "slides/slide4.jpg", title: "乾眼處理" },
+    { file: "slides/slide5.jpg", title: "近視雷射手術恢復三階段" },
+  ];
+
+  const deck = document.getElementById('deck');
+  const progressPill = document.getElementById('progressPill');
+  const menuList = document.getElementById('menuList');
+  const menuBackdrop = document.getElementById('menuBackdrop');
+  const zonePrev = document.getElementById('zonePrev');
+  const zoneNext = document.getElementById('zoneNext');
+
+  let current = 0;
+
+  SLIDES.forEach((s, i) => {
+    const div = document.createElement('div');
+    div.className = 'slide';
+    div.id = 'slide-' + i;
+    const img = document.createElement('img');
+    img.src = s.file;
+    img.alt = s.title;
+    img.draggable = false;
+    div.appendChild(img);
+    deck.appendChild(div);
+
+    const li = document.createElement('li');
+    li.className = 'menu-item';
+    li.dataset.index = i;
+    li.innerHTML = `
+      <div class="thumb"><img src="${s.file}" alt=""></div>
+      <div class="meta">
+        <div class="num">第 ${i + 1} 頁</div>
+        <div class="title">${s.title}</div>
+      </div>`;
+    li.addEventListener('click', () => { goTo(i); closeMenu(); });
+    menuList.appendChild(li);
+  });
+
+  function render(){
+    document.querySelectorAll('.slide').forEach((el, i) => {
+      el.classList.toggle('active', i === current);
+    });
+    document.querySelectorAll('.menu-item').forEach((el, i) => {
+      el.classList.toggle('current', i === current);
+    });
+    progressPill.textContent = (current + 1) + ' / ' + SLIDES.length;
+    zonePrev.classList.toggle('disabled', current === 0);
+    zoneNext.classList.toggle('disabled', current === SLIDES.length - 1);
+  }
+
+  function goTo(i){
+    current = Math.max(0, Math.min(SLIDES.length - 1, i));
+    render();
+  }
+  function next(){ goTo(current + 1); }
+  function prev(){ goTo(current - 1); }
+
+  zonePrev.addEventListener('click', prev);
+  zoneNext.addEventListener('click', next);
+
+  // keyboard
+  document.addEventListener('keydown', (e) => {
+    if (menuBackdrop.classList.contains('open')) {
+      if (e.key === 'Escape') closeMenu();
+      return;
+    }
+    if (['ArrowRight', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); next(); }
+    else if (['ArrowLeft', 'PageUp'].includes(e.key)) { e.preventDefault(); prev(); }
+    else if (e.key === 'Home') goTo(0);
+    else if (e.key === 'End') goTo(SLIDES.length - 1);
+  });
+
+  // swipe support (whole deck area)
+  let touchStartX = 0, touchStartY = 0, touchTracking = false;
+  deck.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) return;
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    touchTracking = true;
+  }, { passive: true });
+
+  deck.addEventListener('touchend', (e) => {
+    if (!touchTracking) return;
+    touchTracking = false;
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    const dy = e.changedTouches[0].clientY - touchStartY;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (dx < 0) next(); else prev();
+    }
+  }, { passive: true });
+
+  // menu open/close — tap only, no hover
+  const menuBtn = document.getElementById('menuBtn');
+  const menuCloseBtn = document.getElementById('menuCloseBtn');
+  function openMenu(){ menuBackdrop.classList.add('open'); }
+  function closeMenu(){ menuBackdrop.classList.remove('open'); }
+  menuBtn.addEventListener('click', openMenu);
+  menuCloseBtn.addEventListener('click', closeMenu);
+  menuBackdrop.addEventListener('click', (e) => {
+    if (e.target === menuBackdrop) closeMenu();
+  });
+
+  render();
+
+  // best-effort fullscreen on first tap (nice for iPad PPT-style playback)
+  document.addEventListener('click', function enterFsOnce(){
+    const el = document.documentElement;
+    if (el.requestFullscreen) { el.requestFullscreen().catch(()=>{}); }
+    document.removeEventListener('click', enterFsOnce);
+  }, { once: true });
+</script>
+</body>
+</html>
