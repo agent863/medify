@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Medify 週報 W29 (2026/07/13–19)</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --accent:#5177BA;
+    --c1:#44BDDB; --c2:#5177BA; --c3:#76C0A5; --c4:#FFB547;
+    --c5:#A78BFA; --c6:#FF7B7B; --c7:#BFBFBF;
+    --bg:#F5F7FA; --card:#FFFFFF; --ink:#1f2937; --muted:#6b7280;
+    --up:#16a34a; --down:#dc2626;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:'Noto Sans TC','Helvetica Neue',sans-serif;line-height:1.6;}
+  /* ---- password gate ---- */
+  #gate{position:fixed;inset:0;background:linear-gradient(135deg,#5177BA,#44BDDB);
+    display:flex;align-items:center;justify-content:center;z-index:999;}
+  .gate-box{background:#fff;padding:44px 40px;border-radius:16px;text-align:center;
+    box-shadow:0 20px 50px rgba(0,0,0,.2);width:320px;max-width:88vw;}
+  .gate-box h1{font-size:20px;margin:0 0 6px;color:var(--accent);}
+  .gate-box p{font-size:13px;color:var(--muted);margin:0 0 22px;}
+  #pw{width:100%;padding:12px 14px;border:1px solid #d1d5db;border-radius:10px;
+    font-size:16px;text-align:center;letter-spacing:4px;}
+  #pw:focus{outline:none;border-color:var(--accent);}
+  .gate-box button{margin-top:16px;width:100%;padding:12px;border:none;border-radius:10px;
+    background:var(--accent);color:#fff;font-size:15px;font-weight:700;cursor:pointer;}
+  .gate-box button:hover{background:#3f60a0;}
+  #pw-error{display:none;color:var(--down);font-size:13px;margin-top:12px;}
+  /* ---- report ---- */
+  #report{display:none;max-width:1000px;margin:0 auto;padding:32px 22px 64px;}
+  header.rp{margin-bottom:30px;}
+  header.rp .kicker{color:var(--accent);font-weight:700;letter-spacing:2px;font-size:13px;}
+  header.rp h1{font-size:30px;margin:4px 0 2px;font-weight:900;}
+  header.rp .sub{color:var(--muted);font-size:14px;}
+  .section-title{display:flex;align-items:center;gap:14px;margin:40px 0 18px;}
+  .section-title .bar{width:6px;height:22px;border-radius:3px;background:var(--accent);}
+  .section-title h2{font-size:20px;margin:0;font-weight:700;white-space:nowrap;}
+  .section-title .line{flex:1;height:2px;
+    background:linear-gradient(90deg,rgba(81,119,186,.35),rgba(81,119,186,0));}
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
+  .card{background:var(--card);border-radius:12px;padding:20px;
+    box-shadow:0 1px 3px rgba(0,0,0,.06);}
+  .card .label{font-size:13px;color:var(--muted);}
+  .card .value{font-size:30px;font-weight:900;margin:6px 0 2px;}
+  .card .delta{font-size:13px;font-weight:700;}
+  .delta.up{color:var(--up);} .delta.down{color:var(--down);}
+  .subgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;}
+  .panel{background:var(--card);border-radius:12px;padding:20px;
+    box-shadow:0 1px 3px rgba(0,0,0,.06);}
+  .panel h3{margin:0 0 12px;font-size:15px;font-weight:700;}
+  table{width:100%;border-collapse:collapse;font-size:14px;}
+  th,td{text-align:left;padding:9px 8px;border-bottom:1px solid #eef1f5;}
+  th{color:var(--muted);font-weight:500;font-size:12px;}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
+  .rank{display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;
+    border-radius:6px;background:#eef2fb;color:var(--accent);font-weight:700;font-size:12px;}
+  .bar-wrap{background:#eef1f5;border-radius:6px;height:8px;overflow:hidden;min-width:70px;}
+  .bar-fill{height:100%;background:var(--accent);border-radius:6px;}
+  .doc-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;}
+  .doc{background:var(--card);border-radius:12px;padding:20px;
+    box-shadow:0 1px 3px rgba(0,0,0,.06);border-top:4px solid var(--accent);}
+  .doc.dim{border-top-color:var(--c7);opacity:.85;}
+  .doc .name{font-weight:700;font-size:16px;}
+  .doc .id{color:var(--muted);font-size:12px;margin-left:6px;font-weight:400;}
+  .doc .row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f1f4f8;font-size:14px;}
+  .doc .row:last-child{border-bottom:none;}
+  .doc .row b{font-weight:700;font-variant-numeric:tabular-nums;}
+  .doc .note{font-size:13px;color:var(--muted);margin-top:8px;}
+  .insights{background:var(--card);border-radius:12px;padding:8px 22px;
+    box-shadow:0 1px 3px rgba(0,0,0,.06);}
+  .insight{display:flex;gap:14px;padding:16px 0;border-bottom:1px solid #eef1f5;}
+  .insight:last-child{border-bottom:none;}
+  .insight .n{flex:none;width:26px;height:26px;border-radius:50%;background:var(--accent);
+    color:#fff;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;}
+  .insight p{margin:0;font-size:14.5px;}
+  footer.rp{margin-top:40px;color:var(--muted);font-size:12px;text-align:center;}
+  @media(max-width:760px){
+    .cards{grid-template-columns:repeat(2,1fr);}
+    .subgrid,.doc-grid{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="gate-box">
+    <h1>Medify 週報</h1>
+    <p>W29 · 2026/07/13–19 · 請輸入密碼</p>
+    <input id="pw" type="password" inputmode="numeric" placeholder="••••" autocomplete="off">
+    <button onclick="checkPw()">進入報告</button>
+    <div id="pw-error">密碼錯誤，請再試一次</div>
+  </div>
+</div>
+
+<div id="report">
+  <header class="rp">
+    <div class="kicker">MEDIFY WEEKLY REPORT</div>
+    <h1>第 29 週成效週報</h1>
+    <div class="sub">報告期間：2026/07/13（一）– 2026/07/19（日）　·　對比前一週 07/06–07/12</div>
+  </header>
+
+  <!-- Section 1 -->
+  <div class="section-title"><span class="bar"></span><h2>核心指標</h2><span class="line"></span></div>
+  <div class="cards">
+    <div class="card">
+      <div class="label">活躍使用者</div>
+      <div class="value">93</div>
+      <div class="delta down">▼ 8.8% vs 前週</div>
+    </div>
+    <div class="card">
+      <div class="label">新使用者</div>
+      <div class="value">77</div>
+      <div class="delta down">▼ 10.5% vs 前週</div>
+    </div>
+    <div class="card">
+      <div class="label">平均參與時間 / 人</div>
+      <div class="value">1m 28s</div>
+      <div class="delta up">▲ 9.6% vs 前週</div>
+    </div>
+    <div class="card">
+      <div class="label">事件數</div>
+      <div class="value">1.5K</div>
+      <div class="delta down">▼ 38.9% vs 前週</div>
+    </div>
+  </div>
+
+  <div class="subgrid">
+    <div class="panel">
+      <h3>全站概況（Looker Studio）</h3>
+      <table>
+        <tr><td>總瀏覽量</td><td class="num"><b>382</b></td></tr>
+        <tr><td>使用者數</td><td class="num"><b>98</b></td></tr>
+        <tr><td>新使用者數</td><td class="num"><b>77</b></td></tr>
+        <tr><td>每位使用者工作階段數</td><td class="num"><b>1.9</b></td></tr>
+        <tr><td>平均工作階段時長</td><td class="num"><b>05:42</b></td></tr>
+      </table>
+    </div>
+    <div class="panel">
+      <h3>主要流量來源（活躍使用者）</h3>
+      <table>
+        <tr><td>台北澄清眼科・候診區 QR</td><td class="num"><b>39</b></td></tr>
+        <tr><td>直接進入 (direct)</td><td class="num"><b>27</b></td></tr>
+        <tr><td>板橋澄清眼科・掛號櫃檯 QR</td><td class="num"><b>5</b></td></tr>
+        <tr><td>Google 自然搜尋</td><td class="num"><b>4</b></td></tr>
+        <tr><td>板橋澄清眼科・候診區 QR</td><td class="num"><b>3</b></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- Article ranking -->
+  <div class="section-title"><span class="bar"></span><h2>文章瀏覽排行（Top 10）</h2><span class="line"></span></div>
+  <div class="panel">
+    <table>
+      <thead><tr><th style="width:34px">#</th><th>文章標題</th><th class="num">瀏覽</th><th class="num">使用者</th><th style="width:120px">相對熱度</th></tr></thead>
+      <tbody id="art-body"></tbody>
+    </table>
+  </div>
+
+  <!-- Section 2 -->
+  <div class="section-title"><span class="bar"></span><h2>各醫師表現</h2><span class="line"></span></div>
+  <div class="doc-grid">
+    <div class="doc">
+      <div class="name">何宜儒醫師<span class="id">doctor-10</span></div>
+      <div class="row"><span>主頁瀏覽量</span><b>95</b></div>
+      <div class="row"><span>使用者數</span><b>38</b></div>
+      <div class="row"><span>QR 各頁瀏覽量</span><b>69</b></div>
+      <div class="row"><span>預約按鈕點擊</span><b>3</b></div>
+      <div class="note">QR 導流：掛號櫃檯 60・手術等候區 5・候診區 3・電視牆 1。本週唯一高活躍醫師頁。</div>
+    </div>
+    <div class="doc dim">
+      <div class="name">蔡明劭醫師<span class="id">doctor-43</span></div>
+      <div class="row"><span>主頁瀏覽量</span><b>6</b></div>
+      <div class="row"><span>使用者數</span><b>6</b></div>
+      <div class="row"><span>QR 各頁瀏覽量</span><b>0</b></div>
+      <div class="row"><span>文章卡點擊</span><b>2</b></div>
+      <div class="note">本週流量偏低，無 QR 導流紀錄。</div>
+    </div>
+    <div class="doc dim">
+      <div class="name">doctor-44<span class="id">doctor-44</span></div>
+      <div class="row"><span>主頁瀏覽量</span><b>—</b></div>
+      <div class="row"><span>使用者數</span><b>—</b></div>
+      <div class="row"><span>QR 各頁瀏覽量</span><b>—</b></div>
+      <div class="note">本週無流量紀錄，建議檢視 QR 布點與頁面上線狀態。</div>
+    </div>
+    <div class="doc dim">
+      <div class="name">doctor-76<span class="id">doctor-76</span></div>
+      <div class="row"><span>主頁瀏覽量</span><b>—</b></div>
+      <div class="row"><span>使用者數</span><b>—</b></div>
+      <div class="row"><span>QR 各頁瀏覽量</span><b>—</b></div>
+      <div class="note">本週無流量紀錄，建議檢視 QR 布點與頁面上線狀態。</div>
+    </div>
+  </div>
+
+  <!-- Section 6 -->
+  <div class="section-title"><span class="bar"></span><h2>本週洞察</h2><span class="line"></span></div>
+  <div class="insights">
+    <div class="insight"><div class="n">1</div><p>全站活躍使用者 <b>93 人</b>（週對週 <b style="color:var(--down)">▼8.8%</b>），最大單一入口仍是<b>台北澄清眼科候診區 QR</b>，單週貢獻 39 位活躍使用者，佔全站約四成。</p></div>
+    <div class="insight"><div class="n">2</div><p>造訪人數略降，但<b>平均參與時間上升至 1m28s（▲9.6%）</b>、平均工作階段時長 5m42s，顯示留下的使用者閱讀更深入、黏著度提升。</p></div>
+    <div class="insight"><div class="n">3</div><p><b>何宜儒醫師（doctor-10）</b>是本週唯一高活躍醫師頁：主頁 95 次瀏覽 / 38 位使用者，QR 導流 69 次（掛號櫃檯佔 60 次）；其餘醫師（43/44/76）幾乎無流量，建議優先檢視 QR 布點與內容更新。</p></div>
+    <div class="insight"><div class="n">4</div><p>事件數 <b style="color:var(--down)">▼38.9%</b> 主要來自後台編輯／管理頁活動減少，非前台內容衰退；前台文章如「術後恢復｜老花雷射」「乾眼症常見原因」維持穩定閱讀（各 12–14 次瀏覽）。</p></div>
+  </div>
+
+  <footer class="rp">Medify 醫病關係平台　·　自動化週報 W29　·　資料來源：GA4 (p456665733) + Looker Studio　·　產生日期 2026/07/20</footer>
+</div>
+
+<script>
+  const CORRECT = '9053';
+  function checkPw() {
+    if (document.getElementById('pw').value === CORRECT) {
+      document.getElementById('gate').style.display = 'none';
+      document.getElementById('report').style.display = 'block';
+    } else {
+      document.getElementById('pw-error').style.display = 'block';
+      document.getElementById('pw').value = '';
+      document.getElementById('pw').focus();
+    }
+  }
+  document.getElementById('pw').addEventListener('keypress', e => { if (e.key === 'Enter') checkPw(); });
+
+  // article ranking data (by pageviews, week 2026-07-13~19)
+  const articles = [
+    ["術後恢復｜老花雷射後的眩光、乾眼症該怎麼辦？", 14, 8],
+    ["白內障手術後多久恢復？洗臉、洗頭、運動與四大禁忌一次看", 14, 5],
+    ["眼睛常常好乾！我的乾眼症會好嗎？乾眼症常見原因、成因", 12, 9],
+    ["手術原理｜何謂老花？幾度才算嚴重？幾度適合雷射治療？", 9, 4],
+    ["近視雷射會不會痛？原來病患真實感受是這樣！", 8, 7],
+    ["近視雷射怎麼選？LASIK、SMILE、PRK 三種常見術式差異一次看", 8, 3],
+    ["近視雷射手術怎麼選？醫師解析 SMILE Pro 2.0、LASIK、PRK", 7, 5],
+    ["Doctor 96 醫師主頁", 7, 2],
+    ["近視雷射術後的乾眼症與保養：藥水使用與日常照護完整指南", 6, 5],
+    ["手術原理｜傳統老花雷射與新式 LBV 老花雷射有何不同？", 6, 4]
+  ];
+  const maxV = Math.max(...articles.map(a => a[1]));
+  document.getElementById('art-body').innerHTML = articles.map((a,i) =>
+    `<tr><td><span class="rank">${i+1}</span></td><td>${a[0]}</td>`+
+    `<td class="num">${a[1]}</td><td class="num">${a[2]}</td>`+
+    `<td><div class="bar-wrap"><div class="bar-fill" style="width:${Math.round(a[1]/maxV*100)}%"></div></div></td></tr>`
+  ).join('');
+</script>
+</body>
+</html>
