@@ -1,0 +1,107 @@
+<!doctype html><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Keynote</title><meta name="viewport" content="initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no,width=device-width"/><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/></head><body id="body" bgcolor="black"><div id="stageArea"><div id="stage" class="stage"></div><div id="hyperlinkPlane" class="stage"></div></div><div id="slideshowNavigator"></div><div id="slideNumberControl"></div><div id="slideNumberDisplay"></div><div id="helpPlacard"></div><div id="waitingIndicator"><div id="waitingSpinner"></div></div><script src="assets/player/main.js"></script>
+<!--
+  Everything above this comment is the original, untouched Keynote HTML5
+  export (index.html) — same markup, same assets/player engine, same
+  rendering/animation behavior (including the gifs playing natively).
+
+  Everything below only ADDS two things on top of that, as requested:
+    1. Tap zones on the left/right 20% of the screen that turn the page
+       (jump to the previous/next Keynote "slide" — i.e. one of the 6
+       topics — skipping that slide's internal build steps).
+    2. A long-press anywhere that opens the player's own built-in
+       thumbnail navigator sidebar (already built into main.js), so you
+       can tap a thumbnail to jump straight to that topic.
+
+  Both are implemented by dispatching the exact same custom events the
+  player's own touch-gesture layer already listens for
+  (document.addEventListener("TouchController:SwipeEvent", ...)), so we
+  are not reimplementing or overriding any of the original navigation —
+  just triggering it from a bigger, more obvious tap target.
+-->
+<style>
+  #__navZoneLeft, #__navZoneRight{
+    position:fixed; top:0; bottom:0; width:20%; z-index:9999;
+    background:transparent; touch-action:manipulation;
+    -webkit-user-select:none; user-select:none;
+    -webkit-touch-callout:none;
+  }
+  #__navZoneLeft{ left:0; }
+  #__navZoneRight{ right:0; }
+</style>
+<div id="__navZoneLeft"></div>
+<div id="__navZoneRight"></div>
+<script>
+(function(){
+  // Bug fix note: the previous version tracked long-press with separate
+  // touch + mouse listeners on document (bubble phase), while the tap
+  // zones called stopPropagation() on their own touchend/click. That
+  // stopped the document-level "press ended" listener from ever running
+  // for taps on the zones, leaving its timer stuck — so ~550ms after
+  // ANY tap on a nav zone, the navigator would pop open on its own,
+  // repeatedly. Rewritten below using Pointer Events only (no duplicate
+  // touch/mouse firing) and CAPTURE-phase listeners for the long-press
+  // tracking, so stopPropagation() on the zones can no longer block it.
+
+  function fireSwipe(direction, fingers, swipeStartX){
+    document.dispatchEvent(new CustomEvent("TouchController:SwipeEvent", {
+      detail: { direction: direction, fingers: fingers, swipeStartX: swipeStartX }
+    }));
+  }
+  // 2-finger "left" swipe = advance to next whole slide (skips remaining builds)
+  function goNext(){ fireSwipe('left', 2, 9999); }
+  // 1-finger "right" swipe = go back to previous whole slide
+  function goPrev(){ fireSwipe('right', 1, 9999); }
+  // "right" swipe starting within 150px of the left edge = show the
+  // built-in thumbnail navigator sidebar (main.js's own feature)
+  function showNavigator(){ fireSwipe('right', 1, 50); }
+
+  function bindTap(el, handler){
+    var moved = false, startX = 0, startY = 0, down = false;
+    el.addEventListener('pointerdown', function(e){
+      down = true; moved = false; startX = e.clientX; startY = e.clientY;
+    });
+    el.addEventListener('pointermove', function(e){
+      if (!down) return;
+      if (Math.abs(e.clientX-startX) > 10 || Math.abs(e.clientY-startY) > 10) moved = true;
+    });
+    el.addEventListener('pointerup', function(e){
+      if (down && !moved){ e.preventDefault(); e.stopPropagation(); handler(); }
+      down = false;
+    });
+    el.addEventListener('pointercancel', function(){ down = false; });
+  }
+
+  bindTap(document.getElementById('__navZoneLeft'), goPrev);
+  bindTap(document.getElementById('__navZoneRight'), goNext);
+
+  // long-press anywhere -> open the built-in thumbnail navigator.
+  // Registered with {capture:true} so it always sees pointerup/cancel
+  // regardless of stopPropagation() called by the nav zones above.
+  var LONG_PRESS_MS = 550;
+  var pressTimer = null, pressMoved = false, pressX = 0, pressY = 0, pressing = false;
+
+  document.addEventListener('pointerdown', function(e){
+    pressing = true; pressMoved = false; pressX = e.clientX; pressY = e.clientY;
+    clearTimeout(pressTimer);
+    pressTimer = setTimeout(function(){
+      if (pressing && !pressMoved) showNavigator();
+    }, LONG_PRESS_MS);
+  }, { capture:true });
+
+  document.addEventListener('pointermove', function(e){
+    if (!pressing) return;
+    if (Math.abs(e.clientX-pressX) > 12 || Math.abs(e.clientY-pressY) > 12){
+      pressMoved = true;
+      clearTimeout(pressTimer);
+    }
+  }, { capture:true });
+
+  function stopPressing(){ pressing = false; clearTimeout(pressTimer); }
+  document.addEventListener('pointerup', stopPressing, { capture:true });
+  document.addEventListener('pointercancel', stopPressing, { capture:true });
+
+  // don't let the long-press turn into a native browser/iOS context menu
+  document.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+})();
+</script>
+</body></html>
