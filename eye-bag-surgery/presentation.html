@@ -146,8 +146,13 @@
       location.replace(location.pathname + location.search); // loop to #0
       return;
     }
-    if (scene() >= LAST_SCENE){ showCard(); return; }
+    var cur = scene();
+    if (cur >= LAST_SCENE){ showCard(); return; }
     nextPage();
+    // schedule against the TARGET page (cur+1), directly in this path —
+    // both goNext and goPrev do this symmetrically, plus the scene poller
+    // as an independent second trigger for any other navigation route.
+    if (GIF_SCENES[cur + 1]) scheduleGifRestart();
   }
   function goPrev(){
     if (onCard){
@@ -155,19 +160,35 @@
       hideCard();
       return;
     }
-    if (scene() <= 0) return;
+    var cur = scene();
+    if (cur <= 0) return;
     prevPage();
+    if (GIF_SCENES[cur - 1]) scheduleGifRestart();
   }
 
   // Reaching past #7 by ANY means (our zones, bottom-bar buttons, keyboard)
   // shows the card instead of the blank end state; jumping back via the
   // navigator hides it.
-  window.addEventListener('hashchange', function(){
-    var s = scene();
+  // IMPORTANT: the player updates the URL hash via history.replaceState,
+  // which NEVER fires a hashchange event — every hashchange listener we
+  // had was dead code (why gif restart "worked" going forward — that was
+  // the player natively creating a fresh <img> — but never going back).
+  // A 200ms poll on scene() is the only reliable page-change signal.
+  function onSceneChanged(s){
+    // closing-card safety: never show the blank end state
     if (s > LAST_SCENE){ if (!onCard) showCard(); }
     else if (pendingCardJump && s === LAST_SCENE){ pendingCardJump = false; showCard(); }
     else if (onCard){ hideCard(); }
-  });
+    // a jump landed while the sidebar was open (thumbnail tap): close it
+    if (navigatorIsOpen()) hideNavigator();
+    // arriving on a gif page by ANY path restarts its gifs
+    if (GIF_SCENES[s]) scheduleGifRestart();
+  }
+  var __lastScene = scene();
+  setInterval(function(){
+    var s = scene();
+    if (s !== __lastScene){ __lastScene = s; onSceneChanged(s); }
+  }, 200);
 
   // Real finger swipes (left/right) are normalized to the same one-page
   // logic as the tap zones — previously they fed the player's raw
@@ -212,7 +233,16 @@
       }
       return;
     }
-    if (navigatorIsOpen()) return;              // navigator owns the screen
+    if (navigatorIsOpen()){
+      // tapping anywhere OUTSIDE the sidebar closes it
+      var sb = document.querySelector('.navigatorThumbnailSidebar');
+      if (sb){
+        var r = sb.getBoundingClientRect();
+        var inside = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+        if (!inside) hideNavigator();
+      }
+      return;
+    }
     if (hyperlinkAt(x, y)){ lastTapTime = 0; return; } // deck's own button
     if (inLeft || inRight){
       lastTapTime = 0;                          // zone taps never count toward double-tap
@@ -292,9 +322,8 @@
     gifTimers = [];
     [550, 1300, 2400].forEach(function(d){ gifTimers.push(setTimeout(restartGifs, d)); });
   }
-  window.addEventListener('hashchange', function(){
-    if (GIF_SCENES[scene()]) scheduleGifRestart();
-  });
+  // (scene arrival triggers are in onSceneChanged and goNext/goPrev — the
+  //  hashchange event never fires here, see the replaceState note above.)
   // Safety net: if the player inserts a gif <img> even later than our last
   // timer (slow device), catch the insertion itself and restart once more.
   new MutationObserver(function(){
