@@ -18,36 +18,20 @@
   are not reimplementing or overriding any of the original navigation —
   just triggering it from a bigger, more obvious tap target.
 -->
-<style>
-  /* keep the letterbox area the same light blue as the slide backgrounds
-     instead of the player's default black (main.js ships its own
-     "body{background-color:black}" rule with no !important — this wins
-     over it, but we also set it inline via JS below as a second layer
-     of defense, and force full-height so there's no unstyled sliver). */
-  html, body, #stageArea{
-    background-color:#EDF7F9 !important;
-    height:100% !important;
-  }
-  #__navZoneLeft, #__navZoneRight{
-    position:fixed; top:0; bottom:0; width:20%; z-index:9999;
-    background:transparent; touch-action:manipulation;
-    -webkit-user-select:none; user-select:none;
-    -webkit-touch-callout:none;
-  }
-  #__navZoneLeft{ left:0; }
-  #__navZoneRight{ right:0; }
-  #__closingCard{
-    position:fixed; inset:0; z-index:9000;
-    background:#EDF7F9;
-    display:none;
-    align-items:center; justify-content:center;
-  }
-  #__closingCard.show{ display:flex; }
-  #__closingCard img{
-    max-width:100%; max-height:100%; width:auto; height:auto;
-    display:block; -webkit-user-drag:none; user-select:none;
-  }
-</style>
+<!--
+  IMPORTANT: no <style> tag here on purpose. Testing on the actual
+  published page showed that a <style> block placed at this point in the
+  document (after the main.js script tag) gets parsed into a
+  CSSStyleSheet with ZERO rules in this environment — the text is valid
+  CSS and an identical block injected via JS parses fine, so something
+  about a static <style> tag landing here specifically fails silently.
+  That meant the nav zones and closing card had no real position/size at
+  all (only the background-color fix worked, because it also had a JS
+  fallback below) — the actual cause of the "亂" navigation and the
+  missing slide7 card. Fix: apply every rule these elements need via JS
+  (inline style properties) instead of CSS, which is proven to work
+  reliably here regardless of the stylesheet-parsing quirk.
+-->
 <div id="__navZoneLeft"></div>
 <div id="__navZoneRight"></div>
 <div id="__closingCard"><img src="slides/slide7.jpg" alt="想了解更多資訊請掃描 QR Code" draggable="false"></div>
@@ -63,11 +47,124 @@
   // touch/mouse firing) and CAPTURE-phase listeners for the long-press
   // tracking, so stopPropagation() on the zones can no longer block it.
 
-  // Defense-in-depth: also force the background inline (with !important)
-  // in case any webview caches an older stylesheet independently of the
-  // HTML fetch. Harmless no-op if the CSS above already applied.
+  // ---- upfront loading screen -----------------------------------------
+  // Each slide's PDF (and its gifs) is fetched over the network the first
+  // time you swipe to it, which is why later slides used to pause for a
+  // moment. This overlay covers the opening screen and warms the browser's
+  // HTTP cache for every slide's PDF + gif + the closing card image before
+  // letting you in, so once it disappears every page turn is instant.
+  var PRELOAD_ASSETS = (function(){
+    var slides = [
+      { uuid:'22CB59BC-9A28-4AEC-948E-FE2BBE837FCB', gifs:[] },
+      { uuid:'8AC9B357-96F6-4109-931E-1F264B3DC7D1', gifs:['assets/下眼瞼周圍常見問題.gif-0.0000-15.0000.gif'] },
+      { uuid:'6F80DFBD-9A36-44E4-92EE-B3EA7E1CA1E2', gifs:[] },
+      { uuid:'FAD1F8D5-3D72-4B24-9EE6-220209CA7A22', gifs:[] },
+      { uuid:'515BF58C-A7F4-42C7-AB24-F395E442BD09', gifs:['assets/眼袋脂肪「移除」動畫-插畫.gif-0.0000-8.5000.gif','assets/眼袋脂肪「轉移」動畫-插畫.gif-0.0000-8.5000.gif'] },
+      { uuid:'A020B5BA-42E6-4B54-90AC-B5DF2E7A1D61', gifs:[] }
+    ];
+    var urls = [];
+    slides.forEach(function(s){
+      urls.push('assets/' + s.uuid + '/assets/' + s.uuid + '.pdf');
+      urls.push('assets/' + s.uuid + '/thumbnail.jpeg');
+      s.gifs.forEach(function(g){ urls.push('assets/' + s.uuid + '/' + g); });
+    });
+    urls.push('slides/slide7.jpg');
+    return urls;
+  })();
+
+  var preloadOverlay = document.createElement('div');
+  applyStyles(preloadOverlay, {
+    position:'fixed', top:'0', left:'0', right:'0', bottom:'0', zIndex:'99999',
+    background:'#EDF7F9', display:'flex', flexDirection:'column',
+    alignItems:'center', justifyContent:'center',
+    fontFamily:'-apple-system, "PingFang TC", "Helvetica Neue", Helvetica, Arial, sans-serif'
+  });
+  var preloadTitle = document.createElement('div');
+  preloadTitle.textContent = '眼袋手術衛教教材';
+  applyStyles(preloadTitle, { fontSize:'26px', fontWeight:'700', color:'#3a5f7d', marginBottom:'26px', letterSpacing:'.02em' });
+  var preloadBarOuter = document.createElement('div');
+  applyStyles(preloadBarOuter, { width:'240px', height:'8px', borderRadius:'999px', background:'rgba(58,95,125,0.15)', overflow:'hidden' });
+  var preloadBarInner = document.createElement('div');
+  applyStyles(preloadBarInner, { width:'0%', height:'100%', background:'#4578bf', transition:'width .2s ease' });
+  preloadBarOuter.appendChild(preloadBarInner);
+  var preloadPct = document.createElement('div');
+  preloadPct.textContent = '載入中 0%';
+  applyStyles(preloadPct, { marginTop:'14px', fontSize:'14px', color:'#6b8aa0' });
+  preloadOverlay.appendChild(preloadTitle);
+  preloadOverlay.appendChild(preloadBarOuter);
+  preloadOverlay.appendChild(preloadPct);
+  document.body.appendChild(preloadOverlay);
+
+  (function runPreload(){
+    var total = PRELOAD_ASSETS.length, done = 0, finished = false;
+
+    function render(){
+      var pct = Math.round((done / total) * 100);
+      preloadBarInner.style.width = pct + '%';
+      preloadPct.textContent = '載入中 ' + pct + '%';
+    }
+    function finishAll(){
+      if (finished) return;
+      finished = true;
+      preloadOverlay.style.transition = 'opacity .3s ease';
+      preloadOverlay.style.opacity = '0';
+      setTimeout(function(){ preloadOverlay.parentNode && preloadOverlay.parentNode.removeChild(preloadOverlay); }, 320);
+    }
+    render();
+    if (total === 0){ finishAll(); return; }
+
+    // Safety net: never trap the user on the loading screen if one asset
+    // stalls (slow connection, one bad URL, etc).
+    var safetyTimer = setTimeout(finishAll, 20000);
+
+    PRELOAD_ASSETS.forEach(function(url){
+      fetch(encodeURI(url)).catch(function(){}).then(function(){
+        done++;
+        render();
+        if (done >= total){ clearTimeout(safetyTimer); finishAll(); }
+      });
+    });
+  })();
+
+  // Force the letterbox background inline (with !important) instead of
+  // relying on a <style> tag — see the comment above the two nav-zone
+  // divs for why. main.js ships its own "body{background-color:black}"
+  // rule with no !important, so this wins regardless of rule order.
   [document.documentElement, document.body, document.getElementById('stageArea')].forEach(function(el){
-    if (el) el.style.setProperty('background-color', '#EDF7F9', 'important');
+    if (el) {
+      el.style.setProperty('background-color', '#EDF7F9', 'important');
+      el.style.setProperty('height', '100%', 'important');
+    }
+  });
+
+  // Same reasoning: give the nav zones and closing card their layout via
+  // inline styles rather than a stylesheet.
+  var navZoneLeft = document.getElementById('__navZoneLeft');
+  var navZoneRight = document.getElementById('__navZoneRight');
+  var closingCard = document.getElementById('__closingCard');
+  var closingCardImg = closingCard.querySelector('img');
+
+  function applyStyles(el, styles){
+    for (var prop in styles){ el.style[prop] = styles[prop]; }
+  }
+
+  applyStyles(navZoneLeft, {
+    position:'fixed', top:'0', bottom:'0', left:'0', width:'20%',
+    zIndex:'9999', background:'transparent', touchAction:'manipulation',
+    webkitUserSelect:'none', userSelect:'none', webkitTouchCallout:'none'
+  });
+  applyStyles(navZoneRight, {
+    position:'fixed', top:'0', bottom:'0', right:'0', width:'20%',
+    zIndex:'9999', background:'transparent', touchAction:'manipulation',
+    webkitUserSelect:'none', userSelect:'none', webkitTouchCallout:'none'
+  });
+  applyStyles(closingCard, {
+    position:'fixed', top:'0', left:'0', right:'0', bottom:'0', zIndex:'9000',
+    background:'#EDF7F9', display:'none', alignItems:'center', justifyContent:'center'
+  });
+  applyStyles(closingCardImg, {
+    maxWidth:'100%', maxHeight:'100%', width:'auto', height:'auto',
+    display:'block', webkitUserDrag:'none', userSelect:'none'
   });
 
   function fireSwipe(direction, fingers, swipeStartX){
@@ -93,7 +190,7 @@
   // a blank page.
   var TOTAL_NATIVE_SLIDES = 6;
   var onClosingCard = false;
-  var closingCardEl = document.getElementById('__closingCard');
+  var closingCardEl = closingCard; // same element styled above
 
   // ---- authoritative slide position -----------------------------------
   // Root cause of the previous "亂跳" bug: we kept our OWN currentSlide
@@ -123,11 +220,11 @@
 
   function showClosingCard(){
     onClosingCard = true;
-    closingCardEl.classList.add('show');
+    closingCardEl.style.display = 'flex';
   }
   function hideClosingCard(){
     onClosingCard = false;
-    closingCardEl.classList.remove('show');
+    closingCardEl.style.display = 'none';
   }
 
   function goNext(){
