@@ -1,4 +1,4 @@
-<!doctype html><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Keynote</title><meta name="viewport" content="initial-scale=1,minimum-scale=1,width=device-width"/><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/></head><body id="body"><div id="stageArea"><div id="stage" class="stage"></div><div id="hyperlinkPlane" class="stage"></div></div><div id="slideshowNavigator"></div><div id="slideNumberControl"></div><div id="slideNumberDisplay"></div><div id="helpPlacard"></div><div id="waitingIndicator"><div id="waitingSpinner"></div></div><script src="assets/player/main.js"></script>
+<!doctype html><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Keynote</title><meta name="viewport" content="initial-scale=1,minimum-scale=1,width=device-width"/><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/><link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons"/></head><body id="body"><div id="stageArea"><div id="stage" class="stage"></div><div id="hyperlinkPlane" class="stage"></div></div><div id="slideshowNavigator"></div><div id="slideNumberControl"></div><div id="slideNumberDisplay"></div><div id="helpPlacard"></div><div id="waitingIndicator"><div id="waitingSpinner"></div></div><script src="assets/player/main.js"></script>
 <!--
   Design principle (per user, 2026-07-23): DO NOT interfere with ANY of the
   deck's original functionality. Every baked-in hyperlink keeps working
@@ -264,24 +264,45 @@
   // back on. Run twice (short + long delay) because the element may be
   // (re)created a moment after the transition lands.
   var GIF_SCENES = { 1:1, 2:1, 5:1, 6:1 }; // slide2 -> #1,#2 ; slide5 -> #5,#6
+  // iOS quirk: clearing and re-setting src SYNCHRONOUSLY gets coalesced —
+  // Safari never notices the swap, so the gif doesn't restart. The clear
+  // and the restore must be separated by a real rendered frame
+  // (requestAnimationFrame + a short timeout). Operates on the live <img>
+  // elements inside the stage, never on our cached preload Image objects.
   function restartGifs(){
     var imgs = document.querySelectorAll('#stageArea img');
     for (var i = 0; i < imgs.length; i++){
-      var img = imgs[i];
-      var s = img.getAttribute('src') || '';
-      if (!/\.gif/i.test(s)) continue;
-      img.style.visibility = 'visible';
-      img.style.opacity = '1';
-      img.setAttribute('src', '');
-      void img.offsetWidth; // force the browser to notice the swap
-      img.setAttribute('src', s);
+      (function(img){
+        var s = img.getAttribute('src') || '';
+        if (!/\.gif/i.test(s)) return;
+        img.style.visibility = 'visible';
+        img.style.opacity = '1';
+        img.setAttribute('src', '');
+        requestAnimationFrame(function(){
+          setTimeout(function(){ img.setAttribute('src', s); }, 30);
+        });
+      })(imgs[i]);
     }
   }
+  // Re-run at staggered delays AFTER the page-turn transition has finished
+  // (the player may also re-create the <img> a beat after landing).
+  var gifTimers = [];
+  function scheduleGifRestart(){
+    gifTimers.forEach(clearTimeout);
+    gifTimers = [];
+    [550, 1300, 2400].forEach(function(d){ gifTimers.push(setTimeout(restartGifs, d)); });
+  }
   window.addEventListener('hashchange', function(){
-    if (!GIF_SCENES[scene()]) return;
-    setTimeout(restartGifs, 400);
-    setTimeout(restartGifs, 1200);
+    if (GIF_SCENES[scene()]) scheduleGifRestart();
   });
+  // Safety net: if the player inserts a gif <img> even later than our last
+  // timer (slow device), catch the insertion itself and restart once more.
+  new MutationObserver(function(){
+    if (GIF_SCENES[scene()]){
+      clearTimeout(gifTimers.__mo);
+      gifTimers.__mo = setTimeout(restartGifs, 250);
+    }
+  }).observe(document.getElementById('stageArea'), { childList:true, subtree:true });
 
   // ---- first-run tutorial (once per device, localStorage) ---------------
   var TUTORIAL_KEY = 'mfy_eyebag_tutorial_seen';
@@ -296,12 +317,13 @@
       fontFamily:'-apple-system, "PingFang TC", "Helvetica Neue", Helvetica, Arial, sans-serif',
       textAlign:'center'
     });
-    function item(icon, title, sub){
+    function item(iconName, title, sub){
       var d = document.createElement('div');
       applyStyles(d, { margin:'0 34px', display:'flex', flexDirection:'column', alignItems:'center' });
-      var i = document.createElement('div');
-      i.textContent = icon;
-      applyStyles(i, { fontSize:'44px', lineHeight:'1', marginBottom:'14px' });
+      var i = document.createElement('span');
+      i.className = 'material-icons'; // Google Material Icons (loaded in <head>)
+      i.textContent = iconName;
+      applyStyles(i, { fontSize:'52px', lineHeight:'1', marginBottom:'14px' });
       var t = document.createElement('div');
       t.textContent = title;
       applyStyles(t, { fontSize:'20px', fontWeight:'700', marginBottom:'6px' });
@@ -313,9 +335,9 @@
     }
     var row = document.createElement('div');
     applyStyles(row, { display:'flex', flexDirection:'row', alignItems:'flex-start', marginBottom:'44px' });
-    row.appendChild(item('◀', '點左側', '上一頁'));
-    row.appendChild(item('👆👆', '雙擊中間', '開啟目錄'));
-    row.appendChild(item('▶', '點右側', '下一頁'));
+    row.appendChild(item('chevron_left', '點左側', '上一頁'));
+    row.appendChild(item('touch_app', '雙擊中間', '開啟目錄'));
+    row.appendChild(item('chevron_right', '點右側', '下一頁'));
     var hint = document.createElement('div');
     hint.textContent = '點任意處開始';
     applyStyles(hint, {
