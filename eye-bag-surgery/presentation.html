@@ -192,30 +192,26 @@
   var onClosingCard = false;
   var closingCardEl = closingCard; // same element styled above
 
-  // ---- authoritative slide position -----------------------------------
-  // Root cause of the previous "亂跳" bug: we kept our OWN currentSlide
-  // counter, incrementing/decrementing it only inside goNext()/goPrev().
-  // But the deck's own baked-in bottom-bar arrow is a real Keynote
-  // hyperlink object that calls the player's native advance/back methods
-  // DIRECTLY — completely bypassing our functions. That silently moved
-  // the real slide while our counter stood still, so the next tap on our
-  // zones acted on a stale number and jumped/skipped incorrectly.
-  //
-  // Fix: main.js itself dispatches "ShowController:SlideIndexDidChangeEvent"
-  // with { detail: { slideIndex } } every time the real slide index
-  // changes, no matter what triggered it (our synthetic swipe, the native
-  // hyperlink arrow, or the thumbnail navigator). Listening for that and
-  // treating it as the single source of truth keeps us in sync with
-  // reality regardless of which control the user used.
-  var currentSlide = 0; // 0-indexed, kept in sync by the listener below
-  document.addEventListener('ShowController:SlideIndexDidChangeEvent', function(e){
-    if (e && e.detail && typeof e.detail.slideIndex === 'number'){
-      currentSlide = e.detail.slideIndex;
-      // If the native deck moved (e.g. via the thumbnail navigator) while
-      // our closing card was showing, drop the overlay so it doesn't
-      // cover the wrong slide underneath.
-      if (onClosingCard) hideClosingCard();
-    }
+  // ---- slide position tracking ------------------------------------------
+  // Earlier version tried to resync currentSlide from main.js's
+  // "ShowController:SlideIndexDidChangeEvent". Tested directly against the
+  // live page: that event never fires for ordinary swipe-based navigation
+  // (confirmed empirically — 7 synthetic swipes, zero events observed), so
+  // that "fix" silently froze currentSlide at 0 forever, which broke
+  // goPrev() entirely (0<=0 always true) and made the closing card
+  // unreachable (0>=5 always false). Reverted to direct tracking: we
+  // increment/decrement currentSlide ourselves exactly when WE trigger a
+  // transition, which is correct for every tap through our own zones —
+  // the actual, and previously misdiagnosed, cause of the "亂" behavior
+  // was the nav zones having zero size (see the CSS note above), not this
+  // counter. A hashchange listener below still guards against the rarer
+  // case of the deck's own baked-in bottom-bar arrow being tapped instead.
+  var currentSlide = 0; // 0-indexed
+  window.addEventListener('hashchange', function(){
+    // Any navigation we didn't cause ourselves (e.g. the native hyperlink
+    // arrow, or the thumbnail sidebar) should at least drop the closing
+    // card if it's showing, so it never sits on top of the wrong slide.
+    if (onClosingCard) hideClosingCard();
   });
 
   function showClosingCard(){
@@ -231,12 +227,11 @@
     if (onClosingCard){
       // loop back to slide 1: walk the native player backward from
       // slide 6 (where it's still sitting, untouched) all the way to
-      // slide 1. currentSlide will land on 0 on its own via the
-      // resync listener as each step lands.
+      // slide 1.
       hideClosingCard();
       var steps = TOTAL_NATIVE_SLIDES - 1, i = 0;
       (function stepBack(){
-        if (i++ >= steps) return;
+        if (i++ >= steps){ currentSlide = 0; return; }
         nativePrev();
         setTimeout(stepBack, 80);
       })();
@@ -249,6 +244,7 @@
       showClosingCard();
       return;
     }
+    currentSlide++;
     nativeNext();
   }
 
@@ -258,6 +254,7 @@
       return;
     }
     if (currentSlide <= 0) return;
+    currentSlide--;
     nativePrev();
   }
 
@@ -282,8 +279,8 @@
 
   // If the built-in thumbnail navigator is used to jump to a specific
   // slide directly, make sure we're not stuck showing the closing card
-  // on top of it. (currentSlide itself resyncs automatically via the
-  // ShowController:SlideIndexDidChangeEvent listener above.)
+  // on top of it. (The hashchange listener above also covers this, but
+  // catching the click directly means it disappears with no visible lag.)
   document.getElementById('slideshowNavigator').addEventListener('click', function(){
     hideClosingCard();
   }, true);
