@@ -1,55 +1,52 @@
 <!doctype html><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Keynote</title><meta name="viewport" content="initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no,width=device-width"/><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/></head><body id="body"><div id="stageArea"><div id="stage" class="stage"></div><div id="hyperlinkPlane" class="stage"></div></div><div id="slideshowNavigator"></div><div id="slideNumberControl"></div><div id="slideNumberDisplay"></div><div id="helpPlacard"></div><div id="waitingIndicator"><div id="waitingSpinner"></div></div><script src="assets/player/main.js"></script>
 <!--
-  Spec (confirmed with the user 2026-07-23):
-    1. RIGHT 20% zone tap  = forward exactly ONE page (#0 -> #1 -> ... -> #7),
-       identical to the deck's own next arrow / one build step at a time.
-       LEFT 20% zone tap   = back exactly ONE page.
-       Native primitives (read from main.js handleSwipeEvent):
-         1-finger left  swipe -> advanceToNextBuild   (one page forward)
-         2-finger right swipe -> goBackToPreviousBuild (one page back)
-       (Earlier versions wrongly used 2-finger-left / 1-finger-right, which
-       skip WHOLE TOPICS — that was the "亂跳/顛倒" bug.)
-    2. slides/slide7.jpg (QR closing card) REPLACES scene #8. The deck has
-       exactly 8 real content scenes (#0..#7 — counted from the events
-       arrays in the 6 slide JSONs); #8 is the player's blank end-of-show
-       state. Tapping next on #7 shows the card instead of the blank page;
-       next again from the card reloads back to page #0 (loop).
-    3. Taps anywhere OUTSIDE the two 20% zones do NOTHING. A full-screen
-       blocker swallows touch/mouse events before they reach main.js's own
-       document-level tap-to-advance handler (which is also what caused
-       every real tap to double-fire on touchscreens before). Long-press
-       anywhere still opens the built-in thumbnail navigator; while the
-       navigator is open, the zones + blocker are hidden so thumbnails are
-       tappable.
-  Position tracking uses location.hash, which the player itself updates on
-  every scene change — no separate counter that can desync.
-  All styling is applied via JS inline styles: a static <style> tag at this
-  point in the document parses to 0 CSS rules (verified live), so CSS here
-  silently does nothing.
+  Design principle (per user, 2026-07-23): DO NOT interfere with ANY of the
+  deck's original functionality. Every baked-in hyperlink keeps working
+  exactly as authored — the TOC cards on page #0 jump to their topics, the
+  bottom-bar buttons work, keyboard works, the thumbnail navigator works.
+
+  Only three things are changed/added, all additive:
+
+  1. Tapping BLANK space (no hyperlink under the finger) no longer
+     advances the deck. Implemented by wrapping UC.advanceToNextBuild
+     (UC is the player's own global ShowController, created on window
+     load) to ignore calls whose reason string is the tap/click fallback
+     ("processClickOrTapAtDisplayCoOrds" / "onMouseDown"). Every other
+     caller — swipes, keyboard, autoplay — passes through untouched.
+     No DOM overlay blocks anything, so hyperlinks are never intercepted.
+
+  2. VIRTUAL left/right 20% tap zones: a document-level pointer listener
+     checks, using the player's own hyperlink hit-test, that the tap is on
+     blank space; only then does a tap in the left/right 20% page-turn by
+     exactly ONE page (#0..#7, native primitives: 1-finger-left-swipe =
+     advanceToNextBuild, 2-finger-right-swipe = goBackToPreviousBuild).
+     A tap on a hyperlink — even inside the 20% bands — is left entirely
+     to the deck. Long-press anywhere opens the built-in navigator.
+
+  3. slides/slide7.jpg (QR closing card) replaces the blank end-of-show
+     state (#8): reaching past the last real page (#7) by ANY means shows
+     the card; next from the card reloads to #0 (loop), prev returns to #7.
+
+  Position comes from location.hash (the player maintains it itself).
+  The deck has exactly 8 real scenes (#0..#7), counted from the events
+  arrays of the 6 slide JSONs; #8 is the player's blank end state.
+  All styling is via JS inline styles: a static <style> tag at this point
+  in the document parses to 0 CSS rules (verified on the live page).
 -->
-<div id="__blocker"></div>
-<div id="__navZoneLeft"></div>
-<div id="__navZoneRight"></div>
 <div id="__closingCard"><img src="slides/slide7.jpg" alt="想了解更多資訊請掃描 QR Code" draggable="false"></div>
 <script>
 (function(){
-  var TOTAL_CONTENT_SCENES = 8;              // #0..#7, from the slide JSONs' events arrays
+  var TOTAL_CONTENT_SCENES = 8;              // #0..#7
   var LAST_SCENE = TOTAL_CONTENT_SCENES - 1; // 7
   var NAV_COOLDOWN_MS = 450;
   var LONG_PRESS_MS = 550;
+  var ZONE_FRACTION = 0.2;
   var PRELOADED_FLAG = 'mfy_eyebag_preloaded';
 
-  function applyStyles(el, styles){
-    for (var p in styles){ el.style[p] = styles[p]; }
-  }
+  function applyStyles(el, styles){ for (var p in styles){ el.style[p] = styles[p]; } }
+  function scene(){ var m = (location.hash || '').match(/\d+/); return m ? +m[0] : 0; }
 
-  // True current page, straight from the player's own hash updates.
-  function scene(){
-    var m = (location.hash || '').match(/\d+/);
-    return m ? +m[0] : 0;
-  }
-
-  // ---- background (JS-inline; <style> tags parse to 0 rules here) ------
+  // ---- background -------------------------------------------------------
   [document.documentElement, document.body, document.getElementById('stageArea')].forEach(function(el){
     if (el){
       el.style.setProperty('background-color', '#EDF7F9', 'important');
@@ -57,46 +54,39 @@
     }
   });
 
-  // ---- elements ---------------------------------------------------------
-  var blocker      = document.getElementById('__blocker');
-  var navZoneLeft  = document.getElementById('__navZoneLeft');
-  var navZoneRight = document.getElementById('__navZoneRight');
-  var closingCard  = document.getElementById('__closingCard');
-  var closingImg   = closingCard.querySelector('img');
+  // ---- 1. disable ONLY the "tap on blank space advances" fallback -------
+  (function patchTapAdvance(){
+    var sc = window.UC;
+    if (sc && typeof sc.advanceToNextBuild === 'function'){
+      var orig = sc.advanceToNextBuild;
+      sc.advanceToNextBuild = function(reason){
+        if (reason === 'processClickOrTapAtDisplayCoOrds' || reason === 'onMouseDown') return;
+        return orig.apply(this, arguments);
+      };
+    } else {
+      setTimeout(patchTapAdvance, 200); // UC is created on window load
+    }
+  })();
 
-  applyStyles(blocker, {
-    position:'fixed', top:'0', left:'0', right:'0', bottom:'0',
-    zIndex:'8000', background:'transparent', touchAction:'none'
-  });
-  var zoneStyle = {
-    position:'fixed', top:'0', bottom:'0', width:'20%',
-    zIndex:'9999', background:'transparent', touchAction:'none',
-    webkitUserSelect:'none', userSelect:'none', webkitTouchCallout:'none'
-  };
-  applyStyles(navZoneLeft, zoneStyle);  navZoneLeft.style.left = '0';
-  applyStyles(navZoneRight, zoneStyle); navZoneRight.style.right = '0';
-  applyStyles(closingCard, {
-    position:'fixed', top:'0', left:'0', right:'0', bottom:'0', zIndex:'9000',
-    background:'#EDF7F9', display:'none', alignItems:'center', justifyContent:'center'
-  });
-  applyStyles(closingImg, {
-    maxWidth:'100%', maxHeight:'100%', width:'auto', height:'auto',
-    display:'block', webkitUserDrag:'none', userSelect:'none'
-  });
-
-  // Swallow every real touch/mouse event on our overlays so nothing ever
-  // reaches main.js's document-level tap/click-to-advance handlers.
-  function swallow(el){
-    ['touchstart','touchmove','touchend','touchcancel','mousedown','mouseup','click','dblclick'].forEach(function(evt){
-      el.addEventListener(evt, function(e){ e.preventDefault(); e.stopPropagation(); }, { passive:false });
-    });
+  // Player's own hit-test: is there a hyperlink at this display coord?
+  function hyperlinkAt(x, y){
+    try {
+      var sc = window.UC;
+      if (!sc || !sc.displayManager) return null;
+      var show = sc.displayManager.convertDisplayCoOrdsToShowCoOrds({ pointX:x, pointY:y });
+      if (!show || show.pointX === -1) return null;
+      return sc.findHyperlinkAtCoOrds(show) || null;
+    } catch(e){ return null; }
   }
-  swallow(blocker);
-  swallow(navZoneLeft);
-  swallow(navZoneRight);
-  swallow(closingCard);
 
-  // ---- native one-page primitives (see spec comment) --------------------
+  function navigatorIsOpen(){
+    var sb = document.querySelector('.navigatorThumbnailSidebar');
+    if (!sb) return false;
+    var l = parseFloat(getComputedStyle(sb).left);
+    return isFinite(l) && l > -50;
+  }
+
+  // ---- native one-page primitives ---------------------------------------
   function fireSwipe(direction, fingers, swipeStartX){
     document.dispatchEvent(new CustomEvent('TouchController:SwipeEvent', {
       detail: { direction: direction, fingers: fingers, swipeStartX: swipeStartX }
@@ -104,20 +94,33 @@
   }
   function nextPage(){ fireSwipe('left', 1, 9999); }   // advanceToNextBuild
   function prevPage(){ fireSwipe('right', 2, 9999); }  // goBackToPreviousBuild
-  function showNavigator(){ fireSwipe('right', 1, 50); } // startX<150 -> sidebar
+  function showNavigator(){ fireSwipe('right', 1, 50); }
 
-  // ---- closing card (replaces the blank #8) -----------------------------
+  // ---- 3. closing card (replaces blank #8) ------------------------------
+  var closingCard = document.getElementById('__closingCard');
+  var closingImg  = closingCard.querySelector('img');
+  applyStyles(closingCard, {
+    position:'fixed', top:'0', left:'0', right:'0', bottom:'0', zIndex:'9000',
+    background:'#EDF7F9', display:'none', alignItems:'center', justifyContent:'center',
+    touchAction:'none'
+  });
+  applyStyles(closingImg, {
+    maxWidth:'100%', maxHeight:'100%', width:'auto', height:'auto',
+    display:'block', webkitUserDrag:'none', userSelect:'none'
+  });
+  // The card is OUR page, so it may swallow its own events.
+  ['touchstart','touchmove','touchend','touchcancel','mousedown','mouseup','click'].forEach(function(evt){
+    closingCard.addEventListener(evt, function(e){ e.preventDefault(); e.stopPropagation(); }, { passive:false });
+  });
+
   var onCard = false;
   function showCard(){ onCard = true; closingCard.style.display = 'flex'; }
   function hideCard(){ onCard = false; closingCard.style.display = 'none'; }
 
   function goNext(){
     if (onCard){
-      // loop: restart the show at page #0 with a clean reload. The
-      // preloader is skipped on reload via the sessionStorage flag, and
-      // every asset is already in the HTTP cache, so this is fast.
       sessionStorage.setItem(PRELOADED_FLAG, '1');
-      location.replace(location.pathname + location.search);
+      location.replace(location.pathname + location.search); // loop to #0
       return;
     }
     if (scene() >= LAST_SCENE){ showCard(); return; }
@@ -125,7 +128,7 @@
   }
   function goPrev(){
     if (onCard){
-      if (scene() > LAST_SCENE) prevPage(); // stepped into blank #8 somehow: pull back to #7
+      if (scene() > LAST_SCENE) prevPage(); // pull back out of the blank end state
       hideCard();
       return;
     }
@@ -133,86 +136,60 @@
     prevPage();
   }
 
-  // Safety net: if the player ever lands on the blank end state (#8+) by
-  // any path, immediately cover it with the card — the card IS page 9.
+  // Reaching past #7 by ANY means (our zones, bottom-bar buttons, keyboard)
+  // shows the card instead of the blank end state; jumping back via the
+  // navigator hides it.
   window.addEventListener('hashchange', function(){
     var s = scene();
     if (s > LAST_SCENE){ if (!onCard) showCard(); }
-    else if (onCard){ hideCard(); } // e.g. thumbnail navigator jumped away
+    else if (onCard){ hideCard(); }
   });
 
-  // ---- tap handling on the zones (Pointer Events) -----------------------
+  // ---- 2. virtual tap zones + long-press (document-level, blocks nothing)
   var navLocked = false;
-  function bindTap(el, handler){
-    var moved = false, startX = 0, startY = 0, down = false;
-    el.addEventListener('pointerdown', function(e){
-      down = true; moved = false; startX = e.clientX; startY = e.clientY;
-    });
-    el.addEventListener('pointermove', function(e){
-      if (!down) return;
-      if (Math.abs(e.clientX-startX) > 10 || Math.abs(e.clientY-startY) > 10) moved = true;
-    });
-    el.addEventListener('pointerup', function(e){
-      if (down && !moved){
-        e.preventDefault(); e.stopPropagation();
-        if (!navLocked){
-          navLocked = true;
-          setTimeout(function(){ navLocked = false; }, NAV_COOLDOWN_MS);
-          handler();
-        }
-      }
-      down = false;
-    });
-    el.addEventListener('pointercancel', function(){ down = false; });
+  function zoneAction(x, y){
+    if (navLocked) return;
+    var w = window.innerWidth;
+    var inLeft  = x < w * ZONE_FRACTION;
+    var inRight = x > w * (1 - ZONE_FRACTION);
+    if (!inLeft && !inRight) return;
+    if (!onCard){
+      if (navigatorIsOpen()) return;               // navigator owns the screen
+      if (document.getElementById('__preload')) return; // still loading
+      if (hyperlinkAt(x, y)) return;               // deck's own button: native wins
+    }
+    navLocked = true;
+    setTimeout(function(){ navLocked = false; }, NAV_COOLDOWN_MS);
+    if (inLeft) goPrev(); else goNext();
   }
-  bindTap(navZoneLeft, goPrev);
-  bindTap(navZoneRight, goNext);
 
-  // ---- long-press anywhere -> built-in thumbnail navigator --------------
-  // Capture-phase document listeners so the zones' stopPropagation can't
-  // starve the cleanup (the old "infinite popup" bug).
-  var pressTimer = null, pressMoved = false, pressX = 0, pressY = 0, pressing = false;
+  var pDown = false, pMoved = false, pX = 0, pY = 0, pressTimer = null;
   document.addEventListener('pointerdown', function(e){
-    pressing = true; pressMoved = false; pressX = e.clientX; pressY = e.clientY;
+    pDown = true; pMoved = false; pX = e.clientX; pY = e.clientY;
     clearTimeout(pressTimer);
     pressTimer = setTimeout(function(){
-      if (pressing && !pressMoved){ hideCard(); showNavigator(); }
+      if (pDown && !pMoved && !onCard && !navigatorIsOpen()) showNavigator();
     }, LONG_PRESS_MS);
   }, { capture:true });
   document.addEventListener('pointermove', function(e){
-    if (!pressing) return;
-    if (Math.abs(e.clientX-pressX) > 12 || Math.abs(e.clientY-pressY) > 12){
-      pressMoved = true; clearTimeout(pressTimer);
+    if (!pDown) return;
+    if (Math.abs(e.clientX-pX) > 12 || Math.abs(e.clientY-pY) > 12){
+      pMoved = true; clearTimeout(pressTimer);
     }
   }, { capture:true });
-  function stopPressing(){ pressing = false; clearTimeout(pressTimer); }
-  document.addEventListener('pointerup', stopPressing, { capture:true });
-  document.addEventListener('pointercancel', stopPressing, { capture:true });
+  document.addEventListener('pointerup', function(e){
+    clearTimeout(pressTimer);
+    if (pDown && !pMoved) zoneAction(e.clientX, e.clientY);
+    pDown = false;
+  }, { capture:true });
+  document.addEventListener('pointercancel', function(){ pDown = false; clearTimeout(pressTimer); }, { capture:true });
   document.addEventListener('contextmenu', function(e){ e.preventDefault(); });
 
-  // While the thumbnail navigator is open our overlays would sit on top of
-  // it and block thumbnail taps — hide them until it closes.
-  setInterval(function(){
-    var sb = document.querySelector('.navigatorThumbnailSidebar');
-    var open = false;
-    if (sb){
-      var l = parseFloat(getComputedStyle(sb).left);
-      open = isFinite(l) && l > -50;
-    }
-    var disp = open ? 'none' : 'block';
-    if (blocker.style.display !== disp){
-      blocker.style.display = disp;
-      navZoneLeft.style.display = disp;
-      navZoneRight.style.display = disp;
-    }
-  }, 300);
-
-  // ---- upfront preload with progress (skipped after first run) ----------
+  // ---- preload with progress (first visit only per session) -------------
   if (!sessionStorage.getItem(PRELOADED_FLAG)){
     var PRELOAD_ASSETS = (function(){
       var slides = [
-        // slide 1 (22CB59BC...) omitted: main.js is already fetching it on
-        // startup; re-requesting it in parallel slowed the first paint.
+        // slide 1 omitted: main.js already fetches it on startup
         { uuid:'8AC9B357-96F6-4109-931E-1F264B3DC7D1', gifs:['assets/下眼瞼周圍常見問題.gif-0.0000-15.0000.gif'] },
         { uuid:'6F80DFBD-9A36-44E4-92EE-B3EA7E1CA1E2', gifs:[] },
         { uuid:'FAD1F8D5-3D72-4B24-9EE6-220209CA7A22', gifs:[] },
@@ -230,6 +207,7 @@
     })();
 
     var overlay = document.createElement('div');
+    overlay.id = '__preload';
     applyStyles(overlay, {
       position:'fixed', top:'0', left:'0', right:'0', bottom:'0', zIndex:'99999',
       background:'#EDF7F9', display:'flex', flexDirection:'column',
@@ -252,7 +230,7 @@
 
     (function runPreload(){
       var total = PRELOAD_ASSETS.length, done = 0, finished = false, nextIndex = 0;
-      var CONCURRENCY = 3; // leave connections free for main.js's slide-1 fetch
+      var CONCURRENCY = 3;
       function render(){
         var pct = Math.round((done / total) * 100);
         barInner.style.width = pct + '%';
@@ -277,7 +255,7 @@
         });
       }
       render();
-      var safetyTimer = setTimeout(finishAll, 20000); // never trap the user here
+      var safetyTimer = setTimeout(finishAll, 20000);
       setTimeout(function(){ for (var i = 0; i < CONCURRENCY; i++) fetchNext(); }, 1200);
     })();
   }
