@@ -1,4 +1,4 @@
-<!doctype html><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Keynote</title><meta name="viewport" content="initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no,width=device-width"/><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/></head><body id="body" bgcolor="black"><div id="stageArea"><div id="stage" class="stage"></div><div id="hyperlinkPlane" class="stage"></div></div><div id="slideshowNavigator"></div><div id="slideNumberControl"></div><div id="slideNumberDisplay"></div><div id="helpPlacard"></div><div id="waitingIndicator"><div id="waitingSpinner"></div></div><script src="assets/player/main.js"></script>
+<!doctype html><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Keynote</title><meta name="viewport" content="initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no,width=device-width"/><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/></head><body id="body"><div id="stageArea"><div id="stage" class="stage"></div><div id="hyperlinkPlane" class="stage"></div></div><div id="slideshowNavigator"></div><div id="slideNumberControl"></div><div id="slideNumberDisplay"></div><div id="helpPlacard"></div><div id="waitingIndicator"><div id="waitingSpinner"></div></div><script src="assets/player/main.js"></script>
 <!--
   Everything above this comment is the original, untouched Keynote HTML5
   export (index.html) — same markup, same assets/player engine, same
@@ -20,9 +20,13 @@
 -->
 <style>
   /* keep the letterbox area the same light blue as the slide backgrounds
-     instead of the player's default black */
+     instead of the player's default black (main.js ships its own
+     "body{background-color:black}" rule with no !important — this wins
+     over it, but we also set it inline via JS below as a second layer
+     of defense, and force full-height so there's no unstyled sliver). */
   html, body, #stageArea{
-    background-color:#eef6f9 !important;
+    background-color:#EDF7F9 !important;
+    height:100% !important;
   }
   #__navZoneLeft, #__navZoneRight{
     position:fixed; top:0; bottom:0; width:20%; z-index:9999;
@@ -34,7 +38,7 @@
   #__navZoneRight{ right:0; }
   #__closingCard{
     position:fixed; inset:0; z-index:9000;
-    background:#eef6f9;
+    background:#EDF7F9;
     display:none;
     align-items:center; justify-content:center;
   }
@@ -59,6 +63,13 @@
   // touch/mouse firing) and CAPTURE-phase listeners for the long-press
   // tracking, so stopPropagation() on the zones can no longer block it.
 
+  // Defense-in-depth: also force the background inline (with !important)
+  // in case any webview caches an older stylesheet independently of the
+  // HTML fetch. Harmless no-op if the CSS above already applied.
+  [document.documentElement, document.body, document.getElementById('stageArea')].forEach(function(el){
+    if (el) el.style.setProperty('background-color', '#EDF7F9', 'important');
+  });
+
   function fireSwipe(direction, fingers, swipeStartX){
     document.dispatchEvent(new CustomEvent("TouchController:SwipeEvent", {
       detail: { direction: direction, fingers: fingers, swipeStartX: swipeStartX }
@@ -81,9 +92,34 @@
   // times instead) so the deck loops cleanly rather than dead-ending on
   // a blank page.
   var TOTAL_NATIVE_SLIDES = 6;
-  var currentSlide = 0;              // 0-indexed position among the 6 real slides
   var onClosingCard = false;
   var closingCardEl = document.getElementById('__closingCard');
+
+  // ---- authoritative slide position -----------------------------------
+  // Root cause of the previous "亂跳" bug: we kept our OWN currentSlide
+  // counter, incrementing/decrementing it only inside goNext()/goPrev().
+  // But the deck's own baked-in bottom-bar arrow is a real Keynote
+  // hyperlink object that calls the player's native advance/back methods
+  // DIRECTLY — completely bypassing our functions. That silently moved
+  // the real slide while our counter stood still, so the next tap on our
+  // zones acted on a stale number and jumped/skipped incorrectly.
+  //
+  // Fix: main.js itself dispatches "ShowController:SlideIndexDidChangeEvent"
+  // with { detail: { slideIndex } } every time the real slide index
+  // changes, no matter what triggered it (our synthetic swipe, the native
+  // hyperlink arrow, or the thumbnail navigator). Listening for that and
+  // treating it as the single source of truth keeps us in sync with
+  // reality regardless of which control the user used.
+  var currentSlide = 0; // 0-indexed, kept in sync by the listener below
+  document.addEventListener('ShowController:SlideIndexDidChangeEvent', function(e){
+    if (e && e.detail && typeof e.detail.slideIndex === 'number'){
+      currentSlide = e.detail.slideIndex;
+      // If the native deck moved (e.g. via the thumbnail navigator) while
+      // our closing card was showing, drop the overlay so it doesn't
+      // cover the wrong slide underneath.
+      if (onClosingCard) hideClosingCard();
+    }
+  });
 
   function showClosingCard(){
     onClosingCard = true;
@@ -97,21 +133,25 @@
   function goNext(){
     if (onClosingCard){
       // loop back to slide 1: walk the native player backward from
-      // slide 6 (where it's still sitting) all the way to slide 1
+      // slide 6 (where it's still sitting, untouched) all the way to
+      // slide 1. currentSlide will land on 0 on its own via the
+      // resync listener as each step lands.
       hideClosingCard();
       var steps = TOTAL_NATIVE_SLIDES - 1, i = 0;
       (function stepBack(){
-        if (i++ >= steps) { currentSlide = 0; return; }
+        if (i++ >= steps) return;
         nativePrev();
         setTimeout(stepBack, 80);
       })();
       return;
     }
+    // loopSlideshow is 0 in header.json, so calling nativeNext() while
+    // already on the last real slide is a safe no-op internally — but we
+    // intercept it ourselves so we can show our own 7th card instead.
     if (currentSlide >= TOTAL_NATIVE_SLIDES - 1){
       showClosingCard();
       return;
     }
-    currentSlide++;
     nativeNext();
   }
 
@@ -121,7 +161,6 @@
       return;
     }
     if (currentSlide <= 0) return;
-    currentSlide--;
     nativePrev();
   }
 
@@ -145,15 +184,11 @@
   bindTap(document.getElementById('__navZoneRight'), goNext);
 
   // If the built-in thumbnail navigator is used to jump to a specific
-  // slide directly, make sure we're not stuck showing the closing card,
-  // and re-sync our own slide counter from the thumbnail that was tapped.
-  document.getElementById('slideshowNavigator').addEventListener('click', function(e){
+  // slide directly, make sure we're not stuck showing the closing card
+  // on top of it. (currentSlide itself resyncs automatically via the
+  // ShowController:SlideIndexDidChangeEvent listener above.)
+  document.getElementById('slideshowNavigator').addEventListener('click', function(){
     hideClosingCard();
-    var t = e.target;
-    while (t && (t.slideNumber === null || t.slideNumber === undefined) && t.nodeName.toLowerCase() !== 'body'){
-      t = t.parentNode;
-    }
-    if (t && t.slideNumber){ currentSlide = t.slideNumber - 1; }
   }, true);
 
   // long-press anywhere -> open the built-in thumbnail navigator.
