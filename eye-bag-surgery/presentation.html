@@ -297,8 +297,26 @@
     el.addEventListener('pointercancel', function(){ down = false; });
   }
 
-  bindTap(document.getElementById('__navZoneLeft'), goPrev);
-  bindTap(document.getElementById('__navZoneRight'), goNext);
+  // The deck's own slide transition takes noticeably longer than a human
+  // can double-tap, and main.js appears to silently drop swipe events that
+  // arrive mid-transition rather than queueing them — so a quick double
+  // tap could increment our own currentSlide counter twice while the real
+  // slide only advanced once (confirmed while testing: 6 rapid taps only
+  // produced 1 real transition). A short cooldown after each tap keeps our
+  // counter from racing ahead of reality.
+  var NAV_COOLDOWN_MS = 700;
+  var navLocked = false;
+  function withCooldown(fn){
+    return function(){
+      if (navLocked) return;
+      navLocked = true;
+      setTimeout(function(){ navLocked = false; }, NAV_COOLDOWN_MS);
+      fn();
+    };
+  }
+
+  bindTap(document.getElementById('__navZoneLeft'), withCooldown(goPrev));
+  bindTap(document.getElementById('__navZoneRight'), withCooldown(goNext));
 
   // If the built-in thumbnail navigator is used to jump to a specific
   // slide directly, make sure we're not stuck showing the closing card
