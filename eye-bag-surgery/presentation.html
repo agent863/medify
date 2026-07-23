@@ -1,4 +1,4 @@
-<!doctype html><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Keynote</title><meta name="viewport" content="initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no,width=device-width"/><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/></head><body id="body"><div id="stageArea"><div id="stage" class="stage"></div><div id="hyperlinkPlane" class="stage"></div></div><div id="slideshowNavigator"></div><div id="slideNumberControl"></div><div id="slideNumberDisplay"></div><div id="helpPlacard"></div><div id="waitingIndicator"><div id="waitingSpinner"></div></div><script src="assets/player/main.js"></script>
+<!doctype html><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Keynote</title><meta name="viewport" content="initial-scale=1,minimum-scale=1,width=device-width"/><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/></head><body id="body"><div id="stageArea"><div id="stage" class="stage"></div><div id="hyperlinkPlane" class="stage"></div></div><div id="slideshowNavigator"></div><div id="slideNumberControl"></div><div id="slideNumberDisplay"></div><div id="helpPlacard"></div><div id="waitingIndicator"><div id="waitingSpinner"></div></div><script src="assets/player/main.js"></script>
 <!--
   Design principle (per user, 2026-07-23): DO NOT interfere with ANY of the
   deck's original functionality. Every baked-in hyperlink keeps working
@@ -95,15 +95,20 @@
   applyStyles(closingCard, {
     position:'fixed', top:'0', left:'0', right:'0', bottom:'0', zIndex:'9000',
     background:'#EDF7F9', display:'none', alignItems:'center', justifyContent:'center',
-    touchAction:'none'
+    touchAction:'manipulation' /* allows pinch-zoom + pan; only kills the 300ms double-tap delay */
   });
   applyStyles(closingImg, {
     maxWidth:'100%', maxHeight:'100%', width:'auto', height:'auto',
     display:'block', webkitUserDrag:'none', userSelect:'none'
   });
-  // The card is OUR page, so it may swallow its own events.
+  // The card stops its events from reaching the player underneath
+  // (stopPropagation), but never preventDefaults a multi-touch event —
+  // pinch-to-zoom must stay fully native.
   ['touchstart','touchmove','touchend','touchcancel','mousedown','mouseup','click'].forEach(function(evt){
-    closingCard.addEventListener(evt, function(e){ e.preventDefault(); e.stopPropagation(); }, { passive:false });
+    closingCard.addEventListener(evt, function(e){
+      e.stopPropagation();
+      if (!(e.touches && e.touches.length > 1)) e.preventDefault();
+    }, { passive:false });
   });
 
   var onCard = false;
@@ -156,26 +161,36 @@
     if (inLeft) goPrev(); else goNext();
   }
 
-  var pDown = false, pMoved = false, pX = 0, pY = 0, pressTimer = null;
+  // Multi-touch (pinch-to-zoom) must never be mistaken for a tap or a
+  // long-press: the moment a second finger lands, the pending long-press
+  // timer is cancelled and the whole gesture is flagged so pointerup
+  // doesn't page-turn. Nothing here calls preventDefault, so the pinch
+  // itself stays fully native.
+  var pDown = false, pMoved = false, pX = 0, pY = 0, pressTimer = null, multiTouch = false;
   document.addEventListener('pointerdown', function(e){
+    if (!e.isPrimary){ multiTouch = true; clearTimeout(pressTimer); return; }
+    multiTouch = false;
     pDown = true; pMoved = false; pX = e.clientX; pY = e.clientY;
     clearTimeout(pressTimer);
     pressTimer = setTimeout(function(){
-      if (pDown && !pMoved && !onCard && !navigatorIsOpen()) showNavigator();
+      if (pDown && !pMoved && !multiTouch && !onCard && !navigatorIsOpen()) showNavigator();
     }, LONG_PRESS_MS);
   }, { capture:true });
   document.addEventListener('pointermove', function(e){
-    if (!pDown) return;
+    if (!pDown || !e.isPrimary) return;
     if (Math.abs(e.clientX-pX) > 12 || Math.abs(e.clientY-pY) > 12){
       pMoved = true; clearTimeout(pressTimer);
     }
   }, { capture:true });
   document.addEventListener('pointerup', function(e){
     clearTimeout(pressTimer);
-    if (pDown && !pMoved) zoneAction(e.clientX, e.clientY);
-    pDown = false;
+    if (e.isPrimary && pDown && !pMoved && !multiTouch) zoneAction(e.clientX, e.clientY);
+    if (e.isPrimary) pDown = false;
   }, { capture:true });
-  document.addEventListener('pointercancel', function(){ pDown = false; clearTimeout(pressTimer); }, { capture:true });
+  document.addEventListener('pointercancel', function(e){
+    if (e.isPrimary) pDown = false;
+    clearTimeout(pressTimer);
+  }, { capture:true });
   document.addEventListener('contextmenu', function(e){ e.preventDefault(); });
 
   // ---- preload with progress (first visit only per session) -------------
