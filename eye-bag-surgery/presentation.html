@@ -39,9 +39,7 @@
   var TOTAL_CONTENT_SCENES = 8;              // #0..#7
   var LAST_SCENE = TOTAL_CONTENT_SCENES - 1; // 7
   var NAV_COOLDOWN_MS = 450;
-  var LONG_PRESS_MS = 550;
   var ZONE_FRACTION = 0.2;
-  var PRELOADED_FLAG = 'mfy_eyebag_preloaded';
 
   function applyStyles(el, styles){ for (var p in styles){ el.style[p] = styles[p]; } }
   function scene(){ var m = (location.hash || '').match(/\d+/); return m ? +m[0] : 0; }
@@ -51,6 +49,10 @@
     if (el){
       el.style.setProperty('background-color', '#EDF7F9', 'important');
       el.style.setProperty('height', '100%', 'important');
+      // 'manipulation' keeps pinch-zoom fully native but disables Safari's
+      // double-tap smart zoom — required so double-tap can open the
+      // navigator without also zooming the page.
+      el.style.setProperty('touch-action', 'manipulation', 'important');
     }
   });
 
@@ -137,7 +139,6 @@
 
   function goNext(){
     if (onCard){
-      sessionStorage.setItem(PRELOADED_FLAG, '1');
       location.replace(location.pathname + location.search); // loop to #0
       return;
     }
@@ -163,155 +164,169 @@
     else if (onCard){ hideCard(); }
   });
 
-  // ---- 2. virtual tap zones + long-press (document-level, blocks nothing)
+  // ---- 2. virtual tap zones + DOUBLE-TAP navigator (blocks nothing) -----
+  // Single tap, left/right 20%, blank space  -> page turn (one page).
+  // DOUBLE tap on blank space in the middle  -> open thumbnail navigator.
+  //   (long-press removed per spec; Safari's own double-tap smart zoom is
+  //    disabled via touch-action:manipulation above, pinch still native.)
+  // Taps on the deck's own hyperlinks/buttons are always left to the deck.
   var navLocked = false;
-  function zoneAction(x, y){
-    if (navLocked) return;
+  var lastTapTime = 0, lastTapX = 0, lastTapY = 0;
+  function handleTap(x, y){
     var w = window.innerWidth;
     var inLeft  = x < w * ZONE_FRACTION;
     var inRight = x > w * (1 - ZONE_FRACTION);
-    if (!inLeft && !inRight) return;
-    if (!onCard){
-      if (navigatorIsOpen()) return;               // navigator owns the screen
-      if (document.getElementById('__preload')) return; // still loading
-      if (hyperlinkAt(x, y)) return;               // deck's own button: native wins
+    if (document.getElementById('__preload')) return; // still loading
+    if (onCard){
+      if (inLeft || inRight){
+        if (!navLocked){
+          navLocked = true;
+          setTimeout(function(){ navLocked = false; }, NAV_COOLDOWN_MS);
+          if (inLeft) goPrev(); else goNext();
+        }
+      }
+      return;
     }
-    navLocked = true;
-    setTimeout(function(){ navLocked = false; }, NAV_COOLDOWN_MS);
-    if (inLeft) goPrev(); else goNext();
+    if (navigatorIsOpen()) return;              // navigator owns the screen
+    if (hyperlinkAt(x, y)){ lastTapTime = 0; return; } // deck's own button
+    if (inLeft || inRight){
+      lastTapTime = 0;                          // zone taps never count toward double-tap
+      if (!navLocked){
+        navLocked = true;
+        setTimeout(function(){ navLocked = false; }, NAV_COOLDOWN_MS);
+        if (inLeft) goPrev(); else goNext();
+      }
+      return;
+    }
+    // middle blank space: detect double-tap
+    var now = Date.now();
+    if (now - lastTapTime < 400 && Math.abs(x - lastTapX) < 60 && Math.abs(y - lastTapY) < 60){
+      lastTapTime = 0;
+      showNavigator();
+    } else {
+      lastTapTime = now; lastTapX = x; lastTapY = y;
+    }
   }
 
-  // Multi-touch (pinch-to-zoom) must never be mistaken for a tap or a
-  // long-press: the moment a second finger lands, the pending long-press
-  // timer is cancelled and the whole gesture is flagged so pointerup
-  // doesn't page-turn. Nothing here calls preventDefault, so the pinch
-  // itself stays fully native.
-  var pDown = false, pMoved = false, pX = 0, pY = 0, pressTimer = null, multiTouch = false;
+  // Multi-touch (pinch-to-zoom) must never be mistaken for a tap: the
+  // moment a second finger lands the whole gesture is flagged so pointerup
+  // does nothing. No preventDefault anywhere — pinch stays fully native.
+  var pDown = false, pMoved = false, pX = 0, pY = 0, multiTouch = false;
   document.addEventListener('pointerdown', function(e){
-    if (!e.isPrimary){ multiTouch = true; clearTimeout(pressTimer); return; }
+    if (!e.isPrimary){ multiTouch = true; return; }
     multiTouch = false;
     pDown = true; pMoved = false; pX = e.clientX; pY = e.clientY;
-    clearTimeout(pressTimer);
-    pressTimer = setTimeout(function(){
-      if (pDown && !pMoved && !multiTouch && !onCard && !navigatorIsOpen()) showNavigator();
-    }, LONG_PRESS_MS);
   }, { capture:true });
   document.addEventListener('pointermove', function(e){
     if (!pDown || !e.isPrimary) return;
-    if (Math.abs(e.clientX-pX) > 12 || Math.abs(e.clientY-pY) > 12){
-      pMoved = true; clearTimeout(pressTimer);
-    }
+    if (Math.abs(e.clientX-pX) > 12 || Math.abs(e.clientY-pY) > 12) pMoved = true;
   }, { capture:true });
   document.addEventListener('pointerup', function(e){
-    clearTimeout(pressTimer);
-    if (e.isPrimary && pDown && !pMoved && !multiTouch) zoneAction(e.clientX, e.clientY);
+    if (e.isPrimary && pDown && !pMoved && !multiTouch) handleTap(e.clientX, e.clientY);
     if (e.isPrimary) pDown = false;
   }, { capture:true });
   document.addEventListener('pointercancel', function(e){
     if (e.isPrimary) pDown = false;
-    clearTimeout(pressTimer);
   }, { capture:true });
   document.addEventListener('contextmenu', function(e){ e.preventDefault(); });
 
-  // ---- gif warm-up: EVERY page load, not just first visit ---------------
-  // The player creates each gif's <img> only at the moment its build
-  // appears, so the ~1MB gif used to download right then — visibly slow,
-  // and on a flaky moment it just never showed. Pinning them as decoded
-  // Image objects right after the first slide starts loading means that
-  // by the time anyone reaches those pages the gifs come straight from
-  // memory/HTTP cache. Kept as live references so they can't be evicted.
+  // ---- mandatory loading screen: ALL gifs must finish before entry ------
+  // Per spec: the user may not start flipping pages until every gif (and
+  // the closing card image) is fully downloaded and decoded. The overlay
+  // shows on EVERY load (repeat visits complete near-instantly from
+  // cache), never times out into the deck, and auto-retries failed
+  // downloads. handleTap() above refuses all taps while #__preload exists.
+  // The big per-slide PDFs do NOT block entry — they warm in the
+  // background after the gate opens.
   var GIF_URLS = [
     'assets/8AC9B357-96F6-4109-931E-1F264B3DC7D1/assets/下眼瞼周圍常見問題.gif-0.0000-15.0000.gif',
     'assets/515BF58C-A7F4-42C7-AB24-F395E442BD09/assets/眼袋脂肪「移除」動畫-插畫.gif-0.0000-8.5000.gif',
     'assets/515BF58C-A7F4-42C7-AB24-F395E442BD09/assets/眼袋脂肪「轉移」動畫-插畫.gif-0.0000-8.5000.gif'
   ];
-  window.__gifWarm = [];
-  setTimeout(function(){
-    GIF_URLS.forEach(function(u){
+  var CRITICAL_ASSETS = GIF_URLS.concat(['slides/slide7.jpg']);
+  window.__gifWarm = []; // live refs so the decoded gifs can't be evicted
+
+  var overlay = document.createElement('div');
+  overlay.id = '__preload';
+  applyStyles(overlay, {
+    position:'fixed', top:'0', left:'0', right:'0', bottom:'0', zIndex:'99999',
+    background:'#EDF7F9', display:'flex', flexDirection:'column',
+    alignItems:'center', justifyContent:'center',
+    fontFamily:'-apple-system, "PingFang TC", "Helvetica Neue", Helvetica, Arial, sans-serif'
+  });
+  var oTitle = document.createElement('div');
+  oTitle.textContent = '眼袋手術衛教教材';
+  applyStyles(oTitle, { fontSize:'26px', fontWeight:'700', color:'#3a5f7d', marginBottom:'26px', letterSpacing:'.02em' });
+  var barOuter = document.createElement('div');
+  applyStyles(barOuter, { width:'240px', height:'8px', borderRadius:'999px', background:'rgba(58,95,125,0.15)', overflow:'hidden' });
+  var barInner = document.createElement('div');
+  applyStyles(barInner, { width:'0%', height:'100%', background:'#4578bf', transition:'width .2s ease' });
+  barOuter.appendChild(barInner);
+  var oPct = document.createElement('div');
+  oPct.textContent = '動畫載入中 0%';
+  applyStyles(oPct, { marginTop:'14px', fontSize:'14px', color:'#6b8aa0' });
+  overlay.appendChild(oTitle); overlay.appendChild(barOuter); overlay.appendChild(oPct);
+  document.body.appendChild(overlay);
+
+  (function gateOnGifs(){
+    var total = CRITICAL_ASSETS.length, done = 0, closed = false;
+
+    function render(){
+      var pct = Math.round((done / total) * 100);
+      barInner.style.width = pct + '%';
+      oPct.textContent = '動畫載入中 ' + pct + '%';
+    }
+    function openGate(){
+      if (closed) return;
+      closed = true;
+      overlay.style.transition = 'opacity .3s ease';
+      overlay.style.opacity = '0';
+      setTimeout(function(){ overlay.parentNode && overlay.parentNode.removeChild(overlay); }, 320);
+      warmRestInBackground();
+    }
+    function loadOne(url, attempt){
       var im = new Image();
-      im.src = encodeURI(u);
-      window.__gifWarm.push(im);
-    });
-  }, 800); // let slide 1's own fetch get a head start
+      im.onload = function(){
+        window.__gifWarm.push(im); // decoded + pinned
+        done++; render();
+        if (done >= total) openGate();
+      };
+      im.onerror = function(){
+        if (attempt < 5){
+          oPct.textContent = '網路不穩，重試中…';
+          setTimeout(function(){ loadOne(url, attempt + 1); }, 1200 * attempt);
+        } else {
+          oPct.textContent = '動畫載入失敗，請檢查網路後重新整理';
+        }
+      };
+      im.src = encodeURI(url);
+    }
 
-  // ---- preload with progress (first visit only per session) -------------
-  if (!sessionStorage.getItem(PRELOADED_FLAG)){
-    var PRELOAD_ASSETS = (function(){
-      var slides = [
-        // slide 1 omitted: main.js already fetches it on startup
-        { uuid:'8AC9B357-96F6-4109-931E-1F264B3DC7D1' },
-        { uuid:'6F80DFBD-9A36-44E4-92EE-B3EA7E1CA1E2' },
-        { uuid:'FAD1F8D5-3D72-4B24-9EE6-220209CA7A22' },
-        { uuid:'515BF58C-A7F4-42C7-AB24-F395E442BD09' },
-        { uuid:'A020B5BA-42E6-4B54-90AC-B5DF2E7A1D61' }
-      ];
-      // Order matters: gifs and the closing card FIRST (small, and the
-      // most visible when missing), then thumbnails, then the big PDFs —
-      // previously the gifs sat behind ~25MB of PDFs, so on a slow first
-      // visit the 20s escape hatch fired before they were ever cached.
-      var urls = GIF_URLS.slice();
-      urls.push('slides/slide7.jpg');
-      slides.forEach(function(s){ urls.push('assets/' + s.uuid + '/thumbnail.jpeg'); });
-      slides.forEach(function(s){ urls.push('assets/' + s.uuid + '/assets/' + s.uuid + '.pdf'); });
-      return urls;
-    })();
+    render();
+    CRITICAL_ASSETS.forEach(function(u){ loadOne(u, 1); });
+  })();
 
-    var overlay = document.createElement('div');
-    overlay.id = '__preload';
-    applyStyles(overlay, {
-      position:'fixed', top:'0', left:'0', right:'0', bottom:'0', zIndex:'99999',
-      background:'#EDF7F9', display:'flex', flexDirection:'column',
-      alignItems:'center', justifyContent:'center',
-      fontFamily:'-apple-system, "PingFang TC", "Helvetica Neue", Helvetica, Arial, sans-serif'
-    });
-    var oTitle = document.createElement('div');
-    oTitle.textContent = '眼袋手術衛教教材';
-    applyStyles(oTitle, { fontSize:'26px', fontWeight:'700', color:'#3a5f7d', marginBottom:'26px', letterSpacing:'.02em' });
-    var barOuter = document.createElement('div');
-    applyStyles(barOuter, { width:'240px', height:'8px', borderRadius:'999px', background:'rgba(58,95,125,0.15)', overflow:'hidden' });
-    var barInner = document.createElement('div');
-    applyStyles(barInner, { width:'0%', height:'100%', background:'#4578bf', transition:'width .2s ease' });
-    barOuter.appendChild(barInner);
-    var oPct = document.createElement('div');
-    oPct.textContent = '載入中 0%';
-    applyStyles(oPct, { marginTop:'14px', fontSize:'14px', color:'#6b8aa0' });
-    overlay.appendChild(oTitle); overlay.appendChild(barOuter); overlay.appendChild(oPct);
-    document.body.appendChild(overlay);
-
-    (function runPreload(){
-      var total = PRELOAD_ASSETS.length, done = 0, finished = false, nextIndex = 0;
-      var CONCURRENCY = 3;
-      function render(){
-        var pct = Math.round((done / total) * 100);
-        barInner.style.width = pct + '%';
-        oPct.textContent = '載入中 ' + pct + '%';
-      }
-      function finishAll(complete){
-        if (finished) return;
-        finished = true;
-        // Only remember "preloaded" when everything ACTUALLY finished.
-        // Previously the 20s escape hatch also set the flag, so one slow
-        // first visit permanently disabled preloading for the session
-        // while the gifs had never been cached.
-        if (complete) sessionStorage.setItem(PRELOADED_FLAG, '1');
-        overlay.style.transition = 'opacity .3s ease';
-        overlay.style.opacity = '0';
-        setTimeout(function(){ overlay.parentNode && overlay.parentNode.removeChild(overlay); }, 320);
-      }
-      function fetchNext(){
-        if (finished) return;
-        if (nextIndex >= total){ if (done >= total) finishAll(true); return; }
-        var url = PRELOAD_ASSETS[nextIndex++];
-        fetch(encodeURI(url)).catch(function(){}).then(function(){
-          done++; render();
-          if (done >= total){ clearTimeout(safetyTimer); finishAll(true); }
-          else fetchNext();
-        });
-      }
-      render();
-      var safetyTimer = setTimeout(function(){ finishAll(false); }, 20000);
-      setTimeout(function(){ for (var i = 0; i < CONCURRENCY; i++) fetchNext(); }, 1200);
-    })();
+  // Non-blocking: warm the remaining slides' PDFs + thumbnails after entry
+  // so later page turns are fast too. Failures are harmless (the player
+  // fetches on demand as a fallback).
+  function warmRestInBackground(){
+    var uuids = [
+      '8AC9B357-96F6-4109-931E-1F264B3DC7D1',
+      '6F80DFBD-9A36-44E4-92EE-B3EA7E1CA1E2',
+      'FAD1F8D5-3D72-4B24-9EE6-220209CA7A22',
+      '515BF58C-A7F4-42C7-AB24-F395E442BD09',
+      'A020B5BA-42E6-4B54-90AC-B5DF2E7A1D61'
+    ];
+    var urls = [];
+    uuids.forEach(function(u){ urls.push('assets/' + u + '/thumbnail.jpeg'); });
+    uuids.forEach(function(u){ urls.push('assets/' + u + '/assets/' + u + '.pdf'); });
+    var idx = 0;
+    function next(){
+      if (idx >= urls.length) return;
+      var u = urls[idx++];
+      fetch(encodeURI(u)).catch(function(){}).then(function(){ next(); });
+    }
+    next(); next(); // concurrency 2
   }
 })();
 </script>
