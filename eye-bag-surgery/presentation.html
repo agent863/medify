@@ -104,7 +104,10 @@
   // ---- native one-page primitives ---------------------------------------
   function fireSwipe(direction, fingers, swipeStartX){
     document.dispatchEvent(new CustomEvent('TouchController:SwipeEvent', {
-      detail: { direction: direction, fingers: fingers, swipeStartX: swipeStartX }
+      // synthetic:true lets the __onNativeSwipe hook in main.js tell OUR
+      // events (pass straight to the player) apart from REAL finger swipes
+      // (normalized below so they can never cross the last-page boundary).
+      detail: { direction: direction, fingers: fingers, swipeStartX: swipeStartX, synthetic: true }
     }));
   }
   function nextPage(){ fireSwipe('left', 1, 9999); }   // advanceToNextBuild
@@ -134,6 +137,7 @@
   });
 
   var onCard = false;
+  var pendingCardJump = false; // set when the sidebar's 7th thumbnail is tapped
   function showCard(){ onCard = true; closingCard.style.display = 'flex'; }
   function hideCard(){ onCard = false; closingCard.style.display = 'none'; }
 
@@ -161,8 +165,28 @@
   window.addEventListener('hashchange', function(){
     var s = scene();
     if (s > LAST_SCENE){ if (!onCard) showCard(); }
+    else if (pendingCardJump && s === LAST_SCENE){ pendingCardJump = false; showCard(); }
     else if (onCard){ hideCard(); }
   });
+
+  // Real finger swipes (left/right) are normalized to the same one-page
+  // logic as the tap zones — previously they fed the player's raw
+  // advance/back directly, so a left-swipe on the last page (#7) sailed
+  // past the boundary into the blank end state. Returning true swallows
+  // the native handling. Our own synthetic events pass through untouched,
+  // and swipes while the navigator is open keep their native meaning
+  // (swipe-to-close).
+  window.__onNativeSwipe = function(detail){
+    if (!detail || detail.synthetic) return false;
+    if (detail.direction !== 'left' && detail.direction !== 'right') return false;
+    if (navigatorIsOpen()) return false;
+    if (document.getElementById('__preload') || document.getElementById('__tutorial')) return true;
+    if (navLocked) return true;
+    navLocked = true;
+    setTimeout(function(){ navLocked = false; }, NAV_COOLDOWN_MS);
+    if (detail.direction === 'left') goNext(); else goPrev();
+    return true;
+  };
 
   // ---- 2. virtual tap zones + DOUBLE-TAP navigator (blocks nothing) -----
   // Single tap, left/right 20%, blank space  -> page turn (one page).
@@ -176,7 +200,8 @@
     var w = window.innerWidth;
     var inLeft  = x < w * ZONE_FRACTION;
     var inRight = x > w * (1 - ZONE_FRACTION);
-    if (document.getElementById('__preload')) return; // still loading
+    if (document.getElementById('__preload')) return;  // still loading
+    if (document.getElementById('__tutorial')) return; // tutorial owns taps
     if (onCard){
       if (inLeft || inRight){
         if (!navLocked){
@@ -230,6 +255,131 @@
   }, { capture:true });
   document.addEventListener('contextmenu', function(e){ e.preventDefault(); });
 
+  // ---- gif replay on every (re)entry ------------------------------------
+  // The gif files themselves loop forever (NETSCAPE loop=0, verified), but
+  // the player keeps each gif's <img> element around after leaving the
+  // slide — coming back showed the element frozen/hidden over the PDF's
+  // static frame. On every arrival at a gif page, re-assigning src forces
+  // the browser to restart the gif from frame 0, and visibility is forced
+  // back on. Run twice (short + long delay) because the element may be
+  // (re)created a moment after the transition lands.
+  var GIF_SCENES = { 1:1, 2:1, 5:1, 6:1 }; // slide2 -> #1,#2 ; slide5 -> #5,#6
+  function restartGifs(){
+    var imgs = document.querySelectorAll('#stageArea img');
+    for (var i = 0; i < imgs.length; i++){
+      var img = imgs[i];
+      var s = img.getAttribute('src') || '';
+      if (!/\.gif/i.test(s)) continue;
+      img.style.visibility = 'visible';
+      img.style.opacity = '1';
+      img.setAttribute('src', '');
+      void img.offsetWidth; // force the browser to notice the swap
+      img.setAttribute('src', s);
+    }
+  }
+  window.addEventListener('hashchange', function(){
+    if (!GIF_SCENES[scene()]) return;
+    setTimeout(restartGifs, 400);
+    setTimeout(restartGifs, 1200);
+  });
+
+  // ---- first-run tutorial (once per device, localStorage) ---------------
+  var TUTORIAL_KEY = 'mfy_eyebag_tutorial_seen';
+  function maybeShowTutorial(){
+    try { if (localStorage.getItem(TUTORIAL_KEY)) return; } catch(e){}
+    var tut = document.createElement('div');
+    tut.id = '__tutorial';
+    applyStyles(tut, {
+      position:'fixed', top:'0', left:'0', right:'0', bottom:'0', zIndex:'60000',
+      background:'rgba(18,38,54,0.82)', display:'flex', flexDirection:'column',
+      alignItems:'center', justifyContent:'center', color:'#fff',
+      fontFamily:'-apple-system, "PingFang TC", "Helvetica Neue", Helvetica, Arial, sans-serif',
+      textAlign:'center'
+    });
+    function item(icon, title, sub){
+      var d = document.createElement('div');
+      applyStyles(d, { margin:'0 34px', display:'flex', flexDirection:'column', alignItems:'center' });
+      var i = document.createElement('div');
+      i.textContent = icon;
+      applyStyles(i, { fontSize:'44px', lineHeight:'1', marginBottom:'14px' });
+      var t = document.createElement('div');
+      t.textContent = title;
+      applyStyles(t, { fontSize:'20px', fontWeight:'700', marginBottom:'6px' });
+      var s = document.createElement('div');
+      s.textContent = sub;
+      applyStyles(s, { fontSize:'15px', opacity:'0.85' });
+      d.appendChild(i); d.appendChild(t); d.appendChild(s);
+      return d;
+    }
+    var row = document.createElement('div');
+    applyStyles(row, { display:'flex', flexDirection:'row', alignItems:'flex-start', marginBottom:'44px' });
+    row.appendChild(item('◀', '點左側', '上一頁'));
+    row.appendChild(item('👆👆', '雙擊中間', '開啟目錄'));
+    row.appendChild(item('▶', '點右側', '下一頁'));
+    var hint = document.createElement('div');
+    hint.textContent = '點任意處開始';
+    applyStyles(hint, {
+      fontSize:'16px', padding:'12px 30px', borderRadius:'999px',
+      border:'1px solid rgba(255,255,255,0.6)'
+    });
+    tut.appendChild(row); tut.appendChild(hint);
+    // dismiss on any tap; never let the tap reach the deck below
+    ['pointerup','click','touchend'].forEach(function(evt){
+      tut.addEventListener(evt, function(e){
+        e.preventDefault(); e.stopPropagation();
+        try { localStorage.setItem(TUTORIAL_KEY, '1'); } catch(err){}
+        tut.style.transition = 'opacity .25s ease';
+        tut.style.opacity = '0';
+        setTimeout(function(){ tut.parentNode && tut.parentNode.removeChild(tut); }, 270);
+      }, { passive:false });
+    });
+    document.body.appendChild(tut);
+  }
+
+  // ---- add the missing 7th (closing card) thumbnail to the sidebar ------
+  // The sidebar is built by the player from its 6 native slides; our card
+  // isn't one of them, so we append a 7th item that mimics the others.
+  // Tapping it jumps the deck to the last slide and lays the card on top
+  // (pendingCardJump defers showCard until the jump's hashchange lands, so
+  // the hashchange handler doesn't immediately hide it again).
+  function goToCardFromSidebar(){
+    hideNavigator();
+    if (scene() === LAST_SCENE){ showCard(); return; }
+    pendingCardJump = true;
+    try { window.__UC.navigatorController.select(6); } // slide 6 = scene #7
+    catch(e){ pendingCardJump = false; showCard(); }
+    // fallback if no hashchange arrives (e.g. select silently failed)
+    setTimeout(function(){
+      if (pendingCardJump){ pendingCardJump = false; showCard(); }
+    }, 1200);
+  }
+  var thumbTimer = setInterval(function(){
+    var sb = document.querySelector('.navigatorThumbnailSidebar');
+    if (!sb) return;
+    if (sb.querySelector('.__cardThumb')) { clearInterval(thumbTimer); return; }
+    var items = sb.querySelectorAll('.navigatorThumbnailItem');
+    if (!items.length) return;
+    var last = items[items.length - 1];
+    var clone = last.cloneNode(true); // no listeners / no slideNumber props copied
+    clone.classList.add('__cardThumb');
+    // swap thumbnail image + slide number label
+    var img = clone.querySelector('img');
+    if (img){ img.removeAttribute('id'); img.src = 'slides/slide7.jpg'; }
+    clone.querySelectorAll('*').forEach(function(el){
+      if (el.children.length === 0 && el.textContent.trim() === String(items.length)){
+        el.textContent = String(items.length + 1);
+      }
+    });
+    ['pointerup','click','touchend'].forEach(function(evt){
+      clone.addEventListener(evt, function(e){
+        e.preventDefault(); e.stopPropagation();
+        goToCardFromSidebar();
+      }, { passive:false });
+    });
+    last.parentNode.appendChild(clone);
+    clearInterval(thumbTimer);
+  }, 600);
+
   // ---- mandatory loading screen: ALL gifs must finish before entry ------
   // Per spec: the user may not start flipping pages until every gif (and
   // the closing card image) is fully downloaded and decoded. The overlay
@@ -281,7 +431,10 @@
       closed = true;
       overlay.style.transition = 'opacity .3s ease';
       overlay.style.opacity = '0';
-      setTimeout(function(){ overlay.parentNode && overlay.parentNode.removeChild(overlay); }, 320);
+      setTimeout(function(){
+        overlay.parentNode && overlay.parentNode.removeChild(overlay);
+        maybeShowTutorial(); // first-run only (localStorage)
+      }, 320);
       warmRestInBackground();
     }
     function loadOne(url, attempt){
