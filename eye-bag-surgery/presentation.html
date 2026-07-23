@@ -1,308 +1,149 @@
 <!doctype html><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Keynote</title><meta name="viewport" content="initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no,width=device-width"/><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/></head><body id="body"><div id="stageArea"><div id="stage" class="stage"></div><div id="hyperlinkPlane" class="stage"></div></div><div id="slideshowNavigator"></div><div id="slideNumberControl"></div><div id="slideNumberDisplay"></div><div id="helpPlacard"></div><div id="waitingIndicator"><div id="waitingSpinner"></div></div><script src="assets/player/main.js"></script>
 <!--
-  Everything above this comment is the original, untouched Keynote HTML5
-  export (index.html) — same markup, same assets/player engine, same
-  rendering/animation behavior (including the gifs playing natively).
-
-  Everything below only ADDS two things on top of that, as requested:
-    1. Tap zones on the left/right 20% of the screen that turn the page
-       (jump to the previous/next Keynote "slide" — i.e. one of the 6
-       topics — skipping that slide's internal build steps).
-    2. A long-press anywhere that opens the player's own built-in
-       thumbnail navigator sidebar (already built into main.js), so you
-       can tap a thumbnail to jump straight to that topic.
-
-  Both are implemented by dispatching the exact same custom events the
-  player's own touch-gesture layer already listens for
-  (document.addEventListener("TouchController:SwipeEvent", ...)), so we
-  are not reimplementing or overriding any of the original navigation —
-  just triggering it from a bigger, more obvious tap target.
+  Spec (confirmed with the user 2026-07-23):
+    1. RIGHT 20% zone tap  = forward exactly ONE page (#0 -> #1 -> ... -> #7),
+       identical to the deck's own next arrow / one build step at a time.
+       LEFT 20% zone tap   = back exactly ONE page.
+       Native primitives (read from main.js handleSwipeEvent):
+         1-finger left  swipe -> advanceToNextBuild   (one page forward)
+         2-finger right swipe -> goBackToPreviousBuild (one page back)
+       (Earlier versions wrongly used 2-finger-left / 1-finger-right, which
+       skip WHOLE TOPICS — that was the "亂跳/顛倒" bug.)
+    2. slides/slide7.jpg (QR closing card) REPLACES scene #8. The deck has
+       exactly 8 real content scenes (#0..#7 — counted from the events
+       arrays in the 6 slide JSONs); #8 is the player's blank end-of-show
+       state. Tapping next on #7 shows the card instead of the blank page;
+       next again from the card reloads back to page #0 (loop).
+    3. Taps anywhere OUTSIDE the two 20% zones do NOTHING. A full-screen
+       blocker swallows touch/mouse events before they reach main.js's own
+       document-level tap-to-advance handler (which is also what caused
+       every real tap to double-fire on touchscreens before). Long-press
+       anywhere still opens the built-in thumbnail navigator; while the
+       navigator is open, the zones + blocker are hidden so thumbnails are
+       tappable.
+  Position tracking uses location.hash, which the player itself updates on
+  every scene change — no separate counter that can desync.
+  All styling is applied via JS inline styles: a static <style> tag at this
+  point in the document parses to 0 CSS rules (verified live), so CSS here
+  silently does nothing.
 -->
-<!--
-  IMPORTANT: no <style> tag here on purpose. Testing on the actual
-  published page showed that a <style> block placed at this point in the
-  document (after the main.js script tag) gets parsed into a
-  CSSStyleSheet with ZERO rules in this environment — the text is valid
-  CSS and an identical block injected via JS parses fine, so something
-  about a static <style> tag landing here specifically fails silently.
-  That meant the nav zones and closing card had no real position/size at
-  all (only the background-color fix worked, because it also had a JS
-  fallback below) — the actual cause of the "亂" navigation and the
-  missing slide7 card. Fix: apply every rule these elements need via JS
-  (inline style properties) instead of CSS, which is proven to work
-  reliably here regardless of the stylesheet-parsing quirk.
--->
+<div id="__blocker"></div>
 <div id="__navZoneLeft"></div>
 <div id="__navZoneRight"></div>
 <div id="__closingCard"><img src="slides/slide7.jpg" alt="想了解更多資訊請掃描 QR Code" draggable="false"></div>
 <script>
 (function(){
-  // Bug fix note: the previous version tracked long-press with separate
-  // touch + mouse listeners on document (bubble phase), while the tap
-  // zones called stopPropagation() on their own touchend/click. That
-  // stopped the document-level "press ended" listener from ever running
-  // for taps on the zones, leaving its timer stuck — so ~550ms after
-  // ANY tap on a nav zone, the navigator would pop open on its own,
-  // repeatedly. Rewritten below using Pointer Events only (no duplicate
-  // touch/mouse firing) and CAPTURE-phase listeners for the long-press
-  // tracking, so stopPropagation() on the zones can no longer block it.
+  var TOTAL_CONTENT_SCENES = 8;              // #0..#7, from the slide JSONs' events arrays
+  var LAST_SCENE = TOTAL_CONTENT_SCENES - 1; // 7
+  var NAV_COOLDOWN_MS = 450;
+  var LONG_PRESS_MS = 550;
+  var PRELOADED_FLAG = 'mfy_eyebag_preloaded';
 
-  // ---- upfront loading screen -----------------------------------------
-  // Each slide's PDF (and its gifs) is fetched over the network the first
-  // time you swipe to it, which is why later slides used to pause for a
-  // moment. This overlay warms the browser's HTTP cache for every OTHER
-  // slide's PDF + gif + the closing card image while you're still looking
-  // at slide 1, so later page turns are instant.
-  //
-  // Two things learned from testing this live: (1) slide 1 itself must be
-  // excluded — main.js is already fetching it as part of its own normal
-  // startup, and preloading it again in parallel competed for the same
-  // handful of browser connections and made the very first slide slower
-  // to appear, the opposite of the goal. (2) firing all ~14 requests at
-  // once did the same thing to slide 1, so this runs a few at a time
-  // instead of all at once.
-  var PRELOAD_ASSETS = (function(){
-    var slides = [
-      // slide 1 (22CB59BC...) intentionally omitted — main.js loads it natively
-      { uuid:'8AC9B357-96F6-4109-931E-1F264B3DC7D1', gifs:['assets/下眼瞼周圍常見問題.gif-0.0000-15.0000.gif'] },
-      { uuid:'6F80DFBD-9A36-44E4-92EE-B3EA7E1CA1E2', gifs:[] },
-      { uuid:'FAD1F8D5-3D72-4B24-9EE6-220209CA7A22', gifs:[] },
-      { uuid:'515BF58C-A7F4-42C7-AB24-F395E442BD09', gifs:['assets/眼袋脂肪「移除」動畫-插畫.gif-0.0000-8.5000.gif','assets/眼袋脂肪「轉移」動畫-插畫.gif-0.0000-8.5000.gif'] },
-      { uuid:'A020B5BA-42E6-4B54-90AC-B5DF2E7A1D61', gifs:[] }
-    ];
-    var urls = [];
-    slides.forEach(function(s){
-      urls.push('assets/' + s.uuid + '/assets/' + s.uuid + '.pdf');
-      urls.push('assets/' + s.uuid + '/thumbnail.jpeg');
-      s.gifs.forEach(function(g){ urls.push('assets/' + s.uuid + '/' + g); });
-    });
-    urls.push('slides/slide7.jpg');
-    return urls;
-  })();
+  function applyStyles(el, styles){
+    for (var p in styles){ el.style[p] = styles[p]; }
+  }
 
-  var preloadOverlay = document.createElement('div');
-  applyStyles(preloadOverlay, {
-    position:'fixed', top:'0', left:'0', right:'0', bottom:'0', zIndex:'99999',
-    background:'#EDF7F9', display:'flex', flexDirection:'column',
-    alignItems:'center', justifyContent:'center',
-    fontFamily:'-apple-system, "PingFang TC", "Helvetica Neue", Helvetica, Arial, sans-serif'
-  });
-  var preloadTitle = document.createElement('div');
-  preloadTitle.textContent = '眼袋手術衛教教材';
-  applyStyles(preloadTitle, { fontSize:'26px', fontWeight:'700', color:'#3a5f7d', marginBottom:'26px', letterSpacing:'.02em' });
-  var preloadBarOuter = document.createElement('div');
-  applyStyles(preloadBarOuter, { width:'240px', height:'8px', borderRadius:'999px', background:'rgba(58,95,125,0.15)', overflow:'hidden' });
-  var preloadBarInner = document.createElement('div');
-  applyStyles(preloadBarInner, { width:'0%', height:'100%', background:'#4578bf', transition:'width .2s ease' });
-  preloadBarOuter.appendChild(preloadBarInner);
-  var preloadPct = document.createElement('div');
-  preloadPct.textContent = '載入中 0%';
-  applyStyles(preloadPct, { marginTop:'14px', fontSize:'14px', color:'#6b8aa0' });
-  preloadOverlay.appendChild(preloadTitle);
-  preloadOverlay.appendChild(preloadBarOuter);
-  preloadOverlay.appendChild(preloadPct);
-  document.body.appendChild(preloadOverlay);
+  // True current page, straight from the player's own hash updates.
+  function scene(){
+    var m = (location.hash || '').match(/\d+/);
+    return m ? +m[0] : 0;
+  }
 
-  (function runPreload(){
-    var total = PRELOAD_ASSETS.length, done = 0, finished = false;
-    var CONCURRENCY = 3; // leave headroom for main.js's own slide-1 fetch
-    var nextIndex = 0;
-
-    function render(){
-      var pct = Math.round((done / total) * 100);
-      preloadBarInner.style.width = pct + '%';
-      preloadPct.textContent = '載入中 ' + pct + '%';
-    }
-    function finishAll(){
-      if (finished) return;
-      finished = true;
-      preloadOverlay.style.transition = 'opacity .3s ease';
-      preloadOverlay.style.opacity = '0';
-      setTimeout(function(){ preloadOverlay.parentNode && preloadOverlay.parentNode.removeChild(preloadOverlay); }, 320);
-    }
-    function fetchNext(){
-      if (finished) return;
-      if (nextIndex >= total){
-        if (done >= total) finishAll();
-        return;
-      }
-      var url = PRELOAD_ASSETS[nextIndex++];
-      fetch(encodeURI(url)).catch(function(){}).then(function(){
-        done++;
-        render();
-        if (done >= total){ clearTimeout(safetyTimer); finishAll(); }
-        else { fetchNext(); }
-      });
-    }
-
-    render();
-    if (total === 0){ finishAll(); return; }
-
-    // Safety net: never trap the user on the loading screen if one asset
-    // stalls (slow connection, one bad URL, etc).
-    var safetyTimer = setTimeout(finishAll, 20000);
-
-    // Give main.js's own slide-1 request a head start before we start
-    // competing for connections.
-    setTimeout(function(){
-      for (var i = 0; i < CONCURRENCY; i++) fetchNext();
-    }, 1200);
-  })();
-
-  // Force the letterbox background inline (with !important) instead of
-  // relying on a <style> tag — see the comment above the two nav-zone
-  // divs for why. main.js ships its own "body{background-color:black}"
-  // rule with no !important, so this wins regardless of rule order.
+  // ---- background (JS-inline; <style> tags parse to 0 rules here) ------
   [document.documentElement, document.body, document.getElementById('stageArea')].forEach(function(el){
-    if (el) {
+    if (el){
       el.style.setProperty('background-color', '#EDF7F9', 'important');
       el.style.setProperty('height', '100%', 'important');
     }
   });
 
-  // Same reasoning: give the nav zones and closing card their layout via
-  // inline styles rather than a stylesheet.
-  var navZoneLeft = document.getElementById('__navZoneLeft');
+  // ---- elements ---------------------------------------------------------
+  var blocker      = document.getElementById('__blocker');
+  var navZoneLeft  = document.getElementById('__navZoneLeft');
   var navZoneRight = document.getElementById('__navZoneRight');
-  var closingCard = document.getElementById('__closingCard');
-  var closingCardImg = closingCard.querySelector('img');
+  var closingCard  = document.getElementById('__closingCard');
+  var closingImg   = closingCard.querySelector('img');
 
-  function applyStyles(el, styles){
-    for (var prop in styles){ el.style[prop] = styles[prop]; }
-  }
-
-  applyStyles(navZoneLeft, {
-    position:'fixed', top:'0', bottom:'0', left:'0', width:'20%',
-    zIndex:'9999', background:'transparent', touchAction:'manipulation',
-    webkitUserSelect:'none', userSelect:'none', webkitTouchCallout:'none'
+  applyStyles(blocker, {
+    position:'fixed', top:'0', left:'0', right:'0', bottom:'0',
+    zIndex:'8000', background:'transparent', touchAction:'none'
   });
-  applyStyles(navZoneRight, {
-    position:'fixed', top:'0', bottom:'0', right:'0', width:'20%',
-    zIndex:'9999', background:'transparent', touchAction:'manipulation',
+  var zoneStyle = {
+    position:'fixed', top:'0', bottom:'0', width:'20%',
+    zIndex:'9999', background:'transparent', touchAction:'none',
     webkitUserSelect:'none', userSelect:'none', webkitTouchCallout:'none'
-  });
+  };
+  applyStyles(navZoneLeft, zoneStyle);  navZoneLeft.style.left = '0';
+  applyStyles(navZoneRight, zoneStyle); navZoneRight.style.right = '0';
   applyStyles(closingCard, {
     position:'fixed', top:'0', left:'0', right:'0', bottom:'0', zIndex:'9000',
     background:'#EDF7F9', display:'none', alignItems:'center', justifyContent:'center'
   });
-  applyStyles(closingCardImg, {
+  applyStyles(closingImg, {
     maxWidth:'100%', maxHeight:'100%', width:'auto', height:'auto',
     display:'block', webkitUserDrag:'none', userSelect:'none'
   });
 
+  // Swallow every real touch/mouse event on our overlays so nothing ever
+  // reaches main.js's document-level tap/click-to-advance handlers.
+  function swallow(el){
+    ['touchstart','touchmove','touchend','touchcancel','mousedown','mouseup','click','dblclick'].forEach(function(evt){
+      el.addEventListener(evt, function(e){ e.preventDefault(); e.stopPropagation(); }, { passive:false });
+    });
+  }
+  swallow(blocker);
+  swallow(navZoneLeft);
+  swallow(navZoneRight);
+  swallow(closingCard);
+
+  // ---- native one-page primitives (see spec comment) --------------------
   function fireSwipe(direction, fingers, swipeStartX){
-    document.dispatchEvent(new CustomEvent("TouchController:SwipeEvent", {
+    document.dispatchEvent(new CustomEvent('TouchController:SwipeEvent', {
       detail: { direction: direction, fingers: fingers, swipeStartX: swipeStartX }
     }));
   }
-  // 2-finger "left" swipe = advance to next whole slide (skips remaining builds)
-  function nativeNext(){ fireSwipe('left', 2, 9999); }
-  // 1-finger "right" swipe = go back to previous whole slide
-  function nativePrev(){ fireSwipe('right', 1, 9999); }
-  // "right" swipe starting within 150px of the left edge = show the
-  // built-in thumbnail navigator sidebar (main.js's own feature)
-  function showNavigator(){ fireSwipe('right', 1, 50); }
+  function nextPage(){ fireSwipe('left', 1, 9999); }   // advanceToNextBuild
+  function prevPage(){ fireSwipe('right', 2, 9999); }  // goBackToPreviousBuild
+  function showNavigator(){ fireSwipe('right', 1, 50); } // startX<150 -> sidebar
 
-  // ---- extra 7th "closing card" (QR code) appended after the real,
-  // native last slide (slide 6 / index 5). The Keynote deck itself only
-  // has 6 scenes, so this is our own overlay layered on top — landing on
-  // it doesn't move the native player at all. Tapping next from here
-  // walks the native player back to slide 1 (jumpToSlide isn't reachable
-  // from outside, so we replay goBackToPreviousSlide the right number of
-  // times instead) so the deck loops cleanly rather than dead-ending on
-  // a blank page.
-  var TOTAL_NATIVE_SLIDES = 6;
-  var onClosingCard = false;
-  var closingCardEl = closingCard; // same element styled above
-
-  // ---- slide position tracking ------------------------------------------
-  // Earlier version tried to resync currentSlide from main.js's
-  // "ShowController:SlideIndexDidChangeEvent". Tested directly against the
-  // live page: that event never fires for ordinary swipe-based navigation
-  // (confirmed empirically — 7 synthetic swipes, zero events observed), so
-  // that "fix" silently froze currentSlide at 0 forever, which broke
-  // goPrev() entirely (0<=0 always true) and made the closing card
-  // unreachable (0>=5 always false). Reverted to direct tracking: we
-  // increment/decrement currentSlide ourselves exactly when WE trigger a
-  // transition, which is correct for every tap through our own zones —
-  // the actual, and previously misdiagnosed, cause of the "亂" behavior
-  // was the nav zones having zero size (see the CSS note above), not this
-  // counter. A hashchange listener below still guards against the rarer
-  // case of the deck's own baked-in bottom-bar arrow being tapped instead.
-  var currentSlide = 0; // 0-indexed
-  window.addEventListener('hashchange', function(){
-    // Any navigation we didn't cause ourselves (e.g. the native hyperlink
-    // arrow, or the thumbnail sidebar) should at least drop the closing
-    // card if it's showing, so it never sits on top of the wrong slide.
-    if (onClosingCard) hideClosingCard();
-  });
-
-  function showClosingCard(){
-    onClosingCard = true;
-    closingCardEl.style.display = 'flex';
-  }
-  function hideClosingCard(){
-    onClosingCard = false;
-    closingCardEl.style.display = 'none';
-  }
+  // ---- closing card (replaces the blank #8) -----------------------------
+  var onCard = false;
+  function showCard(){ onCard = true; closingCard.style.display = 'flex'; }
+  function hideCard(){ onCard = false; closingCard.style.display = 'none'; }
 
   function goNext(){
-    if (onClosingCard){
-      // loop back to slide 1: walk the native player backward from
-      // slide 6 (where it's still sitting, untouched) all the way to
-      // slide 1.
-      hideClosingCard();
-      var steps = TOTAL_NATIVE_SLIDES - 1, i = 0;
-      (function stepBack(){
-        if (i++ >= steps){ currentSlide = 0; return; }
-        nativePrev();
-        setTimeout(stepBack, 80);
-      })();
+    if (onCard){
+      // loop: restart the show at page #0 with a clean reload. The
+      // preloader is skipped on reload via the sessionStorage flag, and
+      // every asset is already in the HTTP cache, so this is fast.
+      sessionStorage.setItem(PRELOADED_FLAG, '1');
+      location.replace(location.pathname + location.search);
       return;
     }
-    // loopSlideshow is 0 in header.json, so calling nativeNext() while
-    // already on the last real slide is a safe no-op internally — but we
-    // intercept it ourselves so we can show our own 7th card instead.
-    if (currentSlide >= TOTAL_NATIVE_SLIDES - 1){
-      showClosingCard();
-      return;
-    }
-    currentSlide++;
-    nativeNext();
+    if (scene() >= LAST_SCENE){ showCard(); return; }
+    nextPage();
   }
-
   function goPrev(){
-    if (onClosingCard){
-      hideClosingCard(); // back to the real slide 6 underneath, already there
+    if (onCard){
+      if (scene() > LAST_SCENE) prevPage(); // stepped into blank #8 somehow: pull back to #7
+      hideCard();
       return;
     }
-    if (currentSlide <= 0) return;
-    currentSlide--;
-    nativePrev();
+    if (scene() <= 0) return;
+    prevPage();
   }
 
-  function bindTap(el, handler){
-    // Root cause of "跳到第三頁 / 左右順序不對 / 有黑邊": main.js has its
-    // OWN document-level touchstart/touchend listener (confirmed by
-    // reading its source) that treats ANY plain tap anywhere on the stage
-    // — with no hyperlink underneath — as "advance one build step
-    // forward", regardless of where the tap lands. Our nav-zone divs only
-    // ever handled Pointer Events; we never stopped the real
-    // touchstart/touchend from also bubbling up to that native listener.
-    // So every real finger tap fired TWICE: our own swipe dispatch (whole
-    // slide forward/back) AND main.js's native one-build-forward handler.
-    // On the LEFT zone that meant "go back a slide" and "advance a build"
-    // fired together and fought each other; on the RIGHT zone it meant
-    // two forward-advances stacked, overshooting past slide 2 into slide
-    // 3. This wasn't caught in testing because synthetic PointerEvents
-    // (what automated testing used) don't generate real touchstart/
-    // touchend at all, so the double-firing only ever happened on an
-    // actual touchscreen. Fix: swallow the real touch events at the zone
-    // itself so they never reach main.js's document-level listener.
-    ['touchstart','touchmove','touchend','touchcancel'].forEach(function(evt){
-      el.addEventListener(evt, function(e){ e.preventDefault(); e.stopPropagation(); }, { passive:false });
-    });
+  // Safety net: if the player ever lands on the blank end state (#8+) by
+  // any path, immediately cover it with the card — the card IS page 9.
+  window.addEventListener('hashchange', function(){
+    var s = scene();
+    if (s > LAST_SCENE){ if (!onCard) showCard(); }
+    else if (onCard){ hideCard(); } // e.g. thumbnail navigator jumped away
+  });
 
+  // ---- tap handling on the zones (Pointer Events) -----------------------
+  var navLocked = false;
+  function bindTap(el, handler){
     var moved = false, startX = 0, startY = 0, down = false;
     el.addEventListener('pointerdown', function(e){
       down = true; moved = false; startX = e.clientX; startY = e.clientY;
@@ -312,69 +153,134 @@
       if (Math.abs(e.clientX-startX) > 10 || Math.abs(e.clientY-startY) > 10) moved = true;
     });
     el.addEventListener('pointerup', function(e){
-      if (down && !moved){ e.preventDefault(); e.stopPropagation(); handler(); }
+      if (down && !moved){
+        e.preventDefault(); e.stopPropagation();
+        if (!navLocked){
+          navLocked = true;
+          setTimeout(function(){ navLocked = false; }, NAV_COOLDOWN_MS);
+          handler();
+        }
+      }
       down = false;
     });
     el.addEventListener('pointercancel', function(){ down = false; });
   }
+  bindTap(navZoneLeft, goPrev);
+  bindTap(navZoneRight, goNext);
 
-  // The deck's own slide transition takes noticeably longer than a human
-  // can double-tap, and main.js appears to silently drop swipe events that
-  // arrive mid-transition rather than queueing them — so a quick double
-  // tap could increment our own currentSlide counter twice while the real
-  // slide only advanced once (confirmed while testing: 6 rapid taps only
-  // produced 1 real transition). A short cooldown after each tap keeps our
-  // counter from racing ahead of reality.
-  var NAV_COOLDOWN_MS = 700;
-  var navLocked = false;
-  function withCooldown(fn){
-    return function(){
-      if (navLocked) return;
-      navLocked = true;
-      setTimeout(function(){ navLocked = false; }, NAV_COOLDOWN_MS);
-      fn();
-    };
-  }
-
-  bindTap(document.getElementById('__navZoneLeft'), withCooldown(goPrev));
-  bindTap(document.getElementById('__navZoneRight'), withCooldown(goNext));
-
-  // If the built-in thumbnail navigator is used to jump to a specific
-  // slide directly, make sure we're not stuck showing the closing card
-  // on top of it. (The hashchange listener above also covers this, but
-  // catching the click directly means it disappears with no visible lag.)
-  document.getElementById('slideshowNavigator').addEventListener('click', function(){
-    hideClosingCard();
-  }, true);
-
-  // long-press anywhere -> open the built-in thumbnail navigator.
-  // Registered with {capture:true} so it always sees pointerup/cancel
-  // regardless of stopPropagation() called by the nav zones above.
-  var LONG_PRESS_MS = 550;
+  // ---- long-press anywhere -> built-in thumbnail navigator --------------
+  // Capture-phase document listeners so the zones' stopPropagation can't
+  // starve the cleanup (the old "infinite popup" bug).
   var pressTimer = null, pressMoved = false, pressX = 0, pressY = 0, pressing = false;
-
   document.addEventListener('pointerdown', function(e){
     pressing = true; pressMoved = false; pressX = e.clientX; pressY = e.clientY;
     clearTimeout(pressTimer);
     pressTimer = setTimeout(function(){
-      if (pressing && !pressMoved) showNavigator();
+      if (pressing && !pressMoved){ hideCard(); showNavigator(); }
     }, LONG_PRESS_MS);
   }, { capture:true });
-
   document.addEventListener('pointermove', function(e){
     if (!pressing) return;
     if (Math.abs(e.clientX-pressX) > 12 || Math.abs(e.clientY-pressY) > 12){
-      pressMoved = true;
-      clearTimeout(pressTimer);
+      pressMoved = true; clearTimeout(pressTimer);
     }
   }, { capture:true });
-
   function stopPressing(){ pressing = false; clearTimeout(pressTimer); }
   document.addEventListener('pointerup', stopPressing, { capture:true });
   document.addEventListener('pointercancel', stopPressing, { capture:true });
-
-  // don't let the long-press turn into a native browser/iOS context menu
   document.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+
+  // While the thumbnail navigator is open our overlays would sit on top of
+  // it and block thumbnail taps — hide them until it closes.
+  setInterval(function(){
+    var sb = document.querySelector('.navigatorThumbnailSidebar');
+    var open = false;
+    if (sb){
+      var l = parseFloat(getComputedStyle(sb).left);
+      open = isFinite(l) && l > -50;
+    }
+    var disp = open ? 'none' : 'block';
+    if (blocker.style.display !== disp){
+      blocker.style.display = disp;
+      navZoneLeft.style.display = disp;
+      navZoneRight.style.display = disp;
+    }
+  }, 300);
+
+  // ---- upfront preload with progress (skipped after first run) ----------
+  if (!sessionStorage.getItem(PRELOADED_FLAG)){
+    var PRELOAD_ASSETS = (function(){
+      var slides = [
+        // slide 1 (22CB59BC...) omitted: main.js is already fetching it on
+        // startup; re-requesting it in parallel slowed the first paint.
+        { uuid:'8AC9B357-96F6-4109-931E-1F264B3DC7D1', gifs:['assets/下眼瞼周圍常見問題.gif-0.0000-15.0000.gif'] },
+        { uuid:'6F80DFBD-9A36-44E4-92EE-B3EA7E1CA1E2', gifs:[] },
+        { uuid:'FAD1F8D5-3D72-4B24-9EE6-220209CA7A22', gifs:[] },
+        { uuid:'515BF58C-A7F4-42C7-AB24-F395E442BD09', gifs:['assets/眼袋脂肪「移除」動畫-插畫.gif-0.0000-8.5000.gif','assets/眼袋脂肪「轉移」動畫-插畫.gif-0.0000-8.5000.gif'] },
+        { uuid:'A020B5BA-42E6-4B54-90AC-B5DF2E7A1D61', gifs:[] }
+      ];
+      var urls = [];
+      slides.forEach(function(s){
+        urls.push('assets/' + s.uuid + '/assets/' + s.uuid + '.pdf');
+        urls.push('assets/' + s.uuid + '/thumbnail.jpeg');
+        s.gifs.forEach(function(g){ urls.push('assets/' + s.uuid + '/' + g); });
+      });
+      urls.push('slides/slide7.jpg');
+      return urls;
+    })();
+
+    var overlay = document.createElement('div');
+    applyStyles(overlay, {
+      position:'fixed', top:'0', left:'0', right:'0', bottom:'0', zIndex:'99999',
+      background:'#EDF7F9', display:'flex', flexDirection:'column',
+      alignItems:'center', justifyContent:'center',
+      fontFamily:'-apple-system, "PingFang TC", "Helvetica Neue", Helvetica, Arial, sans-serif'
+    });
+    var oTitle = document.createElement('div');
+    oTitle.textContent = '眼袋手術衛教教材';
+    applyStyles(oTitle, { fontSize:'26px', fontWeight:'700', color:'#3a5f7d', marginBottom:'26px', letterSpacing:'.02em' });
+    var barOuter = document.createElement('div');
+    applyStyles(barOuter, { width:'240px', height:'8px', borderRadius:'999px', background:'rgba(58,95,125,0.15)', overflow:'hidden' });
+    var barInner = document.createElement('div');
+    applyStyles(barInner, { width:'0%', height:'100%', background:'#4578bf', transition:'width .2s ease' });
+    barOuter.appendChild(barInner);
+    var oPct = document.createElement('div');
+    oPct.textContent = '載入中 0%';
+    applyStyles(oPct, { marginTop:'14px', fontSize:'14px', color:'#6b8aa0' });
+    overlay.appendChild(oTitle); overlay.appendChild(barOuter); overlay.appendChild(oPct);
+    document.body.appendChild(overlay);
+
+    (function runPreload(){
+      var total = PRELOAD_ASSETS.length, done = 0, finished = false, nextIndex = 0;
+      var CONCURRENCY = 3; // leave connections free for main.js's slide-1 fetch
+      function render(){
+        var pct = Math.round((done / total) * 100);
+        barInner.style.width = pct + '%';
+        oPct.textContent = '載入中 ' + pct + '%';
+      }
+      function finishAll(){
+        if (finished) return;
+        finished = true;
+        sessionStorage.setItem(PRELOADED_FLAG, '1');
+        overlay.style.transition = 'opacity .3s ease';
+        overlay.style.opacity = '0';
+        setTimeout(function(){ overlay.parentNode && overlay.parentNode.removeChild(overlay); }, 320);
+      }
+      function fetchNext(){
+        if (finished) return;
+        if (nextIndex >= total){ if (done >= total) finishAll(); return; }
+        var url = PRELOAD_ASSETS[nextIndex++];
+        fetch(encodeURI(url)).catch(function(){}).then(function(){
+          done++; render();
+          if (done >= total){ clearTimeout(safetyTimer); finishAll(); }
+          else fetchNext();
+        });
+      }
+      render();
+      var safetyTimer = setTimeout(finishAll, 20000); // never trap the user here
+      setTimeout(function(){ for (var i = 0; i < CONCURRENCY; i++) fetchNext(); }, 1200);
+    })();
+  }
 })();
 </script>
 </body></html>
