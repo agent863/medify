@@ -19,6 +19,11 @@
   just triggering it from a bigger, more obvious tap target.
 -->
 <style>
+  /* keep the letterbox area the same light blue as the slide backgrounds
+     instead of the player's default black */
+  html, body, #stageArea{
+    background-color:#eef6f9 !important;
+  }
   #__navZoneLeft, #__navZoneRight{
     position:fixed; top:0; bottom:0; width:20%; z-index:9999;
     background:transparent; touch-action:manipulation;
@@ -27,9 +32,21 @@
   }
   #__navZoneLeft{ left:0; }
   #__navZoneRight{ right:0; }
+  #__closingCard{
+    position:fixed; inset:0; z-index:9000;
+    background:#eef6f9;
+    display:none;
+    align-items:center; justify-content:center;
+  }
+  #__closingCard.show{ display:flex; }
+  #__closingCard img{
+    max-width:100%; max-height:100%; width:auto; height:auto;
+    display:block; -webkit-user-drag:none; user-select:none;
+  }
 </style>
 <div id="__navZoneLeft"></div>
 <div id="__navZoneRight"></div>
+<div id="__closingCard"><img src="slide7.jpg" alt="想了解更多資訊請掃描 QR Code" draggable="false"></div>
 <script>
 (function(){
   // Bug fix note: the previous version tracked long-press with separate
@@ -48,12 +65,65 @@
     }));
   }
   // 2-finger "left" swipe = advance to next whole slide (skips remaining builds)
-  function goNext(){ fireSwipe('left', 2, 9999); }
+  function nativeNext(){ fireSwipe('left', 2, 9999); }
   // 1-finger "right" swipe = go back to previous whole slide
-  function goPrev(){ fireSwipe('right', 1, 9999); }
+  function nativePrev(){ fireSwipe('right', 1, 9999); }
   // "right" swipe starting within 150px of the left edge = show the
   // built-in thumbnail navigator sidebar (main.js's own feature)
   function showNavigator(){ fireSwipe('right', 1, 50); }
+
+  // ---- extra 7th "closing card" (QR code) appended after the real,
+  // native last slide (slide 6 / index 5). The Keynote deck itself only
+  // has 6 scenes, so this is our own overlay layered on top — landing on
+  // it doesn't move the native player at all. Tapping next from here
+  // walks the native player back to slide 1 (jumpToSlide isn't reachable
+  // from outside, so we replay goBackToPreviousSlide the right number of
+  // times instead) so the deck loops cleanly rather than dead-ending on
+  // a blank page.
+  var TOTAL_NATIVE_SLIDES = 6;
+  var currentSlide = 0;              // 0-indexed position among the 6 real slides
+  var onClosingCard = false;
+  var closingCardEl = document.getElementById('__closingCard');
+
+  function showClosingCard(){
+    onClosingCard = true;
+    closingCardEl.classList.add('show');
+  }
+  function hideClosingCard(){
+    onClosingCard = false;
+    closingCardEl.classList.remove('show');
+  }
+
+  function goNext(){
+    if (onClosingCard){
+      // loop back to slide 1: walk the native player backward from
+      // slide 6 (where it's still sitting) all the way to slide 1
+      hideClosingCard();
+      var steps = TOTAL_NATIVE_SLIDES - 1, i = 0;
+      (function stepBack(){
+        if (i++ >= steps) { currentSlide = 0; return; }
+        nativePrev();
+        setTimeout(stepBack, 80);
+      })();
+      return;
+    }
+    if (currentSlide >= TOTAL_NATIVE_SLIDES - 1){
+      showClosingCard();
+      return;
+    }
+    currentSlide++;
+    nativeNext();
+  }
+
+  function goPrev(){
+    if (onClosingCard){
+      hideClosingCard(); // back to the real slide 6 underneath, already there
+      return;
+    }
+    if (currentSlide <= 0) return;
+    currentSlide--;
+    nativePrev();
+  }
 
   function bindTap(el, handler){
     var moved = false, startX = 0, startY = 0, down = false;
@@ -73,6 +143,18 @@
 
   bindTap(document.getElementById('__navZoneLeft'), goPrev);
   bindTap(document.getElementById('__navZoneRight'), goNext);
+
+  // If the built-in thumbnail navigator is used to jump to a specific
+  // slide directly, make sure we're not stuck showing the closing card,
+  // and re-sync our own slide counter from the thumbnail that was tapped.
+  document.getElementById('slideshowNavigator').addEventListener('click', function(e){
+    hideClosingCard();
+    var t = e.target;
+    while (t && (t.slideNumber === null || t.slideNumber === undefined) && t.nodeName.toLowerCase() !== 'body'){
+      t = t.parentNode;
+    }
+    if (t && t.slideNumber){ currentSlide = t.slideNumber - 1; }
+  }, true);
 
   // long-press anywhere -> open the built-in thumbnail navigator.
   // Registered with {capture:true} so it always sees pointerup/cancel
