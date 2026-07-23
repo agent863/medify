@@ -282,6 +282,27 @@
   }
 
   function bindTap(el, handler){
+    // Root cause of "跳到第三頁 / 左右順序不對 / 有黑邊": main.js has its
+    // OWN document-level touchstart/touchend listener (confirmed by
+    // reading its source) that treats ANY plain tap anywhere on the stage
+    // — with no hyperlink underneath — as "advance one build step
+    // forward", regardless of where the tap lands. Our nav-zone divs only
+    // ever handled Pointer Events; we never stopped the real
+    // touchstart/touchend from also bubbling up to that native listener.
+    // So every real finger tap fired TWICE: our own swipe dispatch (whole
+    // slide forward/back) AND main.js's native one-build-forward handler.
+    // On the LEFT zone that meant "go back a slide" and "advance a build"
+    // fired together and fought each other; on the RIGHT zone it meant
+    // two forward-advances stacked, overshooting past slide 2 into slide
+    // 3. This wasn't caught in testing because synthetic PointerEvents
+    // (what automated testing used) don't generate real touchstart/
+    // touchend at all, so the double-firing only ever happened on an
+    // actual touchscreen. Fix: swallow the real touch events at the zone
+    // itself so they never reach main.js's document-level listener.
+    ['touchstart','touchmove','touchend','touchcancel'].forEach(function(evt){
+      el.addEventListener(evt, function(e){ e.preventDefault(); e.stopPropagation(); }, { passive:false });
+    });
+
     var moved = false, startX = 0, startY = 0, down = false;
     el.addEventListener('pointerdown', function(e){
       down = true; moved = false; startX = e.clientX; startY = e.clientY;
