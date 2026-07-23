@@ -79,6 +79,26 @@
     return isFinite(l) && l > -50;
   }
 
+  function hideNavigator(){
+    try {
+      var sc = window.__UC;
+      sc.navigatorController.thumbnailSidebar.hide(sc.navigatorController.leftSidebar);
+      return;
+    } catch(e){}
+    fireSwipe('left', 1, 50); // player's own "left swipe near edge = hide sidebar"
+  }
+
+  // Auto-close the thumbnail navigator after picking a slide. Touch has no
+  // mouseleave, so the player's only auto-hide path never fires on iPad.
+  // Covered twice: a tap on any thumbnail (walk up the DOM for the
+  // slideNumber the player stamps on it), and any hash change while the
+  // navigator is open (jump landed).
+  document.getElementById('slideshowNavigator').addEventListener('click', function(e){
+    var t = e.target;
+    while (t && t !== document.body && (t.slideNumber === undefined || t.slideNumber === null)) t = t.parentNode;
+    if (t && t.slideNumber !== undefined && t.slideNumber !== null) setTimeout(hideNavigator, 200);
+  });
+
   // ---- native one-page primitives ---------------------------------------
   function fireSwipe(direction, fingers, swipeStartX){
     document.dispatchEvent(new CustomEvent('TouchController:SwipeEvent', {
@@ -193,24 +213,46 @@
   }, { capture:true });
   document.addEventListener('contextmenu', function(e){ e.preventDefault(); });
 
+  // ---- gif warm-up: EVERY page load, not just first visit ---------------
+  // The player creates each gif's <img> only at the moment its build
+  // appears, so the ~1MB gif used to download right then — visibly slow,
+  // and on a flaky moment it just never showed. Pinning them as decoded
+  // Image objects right after the first slide starts loading means that
+  // by the time anyone reaches those pages the gifs come straight from
+  // memory/HTTP cache. Kept as live references so they can't be evicted.
+  var GIF_URLS = [
+    'assets/8AC9B357-96F6-4109-931E-1F264B3DC7D1/assets/下眼瞼周圍常見問題.gif-0.0000-15.0000.gif',
+    'assets/515BF58C-A7F4-42C7-AB24-F395E442BD09/assets/眼袋脂肪「移除」動畫-插畫.gif-0.0000-8.5000.gif',
+    'assets/515BF58C-A7F4-42C7-AB24-F395E442BD09/assets/眼袋脂肪「轉移」動畫-插畫.gif-0.0000-8.5000.gif'
+  ];
+  window.__gifWarm = [];
+  setTimeout(function(){
+    GIF_URLS.forEach(function(u){
+      var im = new Image();
+      im.src = encodeURI(u);
+      window.__gifWarm.push(im);
+    });
+  }, 800); // let slide 1's own fetch get a head start
+
   // ---- preload with progress (first visit only per session) -------------
   if (!sessionStorage.getItem(PRELOADED_FLAG)){
     var PRELOAD_ASSETS = (function(){
       var slides = [
         // slide 1 omitted: main.js already fetches it on startup
-        { uuid:'8AC9B357-96F6-4109-931E-1F264B3DC7D1', gifs:['assets/下眼瞼周圍常見問題.gif-0.0000-15.0000.gif'] },
-        { uuid:'6F80DFBD-9A36-44E4-92EE-B3EA7E1CA1E2', gifs:[] },
-        { uuid:'FAD1F8D5-3D72-4B24-9EE6-220209CA7A22', gifs:[] },
-        { uuid:'515BF58C-A7F4-42C7-AB24-F395E442BD09', gifs:['assets/眼袋脂肪「移除」動畫-插畫.gif-0.0000-8.5000.gif','assets/眼袋脂肪「轉移」動畫-插畫.gif-0.0000-8.5000.gif'] },
-        { uuid:'A020B5BA-42E6-4B54-90AC-B5DF2E7A1D61', gifs:[] }
+        { uuid:'8AC9B357-96F6-4109-931E-1F264B3DC7D1' },
+        { uuid:'6F80DFBD-9A36-44E4-92EE-B3EA7E1CA1E2' },
+        { uuid:'FAD1F8D5-3D72-4B24-9EE6-220209CA7A22' },
+        { uuid:'515BF58C-A7F4-42C7-AB24-F395E442BD09' },
+        { uuid:'A020B5BA-42E6-4B54-90AC-B5DF2E7A1D61' }
       ];
-      var urls = [];
-      slides.forEach(function(s){
-        urls.push('assets/' + s.uuid + '/assets/' + s.uuid + '.pdf');
-        urls.push('assets/' + s.uuid + '/thumbnail.jpeg');
-        s.gifs.forEach(function(g){ urls.push('assets/' + s.uuid + '/' + g); });
-      });
+      // Order matters: gifs and the closing card FIRST (small, and the
+      // most visible when missing), then thumbnails, then the big PDFs —
+      // previously the gifs sat behind ~25MB of PDFs, so on a slow first
+      // visit the 20s escape hatch fired before they were ever cached.
+      var urls = GIF_URLS.slice();
       urls.push('slides/slide7.jpg');
+      slides.forEach(function(s){ urls.push('assets/' + s.uuid + '/thumbnail.jpeg'); });
+      slides.forEach(function(s){ urls.push('assets/' + s.uuid + '/assets/' + s.uuid + '.pdf'); });
       return urls;
     })();
 
@@ -244,26 +286,30 @@
         barInner.style.width = pct + '%';
         oPct.textContent = '載入中 ' + pct + '%';
       }
-      function finishAll(){
+      function finishAll(complete){
         if (finished) return;
         finished = true;
-        sessionStorage.setItem(PRELOADED_FLAG, '1');
+        // Only remember "preloaded" when everything ACTUALLY finished.
+        // Previously the 20s escape hatch also set the flag, so one slow
+        // first visit permanently disabled preloading for the session
+        // while the gifs had never been cached.
+        if (complete) sessionStorage.setItem(PRELOADED_FLAG, '1');
         overlay.style.transition = 'opacity .3s ease';
         overlay.style.opacity = '0';
         setTimeout(function(){ overlay.parentNode && overlay.parentNode.removeChild(overlay); }, 320);
       }
       function fetchNext(){
         if (finished) return;
-        if (nextIndex >= total){ if (done >= total) finishAll(); return; }
+        if (nextIndex >= total){ if (done >= total) finishAll(true); return; }
         var url = PRELOAD_ASSETS[nextIndex++];
         fetch(encodeURI(url)).catch(function(){}).then(function(){
           done++; render();
-          if (done >= total){ clearTimeout(safetyTimer); finishAll(); }
+          if (done >= total){ clearTimeout(safetyTimer); finishAll(true); }
           else fetchNext();
         });
       }
       render();
-      var safetyTimer = setTimeout(finishAll, 20000);
+      var safetyTimer = setTimeout(function(){ finishAll(false); }, 20000);
       setTimeout(function(){ for (var i = 0; i < CONCURRENCY; i++) fetchNext(); }, 1200);
     })();
   }
