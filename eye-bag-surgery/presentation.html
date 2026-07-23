@@ -50,12 +50,20 @@
   // ---- upfront loading screen -----------------------------------------
   // Each slide's PDF (and its gifs) is fetched over the network the first
   // time you swipe to it, which is why later slides used to pause for a
-  // moment. This overlay covers the opening screen and warms the browser's
-  // HTTP cache for every slide's PDF + gif + the closing card image before
-  // letting you in, so once it disappears every page turn is instant.
+  // moment. This overlay warms the browser's HTTP cache for every OTHER
+  // slide's PDF + gif + the closing card image while you're still looking
+  // at slide 1, so later page turns are instant.
+  //
+  // Two things learned from testing this live: (1) slide 1 itself must be
+  // excluded — main.js is already fetching it as part of its own normal
+  // startup, and preloading it again in parallel competed for the same
+  // handful of browser connections and made the very first slide slower
+  // to appear, the opposite of the goal. (2) firing all ~14 requests at
+  // once did the same thing to slide 1, so this runs a few at a time
+  // instead of all at once.
   var PRELOAD_ASSETS = (function(){
     var slides = [
-      { uuid:'22CB59BC-9A28-4AEC-948E-FE2BBE837FCB', gifs:[] },
+      // slide 1 (22CB59BC...) intentionally omitted — main.js loads it natively
       { uuid:'8AC9B357-96F6-4109-931E-1F264B3DC7D1', gifs:['assets/下眼瞼周圍常見問題.gif-0.0000-15.0000.gif'] },
       { uuid:'6F80DFBD-9A36-44E4-92EE-B3EA7E1CA1E2', gifs:[] },
       { uuid:'FAD1F8D5-3D72-4B24-9EE6-220209CA7A22', gifs:[] },
@@ -97,6 +105,8 @@
 
   (function runPreload(){
     var total = PRELOAD_ASSETS.length, done = 0, finished = false;
+    var CONCURRENCY = 3; // leave headroom for main.js's own slide-1 fetch
+    var nextIndex = 0;
 
     function render(){
       var pct = Math.round((done / total) * 100);
@@ -110,6 +120,21 @@
       preloadOverlay.style.opacity = '0';
       setTimeout(function(){ preloadOverlay.parentNode && preloadOverlay.parentNode.removeChild(preloadOverlay); }, 320);
     }
+    function fetchNext(){
+      if (finished) return;
+      if (nextIndex >= total){
+        if (done >= total) finishAll();
+        return;
+      }
+      var url = PRELOAD_ASSETS[nextIndex++];
+      fetch(encodeURI(url)).catch(function(){}).then(function(){
+        done++;
+        render();
+        if (done >= total){ clearTimeout(safetyTimer); finishAll(); }
+        else { fetchNext(); }
+      });
+    }
+
     render();
     if (total === 0){ finishAll(); return; }
 
@@ -117,13 +142,11 @@
     // stalls (slow connection, one bad URL, etc).
     var safetyTimer = setTimeout(finishAll, 20000);
 
-    PRELOAD_ASSETS.forEach(function(url){
-      fetch(encodeURI(url)).catch(function(){}).then(function(){
-        done++;
-        render();
-        if (done >= total){ clearTimeout(safetyTimer); finishAll(); }
-      });
-    });
+    // Give main.js's own slide-1 request a head start before we start
+    // competing for connections.
+    setTimeout(function(){
+      for (var i = 0; i < CONCURRENCY; i++) fetchNext();
+    }, 1200);
   })();
 
   // Force the letterbox background inline (with !important) instead of
