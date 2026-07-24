@@ -38,7 +38,7 @@
 (function(){
   var TOTAL_CONTENT_SCENES = 8;              // #0..#7
   var LAST_SCENE = TOTAL_CONTENT_SCENES - 1; // 7
-  var NAV_COOLDOWN_MS = 450;
+  var NAV_COOLDOWN_MS = 350; // short enough that quick consecutive controls stay responsive
   var ZONE_FRACTION = 0.2;
 
   function applyStyles(el, styles){ for (var p in styles){ el.style[p] = styles[p]; } }
@@ -195,10 +195,8 @@
     else if (onCard){ hideCard(); }
     // a jump landed while the sidebar was open (thumbnail tap): close it
     if (navigatorIsOpen()) hideNavigator();
-    // arriving on a gif page by ANY path restarts its gifs;
-    // leaving one drops any injected clones
+    // arriving on a gif page by ANY path restarts its gifs
     if (GIF_SCENES[s]) scheduleGifRestart();
-    else removeGifClones();
   }
   var __lastScene = scene();
   setInterval(function(){
@@ -271,7 +269,14 @@
       }
       return;
     }
-    if (hyperlinkAt(x, y)){ lastTapTime = 0; return; } // deck's own button
+    if (hyperlinkAt(x, y)){
+      // deck's own button (bar arrows/home, TOC cards): native handles it.
+      // Our nav lock never applies to these — they are processed by the
+      // player directly, and nothing of ours overlays them.
+      console.log('[nav] tap on native hyperlink at', Math.round(x) + ',' + Math.round(y));
+      lastTapTime = 0;
+      return;
+    }
     if (inLeft || inRight){
       lastTapTime = 0;                          // zone taps never count toward double-tap
       tapNav(inLeft ? goPrev : goNext);
@@ -320,7 +325,6 @@
   var GIF_SCENES = { 1:1, 2:1, 5:1, 6:1 }; // slide2 -> #1,#2 ; slide5 -> #5,#6
   var GIF_KEYS = { 1:['下眼瞼'], 2:['下眼瞼'], 5:['移除','轉移'], 6:['移除','轉移'] };
   var KEY_LIST = ['下眼瞼', '移除', '轉移'];
-  var __gifGeom = {}; // last-known on-screen geometry per gif, for the clone fallback
 
   function keyFor(src){
     var s = src;
@@ -330,68 +334,47 @@
     }
     return null;
   }
-  function removeGifClones(){
-    var cs = document.querySelectorAll('.__gifClone');
-    for (var i = 0; i < cs.length; i++){ cs[i].parentNode.removeChild(cs[i]); }
-  }
 
-  // Restart strategy (v3):
-  //  * SYNC swap — src='' ; void offsetWidth (forced reflow flushes the
-  //    clear) ; src=orig — all in one JS tick, so there is never a visible
-  //    blank frame (the async rAF/timeout version caused the goNext
-  //    flicker).
-  //  * Force visibility up the whole ANCESTOR chain — the player parks
-  //    the gif inside containers it hides when a scene is re-entered
-  //    backward; making only the <img> visible did nothing.
-  //  * If NO live gif <img> exists at all on a gif page (backward
-  //    navigation can rebuild the scene without its movie overlays), we
-  //    inject our own <img> clone at the gif's last-known geometry.
+  // Restart strategy (v4 — no DOM injection, ever):
+  //  * ONLY the gifs that belong to the CURRENT page are touched. The
+  //    player caches other slides' whole DOM layers (hidden) inside the
+  //    stage; v3 walked ancestor chains of EVERY gif in the document and
+  //    un-hid a cached foreign slide — that was the double-layer /
+  //    double-bar bug in the screenshots.
+  //  * For the current page's gifs: walk their ancestor chain up to
+  //    #stageArea and restore anything inline-hidden
+  //    (display:none / visibility:hidden / opacity:0).
+  //  * Then restart via the SYNC reflow swap — src='' ;
+  //    void offsetWidth ; src=orig — one tick, no blank frame.
   function restartGifs(){
     var s = scene();
     if (!GIF_SCENES[s]) return;
-    removeGifClones();
+    var wanted = GIF_KEYS[s] || [];
+    var stageArea = document.getElementById('stageArea');
     var imgs = document.querySelectorAll('img');
-    var found = 0;
+    var touched = 0;
     for (var i = 0; i < imgs.length; i++){
       var img = imgs[i];
-      if (img.className === '__gifClone') continue;
       var srcAttr = img.getAttribute('src') || '';
       if (!/\.gif/i.test(srcAttr)) continue;
-      found++;
-      var n = img, unhid = 0;
-      while (n && n !== document.body){
-        if (n.style && n.style.visibility === 'hidden'){ n.style.visibility = 'visible'; unhid++; }
-        n = n.parentNode;
-      }
-      img.style.opacity = '1';
-      var r = img.getBoundingClientRect();
       var k = keyFor(srcAttr);
-      if (k && r.width > 5){
-        __gifGeom[k] = { left:r.left, top:r.top, width:r.width, height:r.height, src:srcAttr };
+      if (!k || wanted.indexOf(k) === -1) continue; // never touch other slides' gifs
+      touched++;
+      var n = img, unhid = 0;
+      while (n && n !== stageArea && n !== document.body){
+        if (n.style){
+          if (n.style.display === 'none'){ n.style.display = ''; unhid++; }
+          if (n.style.visibility === 'hidden'){ n.style.visibility = 'visible'; unhid++; }
+          if (n.style.opacity === '0'){ n.style.opacity = '1'; unhid++; }
+        }
+        n = n.parentNode;
       }
       img.setAttribute('src', '');
       void img.offsetWidth; // sync reflow: clear is flushed, no blank frame
       img.setAttribute('src', srcAttr);
-      console.log('[gif] restarted', (k || srcAttr.slice(-20)), 'scene=' + s, 'unhidAncestors=' + unhid, 'rect=' + Math.round(r.width) + 'x' + Math.round(r.height));
+      console.log('[gif] restarted ' + k + ' scene=' + s + ' unhid=' + unhid);
     }
-    console.log('[gif] restartGifs scene=' + s + ' liveImgs=' + found);
-    if (!found){
-      var keys = GIF_KEYS[s] || [];
-      for (var j = 0; j < keys.length; j++){
-        var g = __gifGeom[keys[j]];
-        if (!g){ console.log('[gif] no stashed geometry for', keys[j], '- cannot inject'); continue; }
-        var im = document.createElement('img');
-        im.className = '__gifClone';
-        im.src = g.src;
-        applyStyles(im, {
-          position:'fixed', left:g.left+'px', top:g.top+'px',
-          width:g.width+'px', height:g.height+'px',
-          zIndex:'100', pointerEvents:'none'
-        });
-        document.body.appendChild(im);
-        console.log('[gif] injected clone for', keys[j]);
-      }
-    }
+    console.log('[gif] restartGifs scene=' + s + ' matched=' + touched);
   }
   var gifTimers = [];
   function scheduleGifRestart(){
