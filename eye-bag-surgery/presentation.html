@@ -161,6 +161,7 @@
     if (cur >= LAST_SCENE){ showCard(); return; }
     nextPage();
     console.log('[nav] goNext cur=' + cur + ' target=' + (cur + 1));
+    setTimeout(resetGifSrc, 500);
   }
   function goPrev(){
     if (onCard){
@@ -172,6 +173,7 @@
     if (cur <= 0) return;
     prevPage();
     console.log('[nav] goPrev cur=' + cur + ' target=' + (cur - 1));
+    setTimeout(resetGifSrc, 500);
   }
 
   // Reaching past #7 by ANY means (our zones, bottom-bar buttons, keyboard)
@@ -334,33 +336,28 @@
   // the browser to restart the gif from frame 0, and visibility is forced
   // back on. Run twice (short + long delay) because the element may be
   // (re)created a moment after the transition lands.
-  // ---- GIF replay: event-driven, not schedule-driven --------------------
-  // All previous approaches ("on page turn, go FIND the img and reset it")
-  // raced the player: the img often wasn't in the DOM yet at the moment we
-  // looked. Inverted design: watch the DOM, and when the player itself
-  // inserts a gif <img> — whenever that happens, forward or backward, on
-  // its own schedule — restart it from frame 0 right then. No timers, no
-  // manual searching, no ancestor manipulation, no injected elements.
-  new MutationObserver(function(mutations){
-    for (var m = 0; m < mutations.length; m++){
-      var added = mutations[m].addedNodes;
-      for (var a = 0; a < added.length; a++){
-        var node = added[a];
-        if (node.nodeType !== 1) continue;
-        var imgs = node.tagName === 'IMG' ? [node] : node.querySelectorAll('img');
-        for (var i = 0; i < imgs.length; i++){
-          var img = imgs[i];
-          var src = img.getAttribute('src') || img.src || '';
-          if (src.indexOf('.gif') === -1) continue;
-          var originalSrc = src;
-          img.setAttribute('src', '');
-          void img.offsetWidth; // sync reflow — clear is flushed, no blank frame
-          img.setAttribute('src', originalSrc);
-          console.log('[gif] img inserted -> restarted from frame 0');
-        }
-      }
+  // ---- GIF replay: minimal, safe version --------------------------------
+  // The insertion-time MutationObserver reset broke gif display entirely:
+  // resetting src at the exact moment the player inserts the <img>
+  // interferes with the player's own load-event pipeline (it positions and
+  // reveals the element from its 'load' handler), so the gif never became
+  // visible. Rolled back to the simplest thing that works: 500ms after a
+  // page turn, find the stage's gif <img>s and swap src in one tick.
+  // The player's own initial insertion/loading is never touched.
+  function resetGifSrc(){
+    var imgs = document.querySelectorAll('#stageArea img');
+    var n = 0;
+    for (var i = 0; i < imgs.length; i++){
+      var img = imgs[i];
+      var src = img.getAttribute('src') || '';
+      if (src.indexOf('.gif') === -1) continue;
+      n++;
+      img.setAttribute('src', '');
+      void img.offsetWidth; // sync reflow, no blank frame
+      img.setAttribute('src', src);
     }
-  }).observe(document.getElementById('stageArea'), { childList: true, subtree: true });
+    console.log('[gif] reset after page turn, imgs=' + n);
+  }
 
   // ---- first-run tutorial (once per device, localStorage) ---------------
   var TUTORIAL_KEY = 'mfy_eyebag_tutorial_seen';
