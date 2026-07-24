@@ -192,7 +192,7 @@
     else if (onCard){ hideCard(); }
     // a jump landed while the sidebar was open (thumbnail tap): close it
     if (navigatorIsOpen()) hideNavigator();
-    // (gif replay is handled entirely by the stageArea MutationObserver)
+    // (gif replay is handled by resetGifSrc() called from goNext/goPrev)
   }
   var __lastScene = scene();
   setInterval(function(){
