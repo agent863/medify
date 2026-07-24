@@ -191,25 +191,48 @@
     // a jump landed while the sidebar was open (thumbnail tap): close it
     if (navigatorIsOpen()) hideNavigator();
 
-    // GIF restart — THE single trigger point. Verified via console: the
-    // bar's ◀ ▶ are native Keynote hyperlinks that never pass through
-    // goNext/goPrev, but EVERY navigation path (bar taps, 20% zones,
-    // sidebar, URL) lands here as a scene change. 600ms lets the player
-    // finish the scene switch first.
-    setTimeout(function(){
-      var gifs = document.querySelectorAll('#stageArea img[src*=".gif"]');
+    // GIF restart: debounced, whole-document scope (see gifRestartNav below)
+    gifRestartNav();
+  }
+
+  // ---- GIF restart on navigation ----------------------------------------
+  //  * whole-document img search (NOT limited to #stageArea — measured:
+  //    the gif imgs can live outside it)
+  //  * visibility = offsetWidth/Height > 0 AND computed display/visibility
+  //    (more reliable than offsetParent)
+  //  * debounced so rapid page-flips only run once
+  // Trigger: wired to BOTH the requested hashchange listener AND the scene
+  // poller above. Kept on the poller too because this player writes the
+  // hash via history.replaceState, which does not emit hashchange events —
+  // the backward "[nav] scene -> 3" line in the captured log was produced
+  // by the poller, so it demonstrably fires in both directions.
+  var gifRestartTimer = null;
+  function gifRestartNav(){
+    if (gifRestartTimer) clearTimeout(gifRestartTimer);
+    gifRestartTimer = setTimeout(function(){
+      var all = document.querySelectorAll('img');
+      var gifs = [];
+      for (var i = 0; i < all.length; i++){
+        var img = all[i];
+        if (!img.src || img.src.indexOf('.gif') === -1) continue;      // must be a gif
+        if (img.offsetWidth === 0 || img.offsetHeight === 0) continue; // must have size
+        var st = getComputedStyle(img);
+        if (st.display === 'none' || st.visibility === 'hidden') continue;
+        gifs.push(img);
+      }
+      gifs.forEach(function(img){
+        var src = img.src;
+        img.src = '';
+        void img.offsetWidth;
+        img.src = src;
+        console.log('[gif] restarted on nav, src=', src.split('/').pop());
+      });
       if (gifs.length > 0){
-        gifs.forEach(function(img){
-          if (img.offsetParent === null) return; // invisible: skip
-          var src = img.src;
-          img.src = '';
-          void img.offsetWidth;
-          img.src = src;
-          console.log('[gif] restarted on scene change, src=', src.split('/').pop());
-        });
+        console.log('[gif] total restarted:', gifs.length);
       }
     }, 600);
   }
+  window.addEventListener('hashchange', gifRestartNav);
   var __lastScene = scene();
   setInterval(function(){
     var s = scene();
