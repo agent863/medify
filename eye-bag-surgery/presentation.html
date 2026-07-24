@@ -33,7 +33,7 @@
   All styling is via JS inline styles: a static <style> tag at this point
   in the document parses to 0 CSS rules (verified on the live page).
 -->
-<div id="__closingCard"><img src="slides/slide7.jpg" alt="想了解更多資訊請掃描 QR Code" draggable="false"></div>
+<div id="__closingCard"><img src="slides/slide7_bar.jpg" alt="想了解更多資訊請掃描 QR Code" draggable="false"></div>
 <script>
 (function(){
   var TOTAL_CONTENT_SCENES = 8;              // #0..#7
@@ -55,6 +55,17 @@
       el.style.setProperty('touch-action', 'manipulation', 'important');
     }
   });
+
+  // The player's own dark spinner box is never shown — the loading screen
+  // is the only loading UI (it now also waits for the first slide to be
+  // rendered, so the spinner would only ever overlap the tutorial).
+  var __wi = document.getElementById('waitingIndicator');
+  if (__wi){
+    __wi.style.setProperty('display', 'none', 'important');
+    new MutationObserver(function(){
+      if (__wi.style.display !== 'none') __wi.style.display = 'none';
+    }).observe(__wi, { attributes:true, attributeFilter:['style'] });
+  }
 
   // NOTE: the "tap on blank space advances one build" fallback is disabled
   // directly inside assets/player/main.js (two surgical string edits at the
@@ -152,6 +163,7 @@
     // schedule against the TARGET page (cur+1), directly in this path —
     // both goNext and goPrev do this symmetrically, plus the scene poller
     // as an independent second trigger for any other navigation route.
+    console.log('[nav] goNext cur=' + cur + ' target=' + (cur + 1) + ' gifTarget=' + !!GIF_SCENES[cur + 1]);
     if (GIF_SCENES[cur + 1]) scheduleGifRestart();
   }
   function goPrev(){
@@ -163,6 +175,7 @@
     var cur = scene();
     if (cur <= 0) return;
     prevPage();
+    console.log('[nav] goPrev cur=' + cur + ' target=' + (cur - 1) + ' gifTarget=' + !!GIF_SCENES[cur - 1]);
     if (GIF_SCENES[cur - 1]) scheduleGifRestart();
   }
 
@@ -175,14 +188,17 @@
   // the player natively creating a fresh <img> — but never going back).
   // A 200ms poll on scene() is the only reliable page-change signal.
   function onSceneChanged(s){
+    console.log('[nav] scene ->', s);
     // closing-card safety: never show the blank end state
     if (s > LAST_SCENE){ if (!onCard) showCard(); }
     else if (pendingCardJump && s === LAST_SCENE){ pendingCardJump = false; showCard(); }
     else if (onCard){ hideCard(); }
     // a jump landed while the sidebar was open (thumbnail tap): close it
     if (navigatorIsOpen()) hideNavigator();
-    // arriving on a gif page by ANY path restarts its gifs
+    // arriving on a gif page by ANY path restarts its gifs;
+    // leaving one drops any injected clones
     if (GIF_SCENES[s]) scheduleGifRestart();
+    else removeGifClones();
   }
   var __lastScene = scene();
   setInterval(function(){
@@ -217,6 +233,12 @@
   // Taps on the deck's own hyperlinks/buttons are always left to the deck.
   var navLocked = false;
   var lastTapTime = 0, lastTapX = 0, lastTapY = 0;
+  function tapNav(fn){
+    if (navLocked) return;
+    navLocked = true;
+    setTimeout(function(){ navLocked = false; }, NAV_COOLDOWN_MS);
+    fn();
+  }
   function handleTap(x, y){
     var w = window.innerWidth;
     var inLeft  = x < w * ZONE_FRACTION;
@@ -224,12 +246,18 @@
     if (document.getElementById('__preload')) return;  // still loading
     if (document.getElementById('__tutorial')) return; // tutorial owns taps
     if (onCard){
+      // the card's baked-in bottom bar: map its ◀ 🏠 ▶ to real actions
+      var cr = closingImg.getBoundingClientRect();
+      var inImg = x >= cr.left && x <= cr.right && y >= cr.top && y <= cr.bottom;
+      if (inImg && y > cr.bottom - cr.height * 0.055){
+        var fx = (x - cr.left) / cr.width;
+        if (fx > 0.26 && fx < 0.345){ tapNav(goPrev); return; }  // ◀ back to #7
+        if (fx >= 0.345 && fx < 0.41){ tapNav(goNext); return; } // 🏠 restart from #0
+        if (fx > 0.60 && fx < 0.70){ tapNav(goNext); return; }   // ▶ loop to #0
+        return;
+      }
       if (inLeft || inRight){
-        if (!navLocked){
-          navLocked = true;
-          setTimeout(function(){ navLocked = false; }, NAV_COOLDOWN_MS);
-          if (inLeft) goPrev(); else goNext();
-        }
+        tapNav(inLeft ? goPrev : goNext);
       }
       return;
     }
@@ -246,11 +274,7 @@
     if (hyperlinkAt(x, y)){ lastTapTime = 0; return; } // deck's own button
     if (inLeft || inRight){
       lastTapTime = 0;                          // zone taps never count toward double-tap
-      if (!navLocked){
-        navLocked = true;
-        setTimeout(function(){ navLocked = false; }, NAV_COOLDOWN_MS);
-        if (inLeft) goPrev(); else goNext();
-      }
+      tapNav(inLeft ? goPrev : goNext);
       return;
     }
     // middle blank space: detect double-tap
@@ -294,36 +318,87 @@
   // back on. Run twice (short + long delay) because the element may be
   // (re)created a moment after the transition lands.
   var GIF_SCENES = { 1:1, 2:1, 5:1, 6:1 }; // slide2 -> #1,#2 ; slide5 -> #5,#6
-  // iOS quirk: clearing and re-setting src SYNCHRONOUSLY gets coalesced —
-  // Safari never notices the swap, so the gif doesn't restart. The clear
-  // and the restore must be separated by a real rendered frame
-  // (requestAnimationFrame + a short timeout). Operates on the live <img>
-  // elements inside the stage, never on our cached preload Image objects.
+  var GIF_KEYS = { 1:['下眼瞼'], 2:['下眼瞼'], 5:['移除','轉移'], 6:['移除','轉移'] };
+  var KEY_LIST = ['下眼瞼', '移除', '轉移'];
+  var __gifGeom = {}; // last-known on-screen geometry per gif, for the clone fallback
+
+  function keyFor(src){
+    var s = src;
+    try { s = decodeURIComponent(src); } catch(e){}
+    for (var i = 0; i < KEY_LIST.length; i++){
+      if (s.indexOf(KEY_LIST[i]) !== -1) return KEY_LIST[i];
+    }
+    return null;
+  }
+  function removeGifClones(){
+    var cs = document.querySelectorAll('.__gifClone');
+    for (var i = 0; i < cs.length; i++){ cs[i].parentNode.removeChild(cs[i]); }
+  }
+
+  // Restart strategy (v3):
+  //  * SYNC swap — src='' ; void offsetWidth (forced reflow flushes the
+  //    clear) ; src=orig — all in one JS tick, so there is never a visible
+  //    blank frame (the async rAF/timeout version caused the goNext
+  //    flicker).
+  //  * Force visibility up the whole ANCESTOR chain — the player parks
+  //    the gif inside containers it hides when a scene is re-entered
+  //    backward; making only the <img> visible did nothing.
+  //  * If NO live gif <img> exists at all on a gif page (backward
+  //    navigation can rebuild the scene without its movie overlays), we
+  //    inject our own <img> clone at the gif's last-known geometry.
   function restartGifs(){
-    var imgs = document.querySelectorAll('#stageArea img');
+    var s = scene();
+    if (!GIF_SCENES[s]) return;
+    removeGifClones();
+    var imgs = document.querySelectorAll('img');
+    var found = 0;
     for (var i = 0; i < imgs.length; i++){
-      (function(img){
-        var s = img.getAttribute('src') || '';
-        if (!/\.gif/i.test(s)) return;
-        img.style.visibility = 'visible';
-        img.style.opacity = '1';
-        img.setAttribute('src', '');
-        requestAnimationFrame(function(){
-          setTimeout(function(){ img.setAttribute('src', s); }, 30);
+      var img = imgs[i];
+      if (img.className === '__gifClone') continue;
+      var srcAttr = img.getAttribute('src') || '';
+      if (!/\.gif/i.test(srcAttr)) continue;
+      found++;
+      var n = img, unhid = 0;
+      while (n && n !== document.body){
+        if (n.style && n.style.visibility === 'hidden'){ n.style.visibility = 'visible'; unhid++; }
+        n = n.parentNode;
+      }
+      img.style.opacity = '1';
+      var r = img.getBoundingClientRect();
+      var k = keyFor(srcAttr);
+      if (k && r.width > 5){
+        __gifGeom[k] = { left:r.left, top:r.top, width:r.width, height:r.height, src:srcAttr };
+      }
+      img.setAttribute('src', '');
+      void img.offsetWidth; // sync reflow: clear is flushed, no blank frame
+      img.setAttribute('src', srcAttr);
+      console.log('[gif] restarted', (k || srcAttr.slice(-20)), 'scene=' + s, 'unhidAncestors=' + unhid, 'rect=' + Math.round(r.width) + 'x' + Math.round(r.height));
+    }
+    console.log('[gif] restartGifs scene=' + s + ' liveImgs=' + found);
+    if (!found){
+      var keys = GIF_KEYS[s] || [];
+      for (var j = 0; j < keys.length; j++){
+        var g = __gifGeom[keys[j]];
+        if (!g){ console.log('[gif] no stashed geometry for', keys[j], '- cannot inject'); continue; }
+        var im = document.createElement('img');
+        im.className = '__gifClone';
+        im.src = g.src;
+        applyStyles(im, {
+          position:'fixed', left:g.left+'px', top:g.top+'px',
+          width:g.width+'px', height:g.height+'px',
+          zIndex:'100', pointerEvents:'none'
         });
-      })(imgs[i]);
+        document.body.appendChild(im);
+        console.log('[gif] injected clone for', keys[j]);
+      }
     }
   }
-  // Re-run at staggered delays AFTER the page-turn transition has finished
-  // (the player may also re-create the <img> a beat after landing).
   var gifTimers = [];
   function scheduleGifRestart(){
     gifTimers.forEach(clearTimeout);
     gifTimers = [];
-    [550, 1300, 2400].forEach(function(d){ gifTimers.push(setTimeout(restartGifs, d)); });
+    [600, 1500].forEach(function(d){ gifTimers.push(setTimeout(restartGifs, d)); });
   }
-  // (scene arrival triggers are in onSceneChanged and goNext/goPrev — the
-  //  hashchange event never fires here, see the replaceState note above.)
   // Safety net: if the player inserts a gif <img> even later than our last
   // timer (slow device), catch the insertion itself and restart once more.
   new MutationObserver(function(){
@@ -415,7 +490,7 @@
     clone.classList.add('__cardThumb');
     // swap thumbnail image + slide number label
     var img = clone.querySelector('img');
-    if (img){ img.removeAttribute('id'); img.src = 'slides/slide7.jpg'; }
+    if (img){ img.removeAttribute('id'); img.src = 'slides/slide7_bar.jpg'; }
     clone.querySelectorAll('*').forEach(function(el){
       if (el.children.length === 0 && el.textContent.trim() === String(items.length)){
         el.textContent = String(items.length + 1);
@@ -444,7 +519,7 @@
     'assets/515BF58C-A7F4-42C7-AB24-F395E442BD09/assets/眼袋脂肪「移除」動畫-插畫.gif-0.0000-8.5000.gif',
     'assets/515BF58C-A7F4-42C7-AB24-F395E442BD09/assets/眼袋脂肪「轉移」動畫-插畫.gif-0.0000-8.5000.gif'
   ];
-  var CRITICAL_ASSETS = GIF_URLS.concat(['slides/slide7.jpg']);
+  var CRITICAL_ASSETS = GIF_URLS.concat(['slides/slide7_bar.jpg']);
   window.__gifWarm = []; // live refs so the decoded gifs can't be evicted
 
   var overlay = document.createElement('div');
@@ -480,13 +555,24 @@
     function openGate(){
       if (closed) return;
       closed = true;
-      overlay.style.transition = 'opacity .3s ease';
-      overlay.style.opacity = '0';
-      setTimeout(function(){
-        overlay.parentNode && overlay.parentNode.removeChild(overlay);
-        maybeShowTutorial(); // first-run only (localStorage)
-      }, 320);
-      warmRestInBackground();
+      // Hold the gate (bar sits at 100%) until slide 1 has actually
+      // rendered, so the user NEVER sees an intermediate spinner — the
+      // progress screen hands off directly to the tutorial / the deck.
+      oPct.textContent = '準備中…';
+      var t0 = Date.now();
+      (function waitFirstSlide(){
+        if (!document.querySelector('#stage canvas') && Date.now() - t0 < 10000){
+          setTimeout(waitFirstSlide, 150);
+          return;
+        }
+        overlay.style.transition = 'opacity .3s ease';
+        overlay.style.opacity = '0';
+        setTimeout(function(){
+          overlay.parentNode && overlay.parentNode.removeChild(overlay);
+          maybeShowTutorial(); // first-run only (localStorage)
+        }, 320);
+        warmRestInBackground();
+      })();
     }
     function loadOne(url, attempt){
       var im = new Image();
