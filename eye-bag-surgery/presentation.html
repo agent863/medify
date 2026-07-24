@@ -160,11 +160,7 @@
     var cur = scene();
     if (cur >= LAST_SCENE){ showCard(); return; }
     nextPage();
-    // schedule against the TARGET page (cur+1), directly in this path —
-    // both goNext and goPrev do this symmetrically, plus the scene poller
-    // as an independent second trigger for any other navigation route.
-    console.log('[nav] goNext cur=' + cur + ' target=' + (cur + 1) + ' gifTarget=' + !!GIF_SCENES[cur + 1]);
-    if (GIF_SCENES[cur + 1]) scheduleGifRestart();
+    console.log('[nav] goNext cur=' + cur + ' target=' + (cur + 1));
   }
   function goPrev(){
     if (onCard){
@@ -175,8 +171,7 @@
     var cur = scene();
     if (cur <= 0) return;
     prevPage();
-    console.log('[nav] goPrev cur=' + cur + ' target=' + (cur - 1) + ' gifTarget=' + !!GIF_SCENES[cur - 1]);
-    if (GIF_SCENES[cur - 1]) scheduleGifRestart();
+    console.log('[nav] goPrev cur=' + cur + ' target=' + (cur - 1));
   }
 
   // Reaching past #7 by ANY means (our zones, bottom-bar buttons, keyboard)
@@ -195,8 +190,7 @@
     else if (onCard){ hideCard(); }
     // a jump landed while the sidebar was open (thumbnail tap): close it
     if (navigatorIsOpen()) hideNavigator();
-    // arriving on a gif page by ANY path restarts its gifs
-    if (GIF_SCENES[s]) scheduleGifRestart();
+    // (gif replay is handled entirely by the stageArea MutationObserver)
   }
   var __lastScene = scene();
   setInterval(function(){
@@ -269,6 +263,24 @@
       }
       return;
     }
+    // LAST Keynote page: the bar's ▶ hyperlink has no native next slide to
+    // go to (our slide7 card isn't a Keynote slide), so the player just
+    // swallows the tap. Route that arrow directly to the card, bypassing
+    // the player's boundary check. Checked BEFORE the hyperlink pass-through.
+    if (scene() >= LAST_SCENE){
+      var st = document.getElementById('stage');
+      if (st){
+        var sr = st.getBoundingClientRect();
+        if (y > sr.bottom - sr.height * 0.06 && y <= sr.bottom + 4){
+          var fxBar = (x - sr.left) / sr.width;
+          if (fxBar > 0.58 && fxBar < 0.72){
+            console.log('[nav] last-page bar ▶ -> slide7 card');
+            tapNav(goNext); // goNext on LAST_SCENE shows the card
+            return;
+          }
+        }
+      }
+    }
     if (hyperlinkAt(x, y)){
       // deck's own button (bar arrows/home, TOC cards): native handles it.
       // Our nav lock never applies to these — they are processed by the
@@ -322,74 +334,33 @@
   // the browser to restart the gif from frame 0, and visibility is forced
   // back on. Run twice (short + long delay) because the element may be
   // (re)created a moment after the transition lands.
-  var GIF_SCENES = { 1:1, 2:1, 5:1, 6:1 }; // slide2 -> #1,#2 ; slide5 -> #5,#6
-  var GIF_KEYS = { 1:['下眼瞼'], 2:['下眼瞼'], 5:['移除','轉移'], 6:['移除','轉移'] };
-  var KEY_LIST = ['下眼瞼', '移除', '轉移'];
-
-  function keyFor(src){
-    var s = src;
-    try { s = decodeURIComponent(src); } catch(e){}
-    for (var i = 0; i < KEY_LIST.length; i++){
-      if (s.indexOf(KEY_LIST[i]) !== -1) return KEY_LIST[i];
-    }
-    return null;
-  }
-
-  // Restart strategy (v4 — no DOM injection, ever):
-  //  * ONLY the gifs that belong to the CURRENT page are touched. The
-  //    player caches other slides' whole DOM layers (hidden) inside the
-  //    stage; v3 walked ancestor chains of EVERY gif in the document and
-  //    un-hid a cached foreign slide — that was the double-layer /
-  //    double-bar bug in the screenshots.
-  //  * For the current page's gifs: walk their ancestor chain up to
-  //    #stageArea and restore anything inline-hidden
-  //    (display:none / visibility:hidden / opacity:0).
-  //  * Then restart via the SYNC reflow swap — src='' ;
-  //    void offsetWidth ; src=orig — one tick, no blank frame.
-  function restartGifs(){
-    var s = scene();
-    if (!GIF_SCENES[s]) return;
-    var wanted = GIF_KEYS[s] || [];
-    var stageArea = document.getElementById('stageArea');
-    var imgs = document.querySelectorAll('img');
-    var touched = 0;
-    for (var i = 0; i < imgs.length; i++){
-      var img = imgs[i];
-      var srcAttr = img.getAttribute('src') || '';
-      if (!/\.gif/i.test(srcAttr)) continue;
-      var k = keyFor(srcAttr);
-      if (!k || wanted.indexOf(k) === -1) continue; // never touch other slides' gifs
-      touched++;
-      var n = img, unhid = 0;
-      while (n && n !== stageArea && n !== document.body){
-        if (n.style){
-          if (n.style.display === 'none'){ n.style.display = ''; unhid++; }
-          if (n.style.visibility === 'hidden'){ n.style.visibility = 'visible'; unhid++; }
-          if (n.style.opacity === '0'){ n.style.opacity = '1'; unhid++; }
+  // ---- GIF replay: event-driven, not schedule-driven --------------------
+  // All previous approaches ("on page turn, go FIND the img and reset it")
+  // raced the player: the img often wasn't in the DOM yet at the moment we
+  // looked. Inverted design: watch the DOM, and when the player itself
+  // inserts a gif <img> — whenever that happens, forward or backward, on
+  // its own schedule — restart it from frame 0 right then. No timers, no
+  // manual searching, no ancestor manipulation, no injected elements.
+  new MutationObserver(function(mutations){
+    for (var m = 0; m < mutations.length; m++){
+      var added = mutations[m].addedNodes;
+      for (var a = 0; a < added.length; a++){
+        var node = added[a];
+        if (node.nodeType !== 1) continue;
+        var imgs = node.tagName === 'IMG' ? [node] : node.querySelectorAll('img');
+        for (var i = 0; i < imgs.length; i++){
+          var img = imgs[i];
+          var src = img.getAttribute('src') || img.src || '';
+          if (src.indexOf('.gif') === -1) continue;
+          var originalSrc = src;
+          img.setAttribute('src', '');
+          void img.offsetWidth; // sync reflow — clear is flushed, no blank frame
+          img.setAttribute('src', originalSrc);
+          console.log('[gif] img inserted -> restarted from frame 0');
         }
-        n = n.parentNode;
       }
-      img.setAttribute('src', '');
-      void img.offsetWidth; // sync reflow: clear is flushed, no blank frame
-      img.setAttribute('src', srcAttr);
-      console.log('[gif] restarted ' + k + ' scene=' + s + ' unhid=' + unhid);
     }
-    console.log('[gif] restartGifs scene=' + s + ' matched=' + touched);
-  }
-  var gifTimers = [];
-  function scheduleGifRestart(){
-    gifTimers.forEach(clearTimeout);
-    gifTimers = [];
-    [600, 1500].forEach(function(d){ gifTimers.push(setTimeout(restartGifs, d)); });
-  }
-  // Safety net: if the player inserts a gif <img> even later than our last
-  // timer (slow device), catch the insertion itself and restart once more.
-  new MutationObserver(function(){
-    if (GIF_SCENES[scene()]){
-      clearTimeout(gifTimers.__mo);
-      gifTimers.__mo = setTimeout(restartGifs, 250);
-    }
-  }).observe(document.getElementById('stageArea'), { childList:true, subtree:true });
+  }).observe(document.getElementById('stageArea'), { childList: true, subtree: true });
 
   // ---- first-run tutorial (once per device, localStorage) ---------------
   var TUTORIAL_KEY = 'mfy_eyebag_tutorial_seen';
