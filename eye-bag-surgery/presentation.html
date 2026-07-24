@@ -161,7 +161,6 @@
     if (cur >= LAST_SCENE){ showCard(); return; }
     nextPage();
     console.log('[nav] goNext cur=' + cur + ' target=' + (cur + 1));
-    setTimeout(resetGifSrc, 500);
   }
   function goPrev(){
     if (onCard){
@@ -173,7 +172,6 @@
     if (cur <= 0) return;
     prevPage();
     console.log('[nav] goPrev cur=' + cur + ' target=' + (cur - 1));
-    setTimeout(resetGifSrc, 500);
   }
 
   // Reaching past #7 by ANY means (our zones, bottom-bar buttons, keyboard)
@@ -192,7 +190,25 @@
     else if (onCard){ hideCard(); }
     // a jump landed while the sidebar was open (thumbnail tap): close it
     if (navigatorIsOpen()) hideNavigator();
-    // (gif replay is handled by resetGifSrc() called from goNext/goPrev)
+
+    // GIF restart — THE single trigger point. Verified via console: the
+    // bar's ◀ ▶ are native Keynote hyperlinks that never pass through
+    // goNext/goPrev, but EVERY navigation path (bar taps, 20% zones,
+    // sidebar, URL) lands here as a scene change. 600ms lets the player
+    // finish the scene switch first.
+    setTimeout(function(){
+      var gifs = document.querySelectorAll('#stageArea img[src*=".gif"]');
+      if (gifs.length > 0){
+        gifs.forEach(function(img){
+          if (img.offsetParent === null) return; // invisible: skip
+          var src = img.src;
+          img.src = '';
+          void img.offsetWidth;
+          img.src = src;
+          console.log('[gif] restarted on scene change, src=', src.split('/').pop());
+        });
+      }
+    }, 600);
   }
   var __lastScene = scene();
   setInterval(function(){
@@ -336,28 +352,8 @@
   // the browser to restart the gif from frame 0, and visibility is forced
   // back on. Run twice (short + long delay) because the element may be
   // (re)created a moment after the transition lands.
-  // ---- GIF replay: minimal, safe version --------------------------------
-  // The insertion-time MutationObserver reset broke gif display entirely:
-  // resetting src at the exact moment the player inserts the <img>
-  // interferes with the player's own load-event pipeline (it positions and
-  // reveals the element from its 'load' handler), so the gif never became
-  // visible. Rolled back to the simplest thing that works: 500ms after a
-  // page turn, find the stage's gif <img>s and swap src in one tick.
-  // The player's own initial insertion/loading is never touched.
-  function resetGifSrc(){
-    var imgs = document.querySelectorAll('#stageArea img');
-    var n = 0;
-    for (var i = 0; i < imgs.length; i++){
-      var img = imgs[i];
-      var src = img.getAttribute('src') || '';
-      if (src.indexOf('.gif') === -1) continue;
-      n++;
-      img.setAttribute('src', '');
-      void img.offsetWidth; // sync reflow, no blank frame
-      img.setAttribute('src', src);
-    }
-    console.log('[gif] reset after page turn, imgs=' + n);
-  }
+  // (GIF replay lives in onSceneChanged — the single trigger point that
+  //  every navigation path passes through. No other gif code exists.)
 
   // ---- first-run tutorial (once per device, localStorage) ---------------
   var TUTORIAL_KEY = 'mfy_eyebag_tutorial_seen';
