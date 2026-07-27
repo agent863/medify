@@ -121,7 +121,25 @@
       detail: { direction: direction, fingers: fingers, swipeStartX: swipeStartX, synthetic: true }
     }));
   }
-  function nextPage(){ fireSwipe('left', 1, 9999); }   // advanceToNextBuild
+  // advanceToNextBuild is patched out in main.js (blocked for all callers,
+  // not just the click/tap paths). The only reliable forward-navigation path
+  // that still works is the player's own handleClickEvent on the bottom-bar
+  // ▶ hyperlink, which triggers the same hyperlink-follow logic the deck uses
+  // for its TOC cards. We scan the bottom-bar area at ~3% of stage height
+  // from the bottom and use the first hyperlink we find.
+  function nextPage(){
+    var st = document.getElementById('stage');
+    if (!st) return;
+    var sr = st.getBoundingClientRect();
+    var y = Math.round(sr.bottom - sr.height * 0.03);
+    for (var fxN = 0.55; fxN <= 0.80; fxN += 0.01){
+      var xN = Math.round(sr.left + sr.width * fxN);
+      if (hyperlinkAt(xN, y)){
+        try { window.__UC.handleClickEvent({ clientX: xN, clientY: y }); } catch(e){}
+        return;
+      }
+    }
+  }
   function prevPage(){ fireSwipe('right', 2, 9999); }  // goBackToPreviousBuild
   function showNavigator(){ fireSwipe('right', 1, 50); }
 
