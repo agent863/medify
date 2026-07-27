@@ -5,7 +5,7 @@ deck's original functionality. Every baked-in hyperlink keeps working
 exactly as authored — the TOC cards on page #0 jump to their topics, the
 bottom-bar buttons work, keyboard works, the thumbnail navigator works.
 
-Only three things are changed/added,  all additive:
+Only three things are changed/added, all additive:
 
 1. Tapping BLANK space (no hyperlink under the finger) no longer
 advances the deck. Implemented by wrapping UC.advanceToNextBuild
@@ -160,7 +160,9 @@ return;
 }
 var cur = scene();
 if (cur >= LAST_SCENE){ showCard(); return; }
+__lastGifKey = ''; // force GIF recheck after navigation
 nextPage();
+gifRestartNav(); // begin debounce immediately (handles last-scene hash bug)
 console.log('[nav] goNext cur=' + cur + ' target=' + (cur + 1));
 }
 function goPrev(){
@@ -171,7 +173,9 @@ return;
 }
 var cur = scene();
 if (cur <= 0) return;
+__lastGifKey = ''; // force GIF recheck after navigation
 prevPage();
+gifRestartNav(); // begin debounce immediately (handles last-scene hash bug)
 console.log('[nav] goPrev cur=' + cur + ' target=' + (cur - 1));
 }
 
@@ -183,8 +187,18 @@ console.log('[nav] goPrev cur=' + cur + ' target=' + (cur - 1));
 // had was dead code (why gif restart "worked" going forward — that was
 // the player natively creating a fresh <img> — but never going back).
 // A 200ms poll on scene() is the only reliable page-change signal.
+// FIX (2026-07-27): onSceneChanged now force-writes the hash via
+// replaceState so that backward navigation from the last slide (which
+// the player does NOT update the hash for) is reliably detected:
+// when we arrive at LAST_SCENE we write #7; going back to #6 is then
+// a real hash change the poller can catch.
 function onSceneChanged(s){
 console.log('[nav] scene ->', s);
+// Force-sync the URL hash. The Keynote player may not call replaceState
+// for the last scene (#7), so we write it ourselves. This guarantees
+// that when the user navigates away from the last slide, the hash
+// actually changes and the poller detects the transition.
+history.replaceState(null, '', '#' + s);
 // closing-card safety: never show the blank end state.
 // Use a 150ms delay before showing the card so that brief pass-through
 // of scene 8 during backward navigation (7 -> 8 -> 6) doesn't cause
@@ -216,11 +230,18 @@ gifRestartNav();
 // * visibility = offsetWidth/Height > 0 AND computed display/visibility
 // (more reliable than offsetParent)
 // * debounced so rapid page-flips only run once
+// * __lastGifKey tracks the set of currently visible GIFs; if the set
+// hasn't changed (same slide, just a build step) we skip the restart
+// to avoid the visual flash caused by GIFs resetting on every build step.
+// __lastGifKey is reset to '' in goNext/goPrev so ANY user-initiated
+// page turn always triggers a fresh GIF restart on the destination slide,
+// even when the hash does not change (last-scene hash bug).
 // Trigger: wired to BOTH the requested hashchange listener AND the scene
 // poller above. Kept on the poller too because this player writes the
 // hash via history.replaceState, which does not emit hashchange events —
 // the backward "[nav] scene -> 3" line in the captured log was produced
 // by the poller, so it demonstrably fires in both directions.
+var __lastGifKey = '';
 var gifRestartTimer = null;
 function gifRestartNav(){
 if (gifRestartTimer) clearTimeout(gifRestartTimer);
@@ -235,6 +256,11 @@ var st = getComputedStyle(img);
 if (st.display === 'none' || st.visibility === 'hidden') continue;
 gifs.push(img);
 }
+// Skip restart if the visible GIF set hasn't changed — same slide,
+// different build step. Resets each time goNext/goPrev is called.
+var gifKey = gifs.map(function(g){ return g.src; }).join('|');
+if (gifKey === __lastGifKey) return;
+__lastGifKey = gifKey;
 gifs.forEach(function(img){
 var src = img.src;
 img.src = '';
