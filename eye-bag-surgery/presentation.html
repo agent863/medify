@@ -237,15 +237,17 @@
   //  * visibility = offsetWidth/Height > 0 AND computed display/visibility
   //    (more reliable than offsetParent)
   //  * debounced so rapid page-flips only run once
-  //  * iOS Safari FIX: Promise microtasks run BEFORE the next render, so
-  //    (src=blank → microtask: src=url) is batched as (url→url) — iOS sees
-  //    no change and the GIF never re-decodes.  requestAnimationFrame creates
-  //    a genuine render-boundary: the browser commits the removeAttribute
-  //    (blank slot), THEN the next rAF restores the src, forcing re-decode
-  //    from frame 0.  visibility:hidden hides the 1-frame blank so there is
-  //    no white flash.
+  //  * iOS Safari: Promise microtasks run before the next render paint, so
+  //    (src=blank → microtask: src=url) is silently batched as (url→url) and
+  //    iOS sees no change — GIF never re-decodes.
+  //    Fix: set src=BLANK synchronously, then restore in requestAnimationFrame.
+  //    rAF fires AFTER the browser has committed the blank render, creating a
+  //    genuine state boundary iOS must honour.  visibility:hidden prevents the
+  //    1-frame blank from being visible (no white flash).
+  //    NOTE: do NOT use removeAttribute — the player may observe the missing
+  //    src and conflict with our restore.  A data-URI blank is safer.
+  var GIF_BLANK = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
   var gifRestartTimer = null;
-  var gifRestartGuard = false; // blocks MutationObserver from re-firing during our own src changes
   function gifRestartNav(){
     if (gifRestartTimer) clearTimeout(gifRestartTimer);
     gifRestartTimer = setTimeout(function(){
@@ -261,15 +263,13 @@
         srcs.push(img.src.replace(/[?#].*$/, '')); // strip query / fragment
       }
       if (!gifs.length) return;
-      gifRestartGuard = true;
       gifs.forEach(function(img, i){
         var s = srcs[i];
-        img.style.visibility = 'hidden'; // no flash during 1-frame blank
-        img.removeAttribute('src');      // clear (more reliable than src='')
+        img.style.visibility = 'hidden'; // hide the 1-frame blank
+        img.src = GIF_BLANK;             // set blank synchronously (render boundary starts here)
         requestAnimationFrame(function(){
-          img.style.visibility = '';     // restore visibility
-          img.setAttribute('src', s);   // re-decode from frame 0 after render boundary
-          gifRestartGuard = false;
+          img.src = s;                   // restore AFTER render commit → iOS re-decodes from frame 0
+          img.style.visibility = '';     // unhide (GIF already loading/decoding)
           console.log('[gif] restarted, src=', s.split('/').pop());
         });
       });
@@ -283,28 +283,6 @@
     if (s !== __lastScene){ __lastScene = s; onSceneChanged(s); }
   }, 200);
 
-  // MutationObserver: catch GIF elements the player makes visible DURING a
-  // transition — this fires much faster than the 200 ms poll.
-  // Guard: only trigger when src changes FROM a non-GIF TO a GIF (i.e. the
-  // player just added a GIF to the DOM), not when our own restart code runs.
-  if (typeof MutationObserver !== 'undefined'){
-    new MutationObserver(function(mutations){
-      if (gifRestartGuard) return;
-      var need = mutations.some(function(m){
-        if (m.type !== 'attributes' || m.attributeName !== 'src') return false;
-        var el = m.target;
-        if (!el || el.tagName !== 'IMG') return false;
-        var newSrc = el.getAttribute('src') || '';
-        var oldSrc = m.oldValue || '';
-        // Player is setting a GIF src that wasn't there before
-        return newSrc.indexOf('.gif') >= 0 && oldSrc.indexOf('.gif') < 0;
-      });
-      if (need) gifRestartNav();
-    }).observe(document.body, {
-      subtree: true, attributes: true,
-      attributeFilter: ['src'], attributeOldValue: true
-    });
-  }
 
   // Real finger swipes (left/right) are normalized to the same one-page
   // logic as the tap zones — previously they fed the player's raw
