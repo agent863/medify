@@ -528,6 +528,9 @@
   // both taps (already routed via handleTap's ZONE_FRACTION check) and
   // horizontal swipes here directly.
   var pDown = false, pMoved = false, pX = 0, pY = 0, multiTouch = false, pInMargin = false;
+  // lastTouchTapTs: set by touchend so pointerup can skip on touch devices
+  // (avoids double-firing handleTap when both events synthesize on the same tap)
+  var lastTouchTapTs = 0;
   document.addEventListener('pointerdown', function(e){
     if (!e.isPrimary){ multiTouch = true; pInMargin = false; return; }
     multiTouch = false;
@@ -545,7 +548,12 @@
   document.addEventListener('pointerup', function(e){
     if (e.isPrimary && pDown && !multiTouch){
       if (!pMoved){
-        handleTap(e.clientX, e.clientY);
+        // Skip if touchend already handled this exact tap (<300ms ago).
+        // On iOS Safari, touchend fires first; pointerup may synthesize
+        // after, and we don't want to call handleTap twice.
+        if (Date.now() - lastTouchTapTs > 300){
+          handleTap(e.clientX, e.clientY);
+        }
       } else if (pInMargin){
         // Swipe that started in the side margin — player never sees these
         var dx = e.clientX - pX;
@@ -566,6 +574,31 @@
     if (e.isPrimary) pDown = false;
   }, { capture:true });
   document.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+
+  // ---- iOS Safari touch fallback for zone taps ------------------------------
+  // On iOS Safari the Keynote player calls preventDefault() on touchstart,
+  // which suppresses subsequent synthesized pointerup events. This means
+  // pointerup never fires and left/right zone taps are silently dropped.
+  // Fix: duplicate tap detection via touchend (a native touch event that
+  // always fires regardless of preventDefault). The lastTouchTapTs guard
+  // above prevents pointerup from double-firing on browsers where both events
+  // fire (e.g. Chrome/Android: touchend fires first, then pointerup).
+  var tTX = 0, tTY = 0, tTMoved = false;
+  document.addEventListener('touchstart', function(e){
+    if (e.touches.length > 1){ tTMoved = true; return; }
+    tTX = e.touches[0].clientX; tTY = e.touches[0].clientY; tTMoved = false;
+  }, { capture: true, passive: true });
+  document.addEventListener('touchmove', function(e){
+    if (e.touches.length !== 1){ tTMoved = true; return; }
+    var t = e.touches[0];
+    if (Math.abs(t.clientX - tTX) > 12 || Math.abs(t.clientY - tTY) > 12) tTMoved = true;
+  }, { capture: true, passive: true });
+  document.addEventListener('touchend', function(e){
+    if (tTMoved || multiTouch) return;
+    if (e.changedTouches.length !== 1) return;
+    lastTouchTapTs = Date.now();
+    handleTap(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+  }, { capture: true });
 
   // ---- gif replay on every (re)entry ------------------------------------
   // The gif files themselves loop forever (NETSCAPE loop=0, verified), but
