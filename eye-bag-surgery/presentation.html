@@ -233,34 +233,38 @@
   //  * visibility = offsetWidth/Height > 0 AND computed display/visibility
   //    (more reliable than offsetParent)
   //  * debounced so rapid page-flips only run once
-  //  * two-step restart (clear then restore on next macrotask) is more
-  //    reliable on iOS Safari than the void-offsetWidth reflow trick
+  //  * iOS-safe restart: swap to 1×1 blank data-URI then restore in a
+  //    Promise microtask — both assignments happen before the next paint so
+  //    the blank frame is NEVER rendered (no white flash).  Changing the src
+  //    away from the original and back forces iOS Safari to re-decode from
+  //    frame 0 even when the same URL is in cache.
+  var GIF_BLANK = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
   var gifRestartTimer = null;
   function gifRestartNav(){
     if (gifRestartTimer) clearTimeout(gifRestartTimer);
     gifRestartTimer = setTimeout(function(){
       var all = document.querySelectorAll('img');
-      var gifs = [];
+      var gifs = [], srcs = [];
       for (var i = 0; i < all.length; i++){
         var img = all[i];
         if (!img.src || img.src.indexOf('.gif') === -1) continue;      // must be a gif
         if (img.offsetWidth === 0 || img.offsetHeight === 0) continue; // must have size
-        var st = getComputedStyle(img);
-        if (st.display === 'none' || st.visibility === 'hidden') continue;
+        var cst = getComputedStyle(img);
+        if (cst.display === 'none' || cst.visibility === 'hidden') continue;
         gifs.push(img);
+        srcs.push(img.src.replace(/[?#].*$/, '')); // strip query / fragment
       }
       if (!gifs.length) return;
-      // Two-step restart: clear src synchronously, restore on next macrotask
-      var srcs = gifs.map(function(img){ return img.src.split('?')[0]; });
-      gifs.forEach(function(img){ img.src = ''; });
-      setTimeout(function(){
-        gifs.forEach(function(img, i){
-          img.src = srcs[i];
-          console.log('[gif] restarted, src=', srcs[i].split('/').pop());
-        });
-        console.log('[gif] total restarted:', gifs.length);
-      }, 0);
-    }, 50);
+      // Swap to blank GIF then restore in microtask — both happen before
+      // the next rAF so the blank state is never painted (no white flash).
+      gifs.forEach(function(img, i){
+        var s = srcs[i];
+        img.src = GIF_BLANK;
+        Promise.resolve().then(function(){ img.src = s; });
+        console.log('[gif] restarted, src=', s.split('/').pop());
+      });
+      console.log('[gif] total restarted:', gifs.length);
+    }, 0);
   }
   window.addEventListener('hashchange', gifRestartNav);
   var __lastScene = scene();
@@ -378,18 +382,43 @@
   // Multi-touch (pinch-to-zoom) must never be mistaken for a tap: the
   // moment a second finger lands the whole gesture is flagged so pointerup
   // does nothing. No preventDefault anywhere — pinch stays fully native.
-  var pDown = false, pMoved = false, pX = 0, pY = 0, multiTouch = false;
+  // pInMargin: pointer started outside the stage (in the empty side margins)
+  // — those areas are NOT intercepted by the Keynote player, so we handle
+  // both taps (already routed via handleTap's ZONE_FRACTION check) and
+  // horizontal swipes here directly.
+  var pDown = false, pMoved = false, pX = 0, pY = 0, multiTouch = false, pInMargin = false;
   document.addEventListener('pointerdown', function(e){
-    if (!e.isPrimary){ multiTouch = true; return; }
+    if (!e.isPrimary){ multiTouch = true; pInMargin = false; return; }
     multiTouch = false;
     pDown = true; pMoved = false; pX = e.clientX; pY = e.clientY;
+    var st = document.getElementById('stage');
+    if (st){
+      var sr = st.getBoundingClientRect();
+      pInMargin = (e.clientX < sr.left - 2 || e.clientX > sr.right + 2);
+    } else { pInMargin = false; }
   }, { capture:true });
   document.addEventListener('pointermove', function(e){
     if (!pDown || !e.isPrimary) return;
     if (Math.abs(e.clientX-pX) > 12 || Math.abs(e.clientY-pY) > 12) pMoved = true;
   }, { capture:true });
   document.addEventListener('pointerup', function(e){
-    if (e.isPrimary && pDown && !pMoved && !multiTouch) handleTap(e.clientX, e.clientY);
+    if (e.isPrimary && pDown && !multiTouch){
+      if (!pMoved){
+        handleTap(e.clientX, e.clientY);
+      } else if (pInMargin){
+        // Swipe that started in the side margin — player never sees these
+        var dx = e.clientX - pX;
+        var dy = e.clientY - pY;
+        if (Math.abs(dx) >= 40 && Math.abs(dx) > Math.abs(dy)){
+          if (navigatorIsOpen()){ hideNavigator(); }
+          else if (!navLocked && !document.getElementById('__preload') && !document.getElementById('__tutorial')){
+            navLocked = true;
+            setTimeout(function(){ navLocked = false; }, NAV_COOLDOWN_MS);
+            if (dx < 0) goNext(); else goPrev();
+          }
+        }
+      }
+    }
     if (e.isPrimary) pDown = false;
   }, { capture:true });
   document.addEventListener('pointercancel', function(e){
@@ -488,6 +517,25 @@
     var last = items[items.length - 1];
     var clone = last.cloneNode(true); // no listeners / no slideNumber props copied
     clone.classList.add('__cardThumb');
+    // Fix positioning: if items are absolutely positioned, the clone inherits
+    // the 6th item's top value and overlaps it (making slide 6 "disappear").
+    // Move the clone down by exactly one item height so it sits below slide 6.
+    if (window.getComputedStyle(last).position === 'absolute'){
+      var itemH = last.offsetHeight;
+      clone.style.top  = (last.offsetTop  + itemH) + 'px';
+      clone.style.left = last.offsetLeft + 'px';
+      // Expand the sidebar so the 7th item is actually visible
+      var needed = last.offsetTop + itemH * 2 + 4;
+      if (sb.offsetHeight < needed) sb.style.height = needed + 'px';
+      sb.style.overflow = 'visible';
+      // Unclip any overflow-hidden ancestors between the item parent and the sidebar
+      var p = last.parentNode;
+      while (p && p !== sb){ p.style.overflow = 'visible'; p = p.parentElement; }
+    } else {
+      // Flow layout: just let the sidebar grow naturally
+      sb.style.overflow = 'visible';
+      sb.style.maxHeight = 'none';
+    }
     // swap thumbnail image + slide number label
     var img = clone.querySelector('img');
     if (img){ img.removeAttribute('id'); img.src = 'slides/slide7_bar.jpg'; }
