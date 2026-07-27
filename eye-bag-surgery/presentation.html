@@ -223,12 +223,12 @@
     // a jump landed while the sidebar was open (thumbnail tap): close it
     if (navigatorIsOpen()) hideNavigator();
 
-    // GIF restart: fire immediately; also retry at 150 and 400 ms because
-    // the player may make the GIF element visible slightly after the hash
-    // changes (transition animation still in flight at t=0).
-    gifRestartNav();
-    setTimeout(gifRestartNav, 150);
-    setTimeout(gifRestartNav, 400);
+    // GIF restart: attempt immediately; if no GIF visible yet (player still
+    // transitioning), retry once at 350 ms — avoids double-restart when the
+    // GIF is already visible at t=0.
+    gifRestartNav(function(found){
+      if (!found) setTimeout(gifRestartNav, 350);
+    });
   }
 
   // ---- GIF restart on navigation ----------------------------------------
@@ -236,42 +236,40 @@
   //    the gif imgs can live outside it)
   //  * visibility = offsetWidth/Height > 0 AND computed display/visibility
   //    (more reliable than offsetParent)
-  //  * debounced so rapid page-flips only run once
-  //  * iOS Safari: Promise microtasks run before the next render paint, so
-  //    (src=blank → microtask: src=url) is silently batched as (url→url) and
-  //    iOS sees no change — GIF never re-decodes.
-  //    Fix: set src=BLANK synchronously, then restore in requestAnimationFrame.
-  //    rAF fires AFTER the browser has committed the blank render, creating a
-  //    genuine state boundary iOS must honour.  visibility:hidden prevents the
-  //    1-frame blank from being visible (no white flash).
-  //    NOTE: do NOT use removeAttribute — the player may observe the missing
-  //    src and conflict with our restore.  A data-URI blank is safer.
-  var GIF_BLANK = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+  //  * iOS Safari root cause: the GIF decoder is keyed per src URL.
+  //    Setting src back to the SAME URL (even after a blank intermediate)
+  //    makes iOS reuse the cached decoder and resume from the last frame.
+  //    The ONLY reliable fix: always switch to a DIFFERENT URL so iOS is
+  //    forced to create a new decoder and start from frame 0.
+  //  * Strategy: ping-pong between base URL and base+'?r=1'.
+  //    Both are pre-warmed in the background after the gate opens, so
+  //    neither causes a network round-trip during navigation.
+  //  * Retry once (at 350 ms) only if the first attempt found no visible GIF —
+  //    this covers the case where the player's transition hasn't finished yet.
   var gifRestartTimer = null;
-  function gifRestartNav(){
+  function gifRestartNav(doneCb){
     if (gifRestartTimer) clearTimeout(gifRestartTimer);
     gifRestartTimer = setTimeout(function(){
       var all = document.querySelectorAll('img');
       var gifs = [], srcs = [];
       for (var i = 0; i < all.length; i++){
         var img = all[i];
-        if (!img.src || img.src.indexOf('.gif') === -1) continue;      // must be a gif
-        if (img.offsetWidth === 0 || img.offsetHeight === 0) continue; // must have size
+        if (!img.src || img.src.indexOf('.gif') === -1) continue;
+        if (img.offsetWidth === 0 || img.offsetHeight === 0) continue;
         var cst = getComputedStyle(img);
         if (cst.display === 'none' || cst.visibility === 'hidden') continue;
         gifs.push(img);
-        srcs.push(img.src.replace(/[?#].*$/, '')); // strip query / fragment
+        srcs.push(img.src.replace(/[?#].*$/, '')); // base URL without query
       }
+      if (doneCb) doneCb(gifs.length);
       if (!gifs.length) return;
       gifs.forEach(function(img, i){
-        var s = srcs[i];
-        img.style.visibility = 'hidden'; // hide the 1-frame blank
-        img.src = GIF_BLANK;             // set blank synchronously (render boundary starts here)
-        requestAnimationFrame(function(){
-          img.src = s;                   // restore AFTER render commit → iOS re-decodes from frame 0
-          img.style.visibility = '';     // unhide (GIF already loading/decoding)
-          console.log('[gif] restarted, src=', s.split('/').pop());
-        });
+        var base = srcs[i];
+        // Ping-pong: if already on the ?r=1 alt URL, switch to base; else switch to ?r=1.
+        // Either way the src CHANGES → iOS creates a new GIF decoder → frame 0.
+        var useAlt = img.src.indexOf('?r=1') < 0;
+        img.src = useAlt ? (base + '?r=1') : base;
+        console.log('[gif] restart ->', useAlt ? '?r=1' : 'base', base.split('/').pop());
       });
       console.log('[gif] total restarted:', gifs.length);
     }, 0);
@@ -659,7 +657,13 @@
   // Non-blocking: warm the remaining slides' PDFs + thumbnails after entry
   // so later page turns are fast too. Failures are harmless (the player
   // fetches on demand as a fallback).
+  // Also warm the ?r=1 alternate GIF URLs used by the ping-pong restart.
   function warmRestInBackground(){
+    GIF_URLS.forEach(function(u){
+      var im = new Image();
+      im.src = encodeURI(u) + '?r=1';
+      window.__gifWarm.push(im); // pin in memory
+    });
     var uuids = [
       '8AC9B357-96F6-4109-931E-1F264B3DC7D1',
       '6F80DFBD-9A36-44E4-92EE-B3EA7E1CA1E2',
