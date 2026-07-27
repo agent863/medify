@@ -1,634 +1,624 @@
 <!doctype html><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Keynote</title><meta name="viewport" content="initial-scale=1,minimum-scale=1,width=device-width"/><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/><link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons"/></head><body id="body"><div id="stageArea"><div id="stage" class="stage"></div><div id="hyperlinkPlane" class="stage"></div></div><div id="slideshowNavigator"></div><div id="slideNumberControl"></div><div id="slideNumberDisplay"></div><div id="helpPlacard"></div><div id="waitingIndicator"><div id="waitingSpinner"></div></div><script src="assets/player/main.js"></script>
 <!--
-Design principle (per user, 2026-07-23): DO NOT interfere with ANY of the
-deck's original functionality. Every baked-in hyperlink keeps working
-exactly as authored — the TOC cards on page #0 jump to their topics, the
-bottom-bar buttons work, keyboard works, the thumbnail navigator works.
+  Design principle (per user, 2026-07-23): DO NOT interfere with ANY of the
+  deck's original functionality. Every baked-in hyperlink keeps working
+  exactly as authored — the TOC cards on page #0 jump to their topics, the
+  bottom-bar buttons work, keyboard works, the thumbnail navigator works.
 
-Only three things are changed/added, all additive:
+  Only three things are changed/added, all additive:
 
-1. Tapping BLANK space (no hyperlink under the finger) no longer
-advances the deck. Implemented by wrapping UC.advanceToNextBuild
-(UC is the player's own global ShowController, created on window
-load) to ignore calls whose reason string is the tap/click fallback
-("processClickOrTapAtDisplayCoOrds" / "onMouseDown"). Every other
-caller — swipes, keyboard, autoplay — passes through untouched.
-No DOM overlay blocks anything, so hyperlinks are never intercepted.
+  1. Tapping BLANK space (no hyperlink under the finger) no longer
+     advances the deck. Implemented by wrapping UC.advanceToNextBuild
+     (UC is the player's own global ShowController, created on window
+     load) to ignore calls whose reason string is the tap/click fallback
+     ("processClickOrTapAtDisplayCoOrds" / "onMouseDown"). Every other
+     caller — swipes, keyboard, autoplay — passes through untouched.
+     No DOM overlay blocks anything, so hyperlinks are never intercepted.
 
-2. VIRTUAL left/right 20% tap zones: a document-level pointer listener
-checks, using the player's own hyperlink hit-test, that the tap is on
-blank space; only then does a tap in the left/right 20% page-turn by
-exactly ONE page (#0..#7, native primitives: 1-finger-left-swipe =
-advanceToNextBuild, 2-finger-right-swipe = goBackToPreviousBuild).
-A tap on a hyperlink — even inside the 20% bands — is left entirely
-to the deck. Long-press anywhere opens the built-in navigator.
+  2. VIRTUAL left/right 20% tap zones: a document-level pointer listener
+     checks, using the player's own hyperlink hit-test, that the tap is on
+     blank space; only then does a tap in the left/right 20% page-turn by
+     exactly ONE page (#0..#7, native primitives: 1-finger-left-swipe =
+     advanceToNextBuild, 2-finger-right-swipe = goBackToPreviousBuild).
+     A tap on a hyperlink — even inside the 20% bands — is left entirely
+     to the deck. Long-press anywhere opens the built-in navigator.
 
-3. slides/slide7.jpg (QR closing card) replaces the blank end-of-show
-state (#8): reaching past the last real page (#7) by ANY means shows
-the card; next from the card reloads to #0 (loop), prev returns to #7.
+  3. slides/slide7.jpg (QR closing card) replaces the blank end-of-show
+     state (#8): reaching past the last real page (#7) by ANY means shows
+     the card; next from the card reloads to #0 (loop), prev returns to #7.
 
-Position comes from location.hash (the player maintains it itself).
-The deck has exactly 8 real scenes (#0..#7), counted from the events
-arrays of the 6 slide JSONs; #8 is the player's blank end state.
-All styling is via JS inline styles: a static <style> tag at this point
-in the document parses to 0 CSS rules (verified on the live page).
+  Position comes from location.hash (the player maintains it itself).
+  The deck has exactly 8 real scenes (#0..#7), counted from the events
+  arrays of the 6 slide JSONs; #8 is the player's blank end state.
+  All styling is via JS inline styles: a static <style> tag at this point
+  in the document parses to 0 CSS rules (verified on the live page).
 -->
 <div id="__closingCard"><img src="slides/slide7_bar.jpg" alt="想了解更多資訊請掃描 QR Code" draggable="false"></div>
 <script>
 (function(){
-var TOTAL_CONTENT_SCENES = 8; // #0..#7
-var LAST_SCENE = TOTAL_CONTENT_SCENES - 1; // 7
-var NAV_COOLDOWN_MS = 350; // short enough that quick consecutive controls stay responsive
-var ZONE_FRACTION = 0.2;
+  var TOTAL_CONTENT_SCENES = 8;              // #0..#7
+  var LAST_SCENE = TOTAL_CONTENT_SCENES - 1; // 7
+  var NAV_COOLDOWN_MS = 350; // short enough that quick consecutive controls stay responsive
+  var ZONE_FRACTION = 0.2;
 
-function applyStyles(el, styles){ for (var p in styles){ el.style[p] = styles[p]; } }
-function scene(){ var m = (location.hash || '').match(/\d+/); return m ? +m[0] : 0; }
+  function applyStyles(el, styles){ for (var p in styles){ el.style[p] = styles[p]; } }
+  function scene(){ var m = (location.hash || '').match(/\d+/); return m ? +m[0] : 0; }
 
-// ---- background -------------------------------------------------------
-[document.documentElement, document.body, document.getElementById('stageArea')].forEach(function(el){
-if (el){
-el.style.setProperty('background-color', '#EDF7F9', 'important');
-el.style.setProperty('height', '100%', 'important');
-// 'manipulation' keeps pinch-zoom fully native but disables Safari's
-// double-tap smart zoom — required so double-tap can open the
-// navigator without also zooming the page.
-el.style.setProperty('touch-action', 'manipulation', 'important');
-}
-});
+  // ---- background -------------------------------------------------------
+  [document.documentElement, document.body, document.getElementById('stageArea')].forEach(function(el){
+    if (el){
+      el.style.setProperty('background-color', '#EDF7F9', 'important');
+      el.style.setProperty('height', '100%', 'important');
+      // 'manipulation' keeps pinch-zoom fully native but disables Safari's
+      // double-tap smart zoom — required so double-tap can open the
+      // navigator without also zooming the page.
+      el.style.setProperty('touch-action', 'manipulation', 'important');
+    }
+  });
 
-// The player's own dark spinner box is never shown — the loading screen
-// is the only loading UI (it now also waits for the first slide to be
-// rendered, so the spinner would only ever overlap the tutorial).
-var __wi = document.getElementById('waitingIndicator');
-if (__wi){
-__wi.style.setProperty('display', 'none', 'important');
-new MutationObserver(function(){
-if (__wi.style.display !== 'none') __wi.style.display = 'none';
-}).observe(__wi, { attributes:true, attributeFilter:['style'] });
-}
+  // The player's own dark spinner box is never shown — the loading screen
+  // is the only loading UI (it now also waits for the first slide to be
+  // rendered, so the spinner would only ever overlap the tutorial).
+  var __wi = document.getElementById('waitingIndicator');
+  if (__wi){
+    __wi.style.setProperty('display', 'none', 'important');
+    new MutationObserver(function(){
+      if (__wi.style.display !== 'none') __wi.style.display = 'none';
+    }).observe(__wi, { attributes:true, attributeFilter:['style'] });
+  }
 
-// NOTE: the "tap on blank space advances one build" fallback is disabled
-// directly inside assets/player/main.js (two surgical string edits at the
-// processClickOrTapAtDisplayCoOrds / onMouseDown call sites), because the
-// player's controller lives in a closure and can't be patched from here.
-// main.js also now exposes the controller as window.__UC so we can reuse
-// its own hyperlink hit-test below. Nothing else in main.js is touched.
+  // NOTE: the "tap on blank space advances one build" fallback is disabled
+  // directly inside assets/player/main.js (two surgical string edits at the
+  // processClickOrTapAtDisplayCoOrds / onMouseDown call sites), because the
+  // player's controller lives in a closure and can't be patched from here.
+  // main.js also now exposes the controller as window.__UC so we can reuse
+  // its own hyperlink hit-test below. Nothing else in main.js is touched.
 
-// Player's own hit-test: is there a hyperlink at this display coord?
-function hyperlinkAt(x, y){
-try {
-var sc = window.__UC;
-if (!sc || !sc.displayManager) return null;
-var show = sc.displayManager.convertDisplayCoOrdsToShowCoOrds({ pointX:x, pointY:y });
-if (!show || show.pointX === -1) return null;
-return sc.findHyperlinkAtCoOrds(show) || null;
-} catch(e){ return null; }
-}
+  // Player's own hit-test: is there a hyperlink at this display coord?
+  function hyperlinkAt(x, y){
+    try {
+      var sc = window.__UC;
+      if (!sc || !sc.displayManager) return null;
+      var show = sc.displayManager.convertDisplayCoOrdsToShowCoOrds({ pointX:x, pointY:y });
+      if (!show || show.pointX === -1) return null;
+      return sc.findHyperlinkAtCoOrds(show) || null;
+    } catch(e){ return null; }
+  }
 
-function navigatorIsOpen(){
-var sb = document.querySelector('.navigatorThumbnailSidebar');
-if (!sb) return false;
-var l = parseFloat(getComputedStyle(sb).left);
-return isFinite(l) && l > -50;
-}
+  function navigatorIsOpen(){
+    var sb = document.querySelector('.navigatorThumbnailSidebar');
+    if (!sb) return false;
+    var l = parseFloat(getComputedStyle(sb).left);
+    return isFinite(l) && l > -50;
+  }
 
-function hideNavigator(){
-try {
-var sc = window.__UC;
-sc.navigatorController.thumbnailSidebar.hide(sc.navigatorController.leftSidebar);
-return;
-} catch(e){}
-fireSwipe('left', 1, 50); // player's own "left swipe near edge = hide sidebar"
-}
+  function hideNavigator(){
+    try {
+      var sc = window.__UC;
+      sc.navigatorController.thumbnailSidebar.hide(sc.navigatorController.leftSidebar);
+      return;
+    } catch(e){}
+    fireSwipe('left', 1, 50); // player's own "left swipe near edge = hide sidebar"
+  }
 
-// Auto-close the thumbnail navigator after picking a slide. Touch has no
-// mouseleave, so the player's only auto-hide path never fires on iPad.
-// Covered twice: a tap on any thumbnail (walk up the DOM for the
-// slideNumber the player stamps on it), and any hash change while the
-// navigator is open (jump landed).
-document.getElementById('slideshowNavigator').addEventListener('click', function(e){
-var t = e.target;
-while (t && t !== document.body && (t.slideNumber === undefined || t.slideNumber === null)) t = t.parentNode;
-if (t && t.slideNumber !== undefined && t.slideNumber !== null) setTimeout(hideNavigator, 200);
-});
+  // Auto-close the thumbnail navigator after picking a slide. Touch has no
+  // mouseleave, so the player's only auto-hide path never fires on iPad.
+  // Covered twice: a tap on any thumbnail (walk up the DOM for the
+  // slideNumber the player stamps on it), and any hash change while the
+  // navigator is open (jump landed).
+  document.getElementById('slideshowNavigator').addEventListener('click', function(e){
+    var t = e.target;
+    while (t && t !== document.body && (t.slideNumber === undefined || t.slideNumber === null)) t = t.parentNode;
+    if (t && t.slideNumber !== undefined && t.slideNumber !== null) setTimeout(hideNavigator, 200);
+  });
 
-// ---- native one-page primitives ---------------------------------------
-function fireSwipe(direction, fingers, swipeStartX){
-document.dispatchEvent(new CustomEvent('TouchController:SwipeEvent', {
-// synthetic:true lets the __onNativeSwipe hook in main.js tell OUR
-// events (pass straight to the player) apart from REAL finger swipes
-// (normalized below so they can never cross the last-page boundary).
-detail: { direction: direction, fingers: fingers, swipeStartX: swipeStartX, synthetic: true }
-}));
-}
-function nextPage(){ fireSwipe('left', 1, 9999); } // advanceToNextBuild
-function prevPage(){ fireSwipe('right', 2, 9999); } // goBackToPreviousBuild
-function showNavigator(){ fireSwipe('right', 1, 50); }
+  // ---- native one-page primitives ---------------------------------------
+  function fireSwipe(direction, fingers, swipeStartX){
+    document.dispatchEvent(new CustomEvent('TouchController:SwipeEvent', {
+      // synthetic:true lets the __onNativeSwipe hook in main.js tell OUR
+      // events (pass straight to the player) apart from REAL finger swipes
+      // (normalized below so they can never cross the last-page boundary).
+      detail: { direction: direction, fingers: fingers, swipeStartX: swipeStartX, synthetic: true }
+    }));
+  }
+  function nextPage(){ fireSwipe('left', 1, 9999); }   // advanceToNextBuild
+  function prevPage(){ fireSwipe('right', 2, 9999); }  // goBackToPreviousBuild
+  function showNavigator(){ fireSwipe('right', 1, 50); }
 
-// ---- 3. closing card (replaces blank #8) ------------------------------
-var closingCard = document.getElementById('__closingCard');
-var closingImg = closingCard.querySelector('img');
-applyStyles(closingCard, {
-position:'fixed', top:'0', left:'0', right:'0', bottom:'0', zIndex:'9000',
-background:'#EDF7F9', display:'none', alignItems:'center', justifyContent:'center',
-touchAction:'manipulation' /* allows pinch-zoom + pan; only kills the 300ms double-tap delay */
-});
-applyStyles(closingImg, {
-maxWidth:'100%', maxHeight:'100%', width:'auto', height:'auto',
-display:'block', webkitUserDrag:'none', userSelect:'none'
-});
-// The card stops its events from reaching the player underneath
-// (stopPropagation), but never preventDefaults a multi-touch event —
-// pinch-to-zoom must stay fully native.
-['touchstart','touchmove','touchend','touchcancel','mousedown','mouseup','click'].forEach(function(evt){
-closingCard.addEventListener(evt, function(e){
-e.stopPropagation();
-if (!(e.touches && e.touches.length > 1)) e.preventDefault();
-}, { passive:false });
-});
+  // ---- 3. closing card (replaces blank #8) ------------------------------
+  var closingCard = document.getElementById('__closingCard');
+  var closingImg  = closingCard.querySelector('img');
+  applyStyles(closingCard, {
+    position:'fixed', top:'0', left:'0', right:'0', bottom:'0', zIndex:'9000',
+    background:'#EDF7F9', display:'none', alignItems:'center', justifyContent:'center',
+    touchAction:'manipulation' /* allows pinch-zoom + pan; only kills the 300ms double-tap delay */
+  });
+  applyStyles(closingImg, {
+    maxWidth:'100%', maxHeight:'100%', width:'auto', height:'auto',
+    display:'block', webkitUserDrag:'none', userSelect:'none'
+  });
+  // touchstart: stopPropagation but passive (no preventDefault) so pointer events fire for tap zones
+  var csX = 0, csY = 0;
+  closingCard.addEventListener('touchstart', function(e){
+    e.stopPropagation();
+    if (e.touches && e.touches.length === 1){ csX = e.touches[0].clientX; csY = e.touches[0].clientY; }
+  }, { passive: true });
+  closingCard.addEventListener('touchmove', function(e){
+    e.stopPropagation();
+    if (!(e.touches && e.touches.length > 1)) e.preventDefault();
+  }, { passive: false });
+  closingCard.addEventListener('touchend', function(e){
+    e.stopPropagation();
+    if (!(e.touches && e.touches.length > 1)) e.preventDefault();
+    // Horizontal swipe navigation from the closing card
+    if (e.changedTouches && e.changedTouches.length === 1){
+      var dx = e.changedTouches[0].clientX - csX;
+      var dy = e.changedTouches[0].clientY - csY;
+      if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)){
+        tapNav(dx > 0 ? goPrev : goNext);
+      }
+    }
+  }, { passive: false });
+  ['touchcancel','mousedown','mouseup','click'].forEach(function(evt){
+    closingCard.addEventListener(evt, function(e){
+      e.stopPropagation();
+      if (!(e.touches && e.touches.length > 1)) e.preventDefault();
+    }, { passive: false });
+  });
 
-var onCard = false;
-var pendingShowCard = false; // guards against false-positive card flash when going backward through scene 8
-var pendingCardJump = false; // set when the sidebar's 7th thumbnail is tapped
-function showCard(){ onCard = true; closingCard.style.display = 'flex'; }
-function hideCard(){ onCard = false; closingCard.style.display = 'none'; }
+  var onCard = false;
+  var pendingCardJump = false; // set when the sidebar's 7th thumbnail is tapped
+  var pendingShowCard = false; // 150ms guard against flash when going backward past closing card
+  function showCard(){ onCard = true; closingCard.style.display = 'flex'; }
+  function hideCard(){ onCard = false; closingCard.style.display = 'none'; }
 
-function goNext(){
-if (onCard){
-location.replace(location.pathname + location.search); // loop to #0
-return;
-}
-var cur = scene();
-if (cur >= LAST_SCENE){ showCard(); return; }
-__lastGifKey = ''; // force GIF recheck after navigation
-nextPage();
-gifRestartNav(); // begin debounce immediately (handles last-scene hash bug)
-console.log('[nav] goNext cur=' + cur + ' target=' + (cur + 1));
-}
-function goPrev(){
-if (onCard){
-if (scene() > LAST_SCENE) prevPage(); // pull back out of the blank end state
-hideCard();
-return;
-}
-var cur = scene();
-if (cur <= 0) return;
-__lastGifKey = ''; // force GIF recheck after navigation
-prevPage();
-gifRestartNav(); // begin debounce immediately (handles last-scene hash bug)
-console.log('[nav] goPrev cur=' + cur + ' target=' + (cur - 1));
-}
+  function goNext(){
+    if (onCard){
+      location.replace(location.pathname + location.search); // loop to #0
+      return;
+    }
+    var cur = scene();
+    if (cur >= LAST_SCENE){ showCard(); return; }
+    nextPage();
+    console.log('[nav] goNext cur=' + cur + ' target=' + (cur + 1));
+  }
+  function goPrev(){
+    if (onCard){
+      if (scene() > LAST_SCENE) prevPage(); // pull back out of the blank end state
+      hideCard();
+      return;
+    }
+    var cur = scene();
+    if (cur <= 0) return;
+    prevPage();
+    console.log('[nav] goPrev cur=' + cur + ' target=' + (cur - 1));
+  }
 
-// Reaching past #7 by ANY means (our zones, bottom-bar buttons, keyboard)
-// shows the card instead of the blank end state; jumping back via the
-// navigator hides it.
-// IMPORTANT: the player updates the URL hash via history.replaceState,
-// which NEVER fires a hashchange event — every hashchange listener we
-// had was dead code (why gif restart "worked" going forward — that was
-// the player natively creating a fresh <img> — but never going back).
-// A 200ms poll on scene() is the only reliable page-change signal.
-// FIX (2026-07-27): onSceneChanged now force-writes the hash via
-// replaceState so that backward navigation from the last slide (which
-// the player does NOT update the hash for) is reliably detected:
-// when we arrive at LAST_SCENE we write #7; going back to #6 is then
-// a real hash change the poller can catch.
-function onSceneChanged(s){
-console.log('[nav] scene ->', s);
-// Force-sync the URL hash. The Keynote player may not call replaceState
-// for the last scene (#7), so we write it ourselves. This guarantees
-// that when the user navigates away from the last slide, the hash
-// actually changes and the poller detects the transition.
-history.replaceState(null, '', '#' + s);
-// closing-card safety: never show the blank end state.
-// Use a 150ms delay before showing the card so that brief pass-through
-// of scene 8 during backward navigation (7 -> 8 -> 6) doesn't cause
-// a flash: if the scene settles at a valid value within 150ms, abort.
-if (s > LAST_SCENE){
-if (!onCard && !pendingShowCard){
-pendingShowCard = true;
-setTimeout(function(){
-pendingShowCard = false;
-if (scene() > LAST_SCENE && !onCard) showCard();
-}, 150);
-}
-}
-else {
-pendingShowCard = false; // cancel any pending show if scene came back valid
-if (pendingCardJump && s === LAST_SCENE){ pendingCardJump = false; showCard(); }
-else if (onCard){ hideCard(); }
-}
-// a jump landed while the sidebar was open (thumbnail tap): close it
-if (navigatorIsOpen()) hideNavigator();
+  // Reaching past #7 by ANY means (our zones, bottom-bar buttons, keyboard)
+  // shows the card instead of the blank end state; jumping back via the
+  // navigator hides it.
+  // IMPORTANT: the player updates the URL hash via history.replaceState,
+  // which NEVER fires a hashchange event — every hashchange listener we
+  // had was dead code (why gif restart "worked" going forward — that was
+  // the player natively creating a fresh <img> — but never going back).
+  // A 200ms poll on scene() is the only reliable page-change signal.
+  function onSceneChanged(s){
+    console.log('[nav] scene ->', s);
+    // pendingShowCard: 150ms guard prevents false-positive card flash
+    // when navigating backward through the blank end state briefly
+    if (s > LAST_SCENE){
+      if (!onCard && !pendingShowCard){
+        pendingShowCard = true;
+        setTimeout(function(){
+          pendingShowCard = false;
+          if (scene() > LAST_SCENE && !onCard) showCard();
+        }, 150);
+      }
+    }
+    else {
+      pendingShowCard = false;
+      if (pendingCardJump && s === LAST_SCENE){ pendingCardJump = false; showCard(); }
+      else if (onCard){ hideCard(); }
+    }
+    // a jump landed while the sidebar was open (thumbnail tap): close it
+    if (navigatorIsOpen()) hideNavigator();
 
-// GIF restart: debounced, whole-document scope (see gifRestartNav below)
-gifRestartNav();
-}
+    // GIF restart: debounced, whole-document scope (see gifRestartNav below)
+    gifRestartNav();
+  }
 
-// ---- GIF restart on navigation ----------------------------------------
-// * whole-document img search (NOT limited to #stageArea — measured:
-// the gif imgs can live outside it)
-// * visibility = offsetWidth/Height > 0 AND computed display/visibility
-// (more reliable than offsetParent)
-// * debounced so rapid page-flips only run once
-// * __lastGifKey tracks the set of currently visible GIFs; if the set
-// hasn't changed (same slide, just a build step) we skip the restart
-// to avoid the visual flash caused by GIFs resetting on every build step.
-// __lastGifKey is reset to '' in goNext/goPrev so ANY user-initiated
-// page turn always triggers a fresh GIF restart on the destination slide,
-// even when the hash does not change (last-scene hash bug).
-// Trigger: wired to BOTH the requested hashchange listener AND the scene
-// poller above. Kept on the poller too because this player writes the
-// hash via history.replaceState, which does not emit hashchange events —
-// the backward "[nav] scene -> 3" line in the captured log was produced
-// by the poller, so it demonstrably fires in both directions.
-var __lastGifKey = '';
-var gifRestartTimer = null;
-function gifRestartNav(){
-if (gifRestartTimer) clearTimeout(gifRestartTimer);
-gifRestartTimer = setTimeout(function(){
-var all = document.querySelectorAll('img');
-var gifs = [];
-for (var i = 0; i < all.length; i++){
-var img = all[i];
-if (!img.src || img.src.indexOf('.gif') === -1) continue; // must be a gif
-if (img.offsetWidth === 0 || img.offsetHeight === 0) continue; // must have size
-var st = getComputedStyle(img);
-if (st.display === 'none' || st.visibility === 'hidden') continue;
-gifs.push(img);
-}
-// Skip restart if the visible GIF set hasn't changed — same slide,
-// different build step. Resets each time goNext/goPrev is called.
-var gifKey = gifs.map(function(g){ return g.src; }).join('|');
-if (gifKey === __lastGifKey) return;
-__lastGifKey = gifKey;
-gifs.forEach(function(img){
-var src = img.src;
-img.src = '';
-void img.offsetWidth;
-img.src = src;
-console.log('[gif] restarted on nav, src=', src.split('/').pop());
-});
-if (gifs.length > 0){
-console.log('[gif] total restarted:', gifs.length);
-}
-}, 200);
-}
-window.addEventListener('hashchange', gifRestartNav);
-var __lastScene = scene();
-setInterval(function(){
-var s = scene();
-if (s !== __lastScene){ __lastScene = s; onSceneChanged(s); }
-}, 200);
+  // ---- GIF restart on navigation ----------------------------------------
+  //  * whole-document img search (NOT limited to #stageArea — measured:
+  //    the gif imgs can live outside it)
+  //  * visibility = offsetWidth/Height > 0 AND computed display/visibility
+  //    (more reliable than offsetParent)
+  //  * debounced so rapid page-flips only run once
+  //  * two-step restart (clear then restore on next macrotask) is more
+  //    reliable on iOS Safari than the void-offsetWidth reflow trick
+  var gifRestartTimer = null;
+  function gifRestartNav(){
+    if (gifRestartTimer) clearTimeout(gifRestartTimer);
+    gifRestartTimer = setTimeout(function(){
+      var all = document.querySelectorAll('img');
+      var gifs = [];
+      for (var i = 0; i < all.length; i++){
+        var img = all[i];
+        if (!img.src || img.src.indexOf('.gif') === -1) continue;      // must be a gif
+        if (img.offsetWidth === 0 || img.offsetHeight === 0) continue; // must have size
+        var st = getComputedStyle(img);
+        if (st.display === 'none' || st.visibility === 'hidden') continue;
+        gifs.push(img);
+      }
+      if (!gifs.length) return;
+      // Two-step restart: clear src synchronously, restore on next macrotask
+      var srcs = gifs.map(function(img){ return img.src.split('?')[0]; });
+      gifs.forEach(function(img){ img.src = ''; });
+      setTimeout(function(){
+        gifs.forEach(function(img, i){
+          img.src = srcs[i];
+          console.log('[gif] restarted, src=', srcs[i].split('/').pop());
+        });
+        console.log('[gif] total restarted:', gifs.length);
+      }, 0);
+    }, 50);
+  }
+  window.addEventListener('hashchange', gifRestartNav);
+  var __lastScene = scene();
+  setInterval(function(){
+    var s = scene();
+    if (s !== __lastScene){ __lastScene = s; onSceneChanged(s); }
+  }, 200);
 
-// Real finger swipes (left/right) are normalized to the same one-page
-// logic as the tap zones — previously they fed the player's raw
-// advance/back directly, so a left-swipe on the last page (#7) sailed
-// past the boundary into the blank end state. Returning true swallows
-// the native handling. Our own synthetic events pass through untouched,
-// and swipes while the navigator is open keep their native meaning
-// (swipe-to-close).
-window.__onNativeSwipe = function(detail){
-if (!detail || detail.synthetic) return false;
-if (detail.direction !== 'left' && detail.direction !== 'right') return false;
-if (navigatorIsOpen()) return false;
-if (document.getElementById('__preload') || document.getElementById('__tutorial')) return true;
-if (navLocked) return true;
-navLocked = true;
-setTimeout(function(){ navLocked = false; }, NAV_COOLDOWN_MS);
-if (detail.direction === 'left') goNext(); else goPrev();
-return true;
-};
+  // Real finger swipes (left/right) are normalized to the same one-page
+  // logic as the tap zones — previously they fed the player's raw
+  // advance/back directly, so a left-swipe on the last page (#7) sailed
+  // past the boundary into the blank end state. Returning true swallows
+  // the native handling. Our own synthetic events pass through untouched,
+  // and swipes while the navigator is open keep their native meaning
+  // (swipe-to-close).
+  window.__onNativeSwipe = function(detail){
+    if (!detail || detail.synthetic) return false;
+    if (detail.direction !== 'left' && detail.direction !== 'right') return false;
+    if (navigatorIsOpen()) return false;
+    if (document.getElementById('__preload') || document.getElementById('__tutorial')) return true;
+    if (navLocked) return true;
+    navLocked = true;
+    setTimeout(function(){ navLocked = false; }, NAV_COOLDOWN_MS);
+    if (detail.direction === 'left') goNext(); else goPrev();
+    return true;
+  };
 
-// ---- 2. virtual tap zones + DOUBLE-TAP navigator (blocks nothing) -----
-// Single tap, left/right 20%, blank space -> page turn (one page).
-// DOUBLE tap on blank space in the middle -> open thumbnail navigator.
-// (long-press removed per spec; Safari's own double-tap smart zoom is
-// disabled via touch-action:manipulation above, pinch still native.)
-// Taps on the deck's own hyperlinks/buttons are always left to the deck.
-var navLocked = false;
-var lastTapTime = 0, lastTapX = 0, lastTapY = 0;
-function tapNav(fn){
-if (navLocked) return;
-navLocked = true;
-setTimeout(function(){ navLocked = false; }, NAV_COOLDOWN_MS);
-fn();
-}
-function handleTap(x, y){
-var w = window.innerWidth;
-var inLeft = x < w * ZONE_FRACTION;
-var inRight = x > w * (1 - ZONE_FRACTION);
-if (document.getElementById('__preload')) return; // still loading
-if (document.getElementById('__tutorial')) return; // tutorial owns taps
-if (onCard){
-// the card's baked-in bottom bar: map its ◀ 🏠 ▶ to real actions
-var cr = closingImg.getBoundingClientRect();
-var inImg = x >= cr.left && x <= cr.right && y >= cr.top && y <= cr.bottom;
-if (inImg && y > cr.bottom - cr.height * 0.055){
-var fx = (x - cr.left) / cr.width;
-if (fx > 0.26 && fx < 0.345){ tapNav(goPrev); return; } // ◀ back to #7
-if (fx >= 0.345 && fx < 0.41){ tapNav(goNext); return; } // 🏠 restart from #0
-if (fx > 0.60 && fx < 0.70){ tapNav(goNext); return; } // ▶ loop to #0
-return;
-}
-if (inLeft || inRight){
-tapNav(inLeft ? goPrev : goNext);
-}
-return;
-}
-if (navigatorIsOpen()){
-// tapping anywhere OUTSIDE the sidebar closes it
-var sb = document.querySelector('.navigatorThumbnailSidebar');
-if (sb){
-var r = sb.getBoundingClientRect();
-var inside = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-if (!inside) hideNavigator();
-}
-return;
-}
-// LAST Keynote page: the bar's ▶ hyperlink has no native next slide to
-// go to (our slide7 card isn't a Keynote slide), so the player just
-// swallows the tap. Route that arrow directly to the card, bypassing
-// the player's boundary check. Checked BEFORE the hyperlink pass-through.
-if (scene() >= LAST_SCENE){
-var st = document.getElementById('stage');
-if (st){
-var sr = st.getBoundingClientRect();
-if (y > sr.bottom - sr.height * 0.06 && y <= sr.bottom + 4){
-var fxBar = (x - sr.left) / sr.width;
-if (fxBar > 0.58 && fxBar < 0.72){
-console.log('[nav] last-page bar ▶ -> slide7 card');
-tapNav(goNext); // goNext on LAST_SCENE shows the card
-return;
-}
-}
-}
-}
-if (hyperlinkAt(x, y)){
-// deck's own button (bar arrows/home, TOC cards): native handles it.
-// Our nav lock never applies to these — they are processed by the
-// player directly, and nothing of ours overlays them.
-console.log('[nav] tap on native hyperlink at', Math.round(x) + ',' + Math.round(y));
-lastTapTime = 0;
-return;
-}
-if (inLeft || inRight){
-lastTapTime = 0; // zone taps never count toward double-tap
-tapNav(inLeft ? goPrev : goNext);
-return;
-}
-// middle blank space: detect double-tap
-var now = Date.now();
-if (now - lastTapTime < 400 && Math.abs(x - lastTapX) < 60 && Math.abs(y - lastTapY) < 60){
-lastTapTime = 0;
-showNavigator();
-} else {
-lastTapTime = now; lastTapX = x; lastTapY = y;
-}
-}
+  // ---- 2. virtual tap zones + DOUBLE-TAP navigator (blocks nothing) -----
+  // Single tap, left/right 20%, blank space  -> page turn (one page).
+  // DOUBLE tap on blank space in the middle  -> open thumbnail navigator.
+  //   (long-press removed per spec; Safari's own double-tap smart zoom is
+  //    disabled via touch-action:manipulation above, pinch still native.)
+  // Taps on the deck's own hyperlinks/buttons are always left to the deck.
+  var navLocked = false;
+  var lastTapTime = 0, lastTapX = 0, lastTapY = 0;
+  function tapNav(fn){
+    if (navLocked) return;
+    navLocked = true;
+    setTimeout(function(){ navLocked = false; }, NAV_COOLDOWN_MS);
+    fn();
+  }
+  function handleTap(x, y){
+    var w = window.innerWidth;
+    var inLeft  = x < w * ZONE_FRACTION;
+    var inRight = x > w * (1 - ZONE_FRACTION);
+    if (document.getElementById('__preload')) return;  // still loading
+    if (document.getElementById('__tutorial')) return; // tutorial owns taps
+    if (onCard){
+      // the card's baked-in bottom bar: map its ◀ 🏠 ▶ to real actions
+      var cr = closingImg.getBoundingClientRect();
+      var inImg = x >= cr.left && x <= cr.right && y >= cr.top && y <= cr.bottom;
+      if (inImg && y > cr.bottom - cr.height * 0.055){
+        var fx = (x - cr.left) / cr.width;
+        if (fx > 0.26 && fx < 0.345){ tapNav(goPrev); return; }  // ◀ back to #7
+        if (fx >= 0.345 && fx < 0.41){ tapNav(goNext); return; } // 🏠 restart from #0
+        if (fx > 0.60 && fx < 0.70){ tapNav(goNext); return; }   // ▶ loop to #0
+        return;
+      }
+      if (inLeft || inRight){
+        tapNav(inLeft ? goPrev : goNext);
+      }
+      return;
+    }
+    if (navigatorIsOpen()){
+      // tapping anywhere OUTSIDE the sidebar closes it
+      var sb = document.querySelector('.navigatorThumbnailSidebar');
+      if (sb){
+        var r = sb.getBoundingClientRect();
+        var inside = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+        if (!inside) hideNavigator();
+      }
+      return;
+    }
+    // LAST Keynote page: the bar's ▶ hyperlink has no native next slide to
+    // go to (our slide7 card isn't a Keynote slide), so the player just
+    // swallows the tap. Route that arrow directly to the card, bypassing
+    // the player's boundary check. Checked BEFORE the hyperlink pass-through.
+    if (scene() >= LAST_SCENE){
+      var st = document.getElementById('stage');
+      if (st){
+        var sr = st.getBoundingClientRect();
+        if (y > sr.bottom - sr.height * 0.06 && y <= sr.bottom + 4){
+          var fxBar = (x - sr.left) / sr.width;
+          if (fxBar > 0.58 && fxBar < 0.72){
+            console.log('[nav] last-page bar ▶ -> slide7 card');
+            tapNav(goNext); // goNext on LAST_SCENE shows the card
+            return;
+          }
+        }
+      }
+    }
+    if (hyperlinkAt(x, y)){
+      // deck's own button (bar arrows/home, TOC cards): native handles it.
+      // Our nav lock never applies to these — they are processed by the
+      // player directly, and nothing of ours overlays them.
+      console.log('[nav] tap on native hyperlink at', Math.round(x) + ',' + Math.round(y));
+      lastTapTime = 0;
+      return;
+    }
+    if (inLeft || inRight){
+      lastTapTime = 0;                          // zone taps never count toward double-tap
+      tapNav(inLeft ? goPrev : goNext);
+      return;
+    }
+    // middle blank space: detect double-tap
+    var now = Date.now();
+    if (now - lastTapTime < 400 && Math.abs(x - lastTapX) < 60 && Math.abs(y - lastTapY) < 60){
+      lastTapTime = 0;
+      showNavigator();
+    } else {
+      lastTapTime = now; lastTapX = x; lastTapY = y;
+    }
+  }
 
-// Multi-touch (pinch-to-zoom) must never be mistaken for a tap: the
-// moment a second finger lands the whole gesture is flagged so pointerup
-// does nothing. No preventDefault anywhere — pinch stays fully native.
-var pDown = false, pMoved = false, pX = 0, pY = 0, multiTouch = false;
-document.addEventListener('pointerdown', function(e){
-if (!e.isPrimary){ multiTouch = true; return; }
-multiTouch = false;
-pDown = true; pMoved = false; pX = e.clientX; pY = e.clientY;
-}, { capture:true });
-document.addEventListener('pointermove', function(e){
-if (!pDown || !e.isPrimary) return;
-if (Math.abs(e.clientX-pX) > 12 || Math.abs(e.clientY-pY) > 12) pMoved = true;
-}, { capture:true });
-document.addEventListener('pointerup', function(e){
-if (e.isPrimary && pDown && !pMoved && !multiTouch) handleTap(e.clientX, e.clientY);
-if (e.isPrimary) pDown = false;
-}, { capture:true });
-document.addEventListener('pointercancel', function(e){
-if (e.isPrimary) pDown = false;
-}, { capture:true });
-document.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+  // Multi-touch (pinch-to-zoom) must never be mistaken for a tap: the
+  // moment a second finger lands the whole gesture is flagged so pointerup
+  // does nothing. No preventDefault anywhere — pinch stays fully native.
+  var pDown = false, pMoved = false, pX = 0, pY = 0, multiTouch = false;
+  document.addEventListener('pointerdown', function(e){
+    if (!e.isPrimary){ multiTouch = true; return; }
+    multiTouch = false;
+    pDown = true; pMoved = false; pX = e.clientX; pY = e.clientY;
+  }, { capture:true });
+  document.addEventListener('pointermove', function(e){
+    if (!pDown || !e.isPrimary) return;
+    if (Math.abs(e.clientX-pX) > 12 || Math.abs(e.clientY-pY) > 12) pMoved = true;
+  }, { capture:true });
+  document.addEventListener('pointerup', function(e){
+    if (e.isPrimary && pDown && !pMoved && !multiTouch) handleTap(e.clientX, e.clientY);
+    if (e.isPrimary) pDown = false;
+  }, { capture:true });
+  document.addEventListener('pointercancel', function(e){
+    if (e.isPrimary) pDown = false;
+  }, { capture:true });
+  document.addEventListener('contextmenu', function(e){ e.preventDefault(); });
 
-// ---- gif replay on every (re)entry ------------------------------------
-// The gif files themselves loop forever (NETSCAPE loop=0, verified), but
-// the player keeps each gif's <img> element around after leaving the
-// slide — coming back showed the element frozen/hidden over the PDF's
-// static frame. On every arrival at a gif page, re-assigning src forces
-// the browser to restart the gif from frame 0, and visibility is forced
-// back on. Run twice (short + long delay) because the element may be
-// (re)created a moment after the transition lands.
-// (GIF replay lives in onSceneChanged — the single trigger point that
-// every navigation path passes through. No other gif code exists.)
+  // ---- gif replay on every (re)entry ------------------------------------
+  // The gif files themselves loop forever (NETSCAPE loop=0, verified), but
+  // the player keeps each gif's <img> element around after leaving the
+  // slide — coming back showed the element frozen/hidden over the PDF's
+  // static frame. On every arrival at a gif page, re-assigning src forces
+  // the browser to restart the gif from frame 0, and visibility is forced
+  // back on. Run twice (short + long delay) because the element may be
+  // (re)created a moment after the transition lands.
+  // (GIF replay lives in onSceneChanged — the single trigger point that
+  //  every navigation path passes through. No other gif code exists.)
 
-// ---- first-run tutorial (once per device, localStorage) ---------------
-var TUTORIAL_KEY = 'mfy_eyebag_tutorial_seen';
-function maybeShowTutorial(){
-try { if (localStorage.getItem(TUTORIAL_KEY)) return; } catch(e){}
-var tut = document.createElement('div');
-tut.id = '__tutorial';
-applyStyles(tut, {
-position:'fixed', top:'0', left:'0', right:'0', bottom:'0', zIndex:'60000',
-background:'rgba(18,38,54,0.82)', display:'flex', flexDirection:'column',
-alignItems:'center', justifyContent:'center', color:'#fff',
-fontFamily:'-apple-system, "PingFang TC", "Helvetica Neue", Helvetica, Arial, sans-serif',
-textAlign:'center'
-});
-function item(iconName, title, sub){
-var d = document.createElement('div');
-applyStyles(d, { margin:'0 34px', display:'flex', flexDirection:'column', alignItems:'center' });
-var i = document.createElement('span');
-i.className = 'material-icons'; // Google Material Icons (loaded in <head>)
-i.textContent = iconName;
-applyStyles(i, { fontSize:'52px', lineHeight:'1', marginBottom:'14px' });
-var t = document.createElement('div');
-t.textContent = title;
-applyStyles(t, { fontSize:'20px', fontWeight:'700', marginBottom:'6px' });
-var s = document.createElement('div');
-s.textContent = sub;
-applyStyles(s, { fontSize:'15px', opacity:'0.85' });
-d.appendChild(i); d.appendChild(t); d.appendChild(s);
-return d;
-}
-var row = document.createElement('div');
-applyStyles(row, { display:'flex', flexDirection:'row', alignItems:'flex-start', marginBottom:'44px' });
-row.appendChild(item('chevron_left', '點左側', '上一頁'));
-row.appendChild(item('touch_app', '雙擊中間', '開啟目錄'));
-row.appendChild(item('chevron_right', '點右側', '下一頁'));
-var hint = document.createElement('div');
-hint.textContent = '點任意處開始';
-applyStyles(hint, {
-fontSize:'16px', padding:'12px 30px', borderRadius:'999px',
-border:'1px solid rgba(255,255,255,0.6)'
-});
-tut.appendChild(row); tut.appendChild(hint);
-// dismiss on any tap; never let the tap reach the deck below
-['pointerup','click','touchend'].forEach(function(evt){
-tut.addEventListener(evt, function(e){
-e.preventDefault(); e.stopPropagation();
-try { localStorage.setItem(TUTORIAL_KEY, '1'); } catch(err){}
-tut.style.transition = 'opacity .25s ease';
-tut.style.opacity = '0';
-setTimeout(function(){ tut.parentNode && tut.parentNode.removeChild(tut); }, 270);
-}, { passive:false });
-});
-document.body.appendChild(tut);
-}
+  // ---- first-run tutorial (once per device, localStorage) ---------------
+  var TUTORIAL_KEY = 'mfy_eyebag_tutorial_seen';
+  function maybeShowTutorial(){
+    try { if (localStorage.getItem(TUTORIAL_KEY)) return; } catch(e){}
+    var tut = document.createElement('div');
+    tut.id = '__tutorial';
+    applyStyles(tut, {
+      position:'fixed', top:'0', left:'0', right:'0', bottom:'0', zIndex:'60000',
+      background:'rgba(18,38,54,0.82)', display:'flex', flexDirection:'column',
+      alignItems:'center', justifyContent:'center', color:'#fff',
+      fontFamily:'-apple-system, "PingFang TC", "Helvetica Neue", Helvetica, Arial, sans-serif',
+      textAlign:'center'
+    });
+    function item(iconName, title, sub){
+      var d = document.createElement('div');
+      applyStyles(d, { margin:'0 34px', display:'flex', flexDirection:'column', alignItems:'center' });
+      var i = document.createElement('span');
+      i.className = 'material-icons'; // Google Material Icons (loaded in <head>)
+      i.textContent = iconName;
+      applyStyles(i, { fontSize:'52px', lineHeight:'1', marginBottom:'14px' });
+      var t = document.createElement('div');
+      t.textContent = title;
+      applyStyles(t, { fontSize:'20px', fontWeight:'700', marginBottom:'6px' });
+      var s = document.createElement('div');
+      s.textContent = sub;
+      applyStyles(s, { fontSize:'15px', opacity:'0.85' });
+      d.appendChild(i); d.appendChild(t); d.appendChild(s);
+      return d;
+    }
+    var row = document.createElement('div');
+    applyStyles(row, { display:'flex', flexDirection:'row', alignItems:'flex-start', marginBottom:'44px' });
+    row.appendChild(item('chevron_left', '點左側', '上一頁'));
+    row.appendChild(item('touch_app', '雙擊中間', '開啟目錄'));
+    row.appendChild(item('chevron_right', '點右側', '下一頁'));
+    var hint = document.createElement('div');
+    hint.textContent = '點任意處開始';
+    applyStyles(hint, {
+      fontSize:'16px', padding:'12px 30px', borderRadius:'999px',
+      border:'1px solid rgba(255,255,255,0.6)'
+    });
+    tut.appendChild(row); tut.appendChild(hint);
+    // dismiss on any tap; never let the tap reach the deck below
+    ['pointerup','click','touchend'].forEach(function(evt){
+      tut.addEventListener(evt, function(e){
+        e.preventDefault(); e.stopPropagation();
+        try { localStorage.setItem(TUTORIAL_KEY, '1'); } catch(err){}
+        tut.style.transition = 'opacity .25s ease';
+        tut.style.opacity = '0';
+        setTimeout(function(){ tut.parentNode && tut.parentNode.removeChild(tut); }, 270);
+      }, { passive:false });
+    });
+    document.body.appendChild(tut);
+  }
 
-// ---- add the missing 7th (closing card) thumbnail to the sidebar ------
-// The sidebar is built by the player from its 6 native slides; our card
-// isn't one of them, so we append a 7th item that mimics the others.
-// Tapping it jumps the deck to the last slide and lays the card on top
-// (pendingCardJump defers showCard until the jump's hashchange lands, so
-// the hashchange handler doesn't immediately hide it again).
-function goToCardFromSidebar(){
-hideNavigator();
-if (scene() === LAST_SCENE){ showCard(); return; }
-pendingCardJump = true;
-try { window.__UC.navigatorController.select(6); } // slide 6 = scene #7
-catch(e){ pendingCardJump = false; showCard(); }
-// fallback if no hashchange arrives (e.g. select silently failed)
-setTimeout(function(){
-if (pendingCardJump){ pendingCardJump = false; showCard(); }
-}, 1200);
-}
-var thumbTimer = setInterval(function(){
-var sb = document.querySelector('.navigatorThumbnailSidebar');
-if (!sb) return;
-if (sb.querySelector('.__cardThumb')) { clearInterval(thumbTimer); return; }
-var items = sb.querySelectorAll('.navigatorThumbnailItem');
-if (!items.length) return;
-var last = items[items.length - 1];
-var clone = last.cloneNode(true); // no listeners / no slideNumber props copied
-clone.classList.add('__cardThumb');
-// swap thumbnail image + slide number label
-var img = clone.querySelector('img');
-if (img){ img.removeAttribute('id'); img.src = 'slides/slide7_bar.jpg'; }
-clone.querySelectorAll('*').forEach(function(el){
-if (el.children.length === 0 && el.textContent.trim() === String(items.length)){
-el.textContent = String(items.length + 1);
-}
-});
-['pointerup','click','touchend'].forEach(function(evt){
-clone.addEventListener(evt, function(e){
-e.preventDefault(); e.stopPropagation();
-goToCardFromSidebar();
-}, { passive:false });
-});
-last.parentNode.appendChild(clone);
-clearInterval(thumbTimer);
-}, 600);
+  // ---- add the missing 7th (closing card) thumbnail to the sidebar ------
+  // The sidebar is built by the player from its 6 native slides; our card
+  // isn't one of them, so we append a 7th item that mimics the others.
+  // Tapping it jumps the deck to the last slide and lays the card on top
+  // (pendingCardJump defers showCard until the jump's hashchange lands, so
+  // the hashchange handler doesn't immediately hide it again).
+  // Poll continuously — the player may rebuild the sidebar on open/close.
+  function goToCardFromSidebar(){
+    hideNavigator();
+    if (scene() === LAST_SCENE){ showCard(); return; }
+    pendingCardJump = true;
+    try { window.__UC.navigatorController.select(6); } // slide 6 = scene #7
+    catch(e){ pendingCardJump = false; showCard(); }
+    // fallback if no hashchange arrives (e.g. select silently failed)
+    setTimeout(function(){
+      if (pendingCardJump){ pendingCardJump = false; showCard(); }
+    }, 1200);
+  }
+  function addCardThumb(){
+    var sb = document.querySelector('.navigatorThumbnailSidebar');
+    if (!sb || sb.querySelector('.__cardThumb')) return;
+    var items = sb.querySelectorAll('.navigatorThumbnailItem');
+    if (!items.length) return;
+    var last = items[items.length - 1];
+    var clone = last.cloneNode(true); // no listeners / no slideNumber props copied
+    clone.classList.add('__cardThumb');
+    // swap thumbnail image + slide number label
+    var img = clone.querySelector('img');
+    if (img){ img.removeAttribute('id'); img.src = 'slides/slide7_bar.jpg'; }
+    clone.querySelectorAll('*').forEach(function(el){
+      if (el.children.length === 0 && el.textContent.trim() === String(items.length)){
+        el.textContent = String(items.length + 1);
+      }
+    });
+    ['pointerup','click','touchend'].forEach(function(evt){
+      clone.addEventListener(evt, function(e){
+        e.preventDefault(); e.stopPropagation();
+        goToCardFromSidebar();
+      }, { passive:false });
+    });
+    last.parentNode.appendChild(clone);
+  }
+  // Poll continuously — sidebar may be rebuilt on open/close; never stop
+  setInterval(addCardThumb, 800);
 
-// ---- mandatory loading screen: ALL gifs must finish before entry ------
-// Per spec: the user may not start flipping pages until every gif (and
-// the closing card image) is fully downloaded and decoded. The overlay
-// shows on EVERY load (repeat visits complete near-instantly from
-// cache), never times out into the deck, and auto-retries failed
-// downloads. handleTap() above refuses all taps while #__preload exists.
-// The big per-slide PDFs do NOT block entry — they warm in the
-// background after the gate opens.
-var GIF_URLS = [
-'assets/8AC9B357-96F6-4109-931E-1F264B3DC7D1/assets/下眼瞼周圍常見問題.gif-0.0000-15.0000.gif',
-'assets/515BF58C-A7F4-42C7-AB24-F395E442BD09/assets/眼袋脂肪「移除」動畫-插畫.gif-0.0000-8.5000.gif',
-'assets/515BF58C-A7F4-42C7-AB24-F395E442BD09/assets/眼袋脂肪「轉移」動畫-插畫.gif-0.0000-8.5000.gif'
-];
-var CRITICAL_ASSETS = GIF_URLS.concat(['slides/slide7_bar.jpg']);
-window.__gifWarm = []; // live refs so the decoded gifs can't be evicted
+  // ---- mandatory loading screen: ALL gifs must finish before entry ------
+  // Per spec: the user may not start flipping pages until every gif (and
+  // the closing card image) is fully downloaded and decoded. The overlay
+  // shows on EVERY load (repeat visits complete near-instantly from
+  // cache), never times out into the deck, and auto-retries failed
+  // downloads. handleTap() above refuses all taps while #__preload exists.
+  // The big per-slide PDFs do NOT block entry — they warm in the
+  // background after the gate opens.
+  var GIF_URLS = [
+    'assets/8AC9B357-96F6-4109-931E-1F264B3DC7D1/assets/下眼瞼周圍常見問題.gif-0.0000-15.0000.gif',
+    'assets/515BF58C-A7F4-42C7-AB24-F395E442BD09/assets/眼袋脂肪「移除」動畫-插畫.gif-0.0000-8.5000.gif',
+    'assets/515BF58C-A7F4-42C7-AB24-F395E442BD09/assets/眼袋脂肪「轉移」動畫-插畫.gif-0.0000-8.5000.gif'
+  ];
+  var CRITICAL_ASSETS = GIF_URLS.concat(['slides/slide7_bar.jpg']);
+  window.__gifWarm = []; // live refs so the decoded gifs can't be evicted
 
-var overlay = document.createElement('div');
-overlay.id = '__preload';
-applyStyles(overlay, {
-position:'fixed', top:'0', left:'0', right:'0', bottom:'0', zIndex:'99999',
-background:'#EDF7F9', display:'flex', flexDirection:'column',
-alignItems:'center', justifyContent:'center',
-fontFamily:'-apple-system, "PingFang TC", "Helvetica Neue", Helvetica, Arial, sans-serif'
-});
-var oTitle = document.createElement('div');
-oTitle.textContent = '眼袋手術衛教教材';
-applyStyles(oTitle, { fontSize:'26px', fontWeight:'700', color:'#3a5f7d', marginBottom:'26px', letterSpacing:'.02em' });
-var barOuter = document.createElement('div');
-applyStyles(barOuter, { width:'240px', height:'8px', borderRadius:'999px', background:'rgba(58,95,125,0.15)', overflow:'hidden' });
-var barInner = document.createElement('div');
-applyStyles(barInner, { width:'0%', height:'100%', background:'#4578bf', transition:'width .2s ease' });
-barOuter.appendChild(barInner);
-var oPct = document.createElement('div');
-oPct.textContent = '動畫載入中 0%';
-applyStyles(oPct, { marginTop:'14px', fontSize:'14px', color:'#6b8aa0' });
-overlay.appendChild(oTitle); overlay.appendChild(barOuter); overlay.appendChild(oPct);
-document.body.appendChild(overlay);
+  var overlay = document.createElement('div');
+  overlay.id = '__preload';
+  applyStyles(overlay, {
+    position:'fixed', top:'0', left:'0', right:'0', bottom:'0', zIndex:'99999',
+    background:'#EDF7F9', display:'flex', flexDirection:'column',
+    alignItems:'center', justifyContent:'center',
+    fontFamily:'-apple-system, "PingFang TC", "Helvetica Neue", Helvetica, Arial, sans-serif'
+  });
+  var oTitle = document.createElement('div');
+  oTitle.textContent = '眼袋手術衛教教材';
+  applyStyles(oTitle, { fontSize:'26px', fontWeight:'700', color:'#3a5f7d', marginBottom:'26px', letterSpacing:'.02em' });
+  var barOuter = document.createElement('div');
+  applyStyles(barOuter, { width:'240px', height:'8px', borderRadius:'999px', background:'rgba(58,95,125,0.15)', overflow:'hidden' });
+  var barInner = document.createElement('div');
+  applyStyles(barInner, { width:'0%', height:'100%', background:'#4578bf', transition:'width .2s ease' });
+  barOuter.appendChild(barInner);
+  var oPct = document.createElement('div');
+  oPct.textContent = '動畫載入中 0%';
+  applyStyles(oPct, { marginTop:'14px', fontSize:'14px', color:'#6b8aa0' });
+  overlay.appendChild(oTitle); overlay.appendChild(barOuter); overlay.appendChild(oPct);
+  document.body.appendChild(overlay);
 
-(function gateOnGifs(){
-var total = CRITICAL_ASSETS.length, done = 0, closed = false;
+  (function gateOnGifs(){
+    var total = CRITICAL_ASSETS.length, done = 0, closed = false;
 
-function render(){
-var pct = Math.round((done / total) * 100);
-barInner.style.width = pct + '%';
-oPct.textContent = '動畫載入中 ' + pct + '%';
-}
-function openGate(){
-if (closed) return;
-closed = true;
-// Hold the gate (bar sits at 100%) until slide 1 has actually
-// rendered, so the user NEVER sees an intermediate spinner — the
-// progress screen hands off directly to the tutorial / the deck.
-oPct.textContent = '準備中…';
-var t0 = Date.now();
-(function waitFirstSlide(){
-if (!document.querySelector('#stage canvas') && Date.now() - t0 < 10000){
-setTimeout(waitFirstSlide, 150);
-return;
-}
-overlay.style.transition = 'opacity .3s ease';
-overlay.style.opacity = '0';
-setTimeout(function(){
-overlay.parentNode && overlay.parentNode.removeChild(overlay);
-maybeShowTutorial(); // first-run only (localStorage)
-}, 320);
-warmRestInBackground();
-})();
-}
-function loadOne(url, attempt){
-var im = new Image();
-im.onload = function(){
-window.__gifWarm.push(im); // decoded + pinned
-done++; render();
-if (done >= total) openGate();
-};
-im.onerror = function(){
-if (attempt < 5){
-oPct.textContent = '網路不穩，重試中…';
-setTimeout(function(){ loadOne(url, attempt + 1); }, 1200 * attempt);
-} else {
-oPct.textContent = '動畫載入失敗，請檢查網路後重新整理';
-}
-};
-im.src = encodeURI(url);
-}
+    function render(){
+      var pct = Math.round((done / total) * 100);
+      barInner.style.width = pct + '%';
+      oPct.textContent = '動畫載入中 ' + pct + '%';
+    }
+    function openGate(){
+      if (closed) return;
+      closed = true;
+      // Hold the gate (bar sits at 100%) until slide 1 has actually
+      // rendered, so the user NEVER sees an intermediate spinner — the
+      // progress screen hands off directly to the tutorial / the deck.
+      oPct.textContent = '準備中…';
+      var t0 = Date.now();
+      (function waitFirstSlide(){
+        if (!document.querySelector('#stage canvas') && Date.now() - t0 < 10000){
+          setTimeout(waitFirstSlide, 150);
+          return;
+        }
+        overlay.style.transition = 'opacity .3s ease';
+        overlay.style.opacity = '0';
+        setTimeout(function(){
+          overlay.parentNode && overlay.parentNode.removeChild(overlay);
+          maybeShowTutorial(); // first-run only (localStorage)
+        }, 320);
+        warmRestInBackground();
+      })();
+    }
+    function loadOne(url, attempt){
+      var im = new Image();
+      im.onload = function(){
+        window.__gifWarm.push(im); // decoded + pinned
+        done++; render();
+        if (done >= total) openGate();
+      };
+      im.onerror = function(){
+        if (attempt < 5){
+          oPct.textContent = '網路不穩，重試中…';
+          setTimeout(function(){ loadOne(url, attempt + 1); }, 1200 * attempt);
+        } else {
+          oPct.textContent = '動畫載入失敗，請檢查網路後重新整理';
+        }
+      };
+      im.src = encodeURI(url);
+    }
 
-render();
-CRITICAL_ASSETS.forEach(function(u){ loadOne(u, 1); });
-})();
+    render();
+    CRITICAL_ASSETS.forEach(function(u){ loadOne(u, 1); });
+  })();
 
-// Non-blocking: warm the remaining slides' PDFs + thumbnails after entry
-// so later page turns are fast too. Failures are harmless (the player
-// fetches on demand as a fallback).
-function warmRestInBackground(){
-var uuids = [
-'8AC9B357-96F6-4109-931E-1F264B3DC7D1',
-'6F80DFBD-9A36-44E4-92EE-B3EA7E1CA1E2',
-'FAD1F8D5-3D72-4B24-9EE6-220209CA7A22',
-'515BF58C-A7F4-42C7-AB24-F395E442BD09',
-'A020B5BA-42E6-4B54-90AC-B5DF2E7A1D61'
-];
-var urls = [];
-uuids.forEach(function(u){ urls.push('assets/' + u + '/thumbnail.jpeg'); });
-uuids.forEach(function(u){ urls.push('assets/' + u + '/assets/' + u + '.pdf'); });
-var idx = 0;
-function next(){
-if (idx >= urls.length) return;
-var u = urls[idx++];
-fetch(encodeURI(u)).catch(function(){}).then(function(){ next(); });
-}
-next(); next(); // concurrency 2
-}
+  // Non-blocking: warm the remaining slides' PDFs + thumbnails after entry
+  // so later page turns are fast too. Failures are harmless (the player
+  // fetches on demand as a fallback).
+  function warmRestInBackground(){
+    var uuids = [
+      '8AC9B357-96F6-4109-931E-1F264B3DC7D1',
+      '6F80DFBD-9A36-44E4-92EE-B3EA7E1CA1E2',
+      'FAD1F8D5-3D72-4B24-9EE6-220209CA7A22',
+      '515BF58C-A7F4-42C7-AB24-F395E442BD09',
+      'A020B5BA-42E6-4B54-90AC-B5DF2E7A1D61'
+    ];
+    var urls = [];
+    uuids.forEach(function(u){ urls.push('assets/' + u + '/thumbnail.jpeg'); });
+    uuids.forEach(function(u){ urls.push('assets/' + u + '/assets/' + u + '.pdf'); });
+    var idx = 0;
+    function next(){
+      if (idx >= urls.length) return;
+      var u = urls[idx++];
+      fetch(encodeURI(u)).catch(function(){}).then(function(){ next(); });
+    }
+    next(); next(); // concurrency 2
+  }
 })();
 </script>
 </body></html>
