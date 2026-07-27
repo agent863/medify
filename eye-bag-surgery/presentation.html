@@ -131,12 +131,22 @@
     var st = document.getElementById('stage');
     if (!st) return;
     var sr = st.getBoundingClientRect();
-    var y = Math.round(sr.bottom - sr.height * 0.03);
-    for (var fxN = 0.55; fxN <= 0.80; fxN += 0.01){
-      var xN = Math.round(sr.left + sr.width * fxN);
-      if (hyperlinkAt(xN, y)){
-        try { window.__UC.handleClickEvent({ clientX: xN, clientY: y }); } catch(e){}
-        return;
+    // Scan bottom-bar area at several y values to handle sub-pixel variation.
+    // The ▶ bar button sits ~2.5–5% up from the stage bottom edge.
+    var yVals = [
+      Math.round(sr.bottom - sr.height * 0.025),
+      Math.round(sr.bottom - sr.height * 0.03),
+      Math.round(sr.bottom - sr.height * 0.04),
+      Math.round(sr.bottom - sr.height * 0.05)
+    ];
+    for (var yi = 0; yi < yVals.length; yi++){
+      var y = yVals[yi];
+      for (var fxN = 0.50; fxN <= 0.85; fxN += 0.01){
+        var xN = Math.round(sr.left + sr.width * fxN);
+        if (hyperlinkAt(xN, y)){
+          try { window.__UC.handleClickEvent({ clientX: xN, clientY: y }); } catch(e){}
+          return;
+        }
       }
     }
   }
