@@ -128,53 +128,26 @@
   // for its TOC cards. We scan the bottom-bar area at ~3% of stage height
   // from the bottom and use the first hyperlink we find.
   function nextPage(){
-    var uc = window.__UC;
-    // Path A: internal scene-advance primitives (bypass patched advanceToNextBuild)
-    if (uc && typeof uc.calculateNextSceneIndex === 'function' &&
-               typeof uc.assignNextSceneIndex   === 'function'){
-      try {
-        var ni = uc.calculateNextSceneIndex();
-        if (ni !== -1 && ni !== null && ni !== undefined){
-          console.log('[nav] nextPage: assignNextSceneIndex(' + ni + ')');
-          uc.assignNextSceneIndex(ni);
+    var st = document.getElementById('stage');
+    if (!st) return;
+    var sr = st.getBoundingClientRect();
+    // Scan bottom-bar area at several y values to handle sub-pixel variation.
+    // The ▶ bar button sits ~2.5–5% up from the stage bottom edge.
+    var yVals = [
+      Math.round(sr.bottom - sr.height * 0.025),
+      Math.round(sr.bottom - sr.height * 0.03),
+      Math.round(sr.bottom - sr.height * 0.04),
+      Math.round(sr.bottom - sr.height * 0.05)
+    ];
+    for (var yi = 0; yi < yVals.length; yi++){
+      var y = yVals[yi];
+      for (var fxN = 0.50; fxN <= 0.85; fxN += 0.01){
+        var xN = Math.round(sr.left + sr.width * fxN);
+        if (hyperlinkAt(xN, y)){
+          try { window.__UC.handleClickEvent({ clientX: xN, clientY: y }); } catch(e){}
           return;
         }
-      } catch(e){ console.log('[nav] nextPage pathA err', e.message); }
-    }
-    // Path B: navigatorController.select (used by sidebar, works on real devices)
-    var nc = uc && uc.navigatorController;
-    if (nc && typeof nc.select === 'function'){
-      try {
-        var s = scene();
-        console.log('[nav] nextPage: nc.select(' + (s + 1) + ')');
-        nc.select(s + 1);
-        return;
-      } catch(e){ console.log('[nav] nextPage pathB err', e.message); }
-    }
-    // Path C: hyperlinkPlane child click (only works on scene #0 TOC)
-    var st = document.getElementById('stage');
-    var hlPlane = document.getElementById('hyperlinkPlane');
-    if (!st || !hlPlane || !hlPlane.children.length) return;
-    var sr = st.getBoundingClientRect();
-    var barTop = sr.bottom - sr.height * 0.08;
-    var rightmostEl = null, rightmostCX = 0;
-    var ch = hlPlane.children;
-    for (var i = 0; i < ch.length; i++){
-      var r = ch[i].getBoundingClientRect();
-      var cy = (r.top + r.bottom) / 2;
-      var cx = (r.left + r.right) / 2;
-      if (cy >= barTop && cy <= sr.bottom + 2 && cx > rightmostCX){
-        rightmostCX = cx; rightmostEl = ch[i];
       }
-    }
-    if (rightmostEl){
-      var rr = rightmostEl.getBoundingClientRect();
-      console.log('[nav] nextPage: hyperlinkPlane child click');
-      rightmostEl.dispatchEvent(new MouseEvent('click', {
-        bubbles: true, cancelable: true, view: window,
-        clientX: Math.round((rr.left + rr.right) / 2),
-        clientY: Math.round((rr.top  + rr.bottom) / 2)
-      }));
     }
   }
   function prevPage(){ fireSwipe('right', 2, 9999); }  // goBackToPreviousBuild
