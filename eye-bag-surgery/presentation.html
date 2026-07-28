@@ -121,37 +121,16 @@
       detail: { direction: direction, fingers: fingers, swipeStartX: swipeStartX, synthetic: true }
     }));
   }
-  // advanceToNextBuild is patched out in main.js (blocked for all callers,
-  // not just the click/tap paths). The only reliable forward-navigation path
-  // that still works is the player's own handleClickEvent on the bottom-bar
-  // ▶ hyperlink, which triggers the same hyperlink-follow logic the deck uses
-  // for its TOC cards. We scan the bottom-bar area at ~3% of stage height
-  // from the bottom and use the first hyperlink we find.
-  function nextPage(){
-    var st = document.getElementById('stage');
-    if (!st) return;
-    var sr = st.getBoundingClientRect();
-    // Scan bottom-bar area at several y values to handle sub-pixel variation.
-    // The ▶ bar button sits ~2.5–5% up from the stage bottom edge.
-    var yVals = [
-      Math.round(sr.bottom - sr.height * 0.025),
-      Math.round(sr.bottom - sr.height * 0.03),
-      Math.round(sr.bottom - sr.height * 0.04),
-      Math.round(sr.bottom - sr.height * 0.05)
-    ];
-    for (var yi = 0; yi < yVals.length; yi++){
-      var y = yVals[yi];
-      for (var fxN = 0.50; fxN <= 0.85; fxN += 0.01){
-        var xN = Math.round(sr.left + sr.width * fxN);
-        if (hyperlinkAt(xN, y)){
-          try { window.__UC.handleClickEvent({ clientX: xN, clientY: y }); } catch(e){}
-          return;
-        }
-      }
-    }
-  }
+  // NOTE (fixing the 7/27 rewrite): main.js does NOT block
+  // advanceToNextBuild for all callers — only the two blank-tap reasons
+  // ("processClickOrTapAtDisplayCoOrds"/"onMouseDown") are no-op'd; the
+  // swipe path is intact (verified against the deployed main.js). The
+  // bar-hyperlink coordinate scan this replaced silently failed on phone
+  // viewports, which is why forward navigation died on mobile.
+  function nextPage(){ fireSwipe('left', 1, 9999); }   // advanceToNextBuild
   function prevPage(){ fireSwipe('right', 2, 9999); }  // goBackToPreviousBuild
-  function showNavigator(){ fireSwipe('right', 1, 50); }
+  var navOpenedAt = 0;
+  function showNavigator(){ navOpenedAt = Date.now(); fireSwipe('right', 1, 50); }
 
   // ---- 3. closing card (replaces blank #8) ------------------------------
   var closingCard = document.getElementById('__closingCard');
@@ -288,6 +267,12 @@
         var img = all[i];
         if (!img.src || img.src.indexOf('.gif') === -1) continue;
         if (img.offsetWidth === 0 || img.offsetHeight === 0) continue;
+        // Never interrupt a gif that is still loading/decoding its FIRST
+        // play (slower on phones) — swapping its src mid-load left it
+        // stuck on a static frame. A freshly loading gif will play
+        // natively from frame 0 anyway; the swap is only needed for
+        // fully-loaded elements iOS would otherwise resume mid-cycle.
+        if (!img.complete || img.naturalWidth === 0) continue;
         var cst = getComputedStyle(img);
         if (cst.display === 'none' || cst.visibility === 'hidden') continue;
         gifs.push(img);
@@ -370,7 +355,10 @@
       return;
     }
     if (navigatorIsOpen()){
-      // tapping anywhere OUTSIDE the sidebar closes it
+      // tapping anywhere OUTSIDE the sidebar closes it — but not within
+      // 600ms of opening (iOS fires trailing compat events for the very
+      // double-tap that opened it, which was closing it immediately)
+      if (Date.now() - navOpenedAt < 600) return;
       var sb = document.querySelector('.navigatorThumbnailSidebar');
       if (sb){
         var r = sb.getBoundingClientRect();
@@ -594,22 +582,22 @@
     // Fix positioning: if items are absolutely positioned, the clone inherits
     // the 6th item's top value and overlaps it (making slide 6 "disappear").
     // Move the clone down by exactly one item height so it sits below slide 6.
+    // Make the sidebar NATIVELY TOUCH-SCROLLABLE instead of expanding it
+    // beyond the viewport (which left later thumbnails unreachable on
+    // phones — the player's own scroller is mouse-wheel only).
     if (window.getComputedStyle(last).position === 'absolute'){
       var itemH = last.offsetHeight;
       clone.style.top  = (last.offsetTop  + itemH) + 'px';
       clone.style.left = last.offsetLeft + 'px';
-      // Expand the sidebar so the 7th item is actually visible
+      // give the scroll container enough content height for all 7 items
       var needed = last.offsetTop + itemH * 2 + 4;
-      if (sb.offsetHeight < needed) sb.style.height = needed + 'px';
-      sb.style.overflow = 'visible';
-      // Unclip any overflow-hidden ancestors between the item parent and the sidebar
       var p = last.parentNode;
-      while (p && p !== sb){ p.style.overflow = 'visible'; p = p.parentElement; }
-    } else {
-      // Flow layout: just let the sidebar grow naturally
-      sb.style.overflow = 'visible';
-      sb.style.maxHeight = 'none';
+      if (p && p !== sb){ p.style.minHeight = needed + 'px'; }
     }
+    sb.style.overflowY = 'auto';
+    sb.style.overflowX = 'hidden';
+    sb.style.webkitOverflowScrolling = 'touch';
+    sb.style.touchAction = 'pan-y';
     // swap thumbnail image + slide number label
     var img = clone.querySelector('img');
     if (img){ img.removeAttribute('id'); img.src = 'slides/slide7_bar.jpg'; }
