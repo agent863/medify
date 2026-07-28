@@ -261,35 +261,62 @@
   function gifRestartNav(doneCb){
     if (gifRestartTimer) clearTimeout(gifRestartTimer);
     gifRestartTimer = setTimeout(function(){
+      // Backward/jump arrivals leave the current page's gif <img> HIDDEN
+      // (the player only reveals it during a forward build) — that is why
+      // prev/sidebar navigation showed no animation. Recovery is scoped
+      // STRICTLY to the gifs that belong to the current scene (GIF_KEYS
+      // filename match), so no other slide's cached layer can ever be
+      // un-hidden (the old double-layer bug).
+      var s = scene();
+      var wanted = GIF_KEYS[s] || [];
+      var sa = document.getElementById('stageArea');
       var all = document.querySelectorAll('img');
-      var gifs = [], srcs = [];
+      var restarted = 0;
+      function swap(img){
+        var base = img.src.replace(/[?#].*$/, '');
+        var useAlt = img.src.indexOf('?r=1') < 0;
+        img.src = useAlt ? (base + '?r=1') : base;
+        restarted++;
+        console.log('[gif] restart ->', useAlt ? '?r=1' : 'base', base.split('/').pop());
+      }
       for (var i = 0; i < all.length; i++){
         var img = all[i];
         if (!img.src || img.src.indexOf('.gif') === -1) continue;
-        if (img.offsetWidth === 0 || img.offsetHeight === 0) continue;
-        // Never interrupt a gif that is still loading/decoding its FIRST
-        // play (slower on phones) — swapping its src mid-load left it
-        // stuck on a static frame. A freshly loading gif will play
-        // natively from frame 0 anyway; the swap is only needed for
-        // fully-loaded elements iOS would otherwise resume mid-cycle.
+        // never interrupt a gif still loading its first play
         if (!img.complete || img.naturalWidth === 0) continue;
         var cst = getComputedStyle(img);
-        if (cst.display === 'none' || cst.visibility === 'hidden') continue;
-        gifs.push(img);
-        srcs.push(img.src.replace(/[?#].*$/, '')); // base URL without query
+        var visible = img.offsetWidth > 0 && img.offsetHeight > 0 &&
+                      cst.display !== 'none' && cst.visibility !== 'hidden';
+        if (visible){
+          swap(img);
+        } else if (wanted.length && keyFor(img.src) && wanted.indexOf(keyFor(img.src)) !== -1){
+          // current page's own gif, parked hidden: un-hide ITS chain only
+          var n = img, unhid = 0;
+          while (n && n !== sa && n !== document.body){
+            if (n.style){
+              if (n.style.display === 'none'){ n.style.display = ''; unhid++; }
+              if (n.style.visibility === 'hidden'){ n.style.visibility = 'visible'; unhid++; }
+              if (n.style.opacity === '0'){ n.style.opacity = '1'; unhid++; }
+            }
+            n = n.parentNode;
+          }
+          console.log('[gif] recovered hidden gif, unhid=' + unhid);
+          swap(img);
+        }
       }
-      if (doneCb) doneCb(gifs.length);
-      if (!gifs.length) return;
-      gifs.forEach(function(img, i){
-        var base = srcs[i];
-        // Ping-pong: if already on the ?r=1 alt URL, switch to base; else switch to ?r=1.
-        // Either way the src CHANGES → iOS creates a new GIF decoder → frame 0.
-        var useAlt = img.src.indexOf('?r=1') < 0;
-        img.src = useAlt ? (base + '?r=1') : base;
-        console.log('[gif] restart ->', useAlt ? '?r=1' : 'base', base.split('/').pop());
-      });
-      console.log('[gif] total restarted:', gifs.length);
+      if (doneCb) doneCb(restarted);
+      console.log('[gif] total restarted:', restarted, 'scene:', s);
     }, 0);
+  }
+  var GIF_KEYS = { 1:['下眼瞼'], 2:['下眼瞼'], 5:['移除','轉移'], 6:['移除','轉移'] };
+  var KEY_LIST = ['下眼瞼', '移除', '轉移'];
+  function keyFor(src){
+    var s = src;
+    try { s = decodeURIComponent(src); } catch(e){}
+    for (var i = 0; i < KEY_LIST.length; i++){
+      if (s.indexOf(KEY_LIST[i]) !== -1) return KEY_LIST[i];
+    }
+    return null;
   }
   window.addEventListener('hashchange', function(){});
   var __lastScene = scene();
@@ -333,9 +360,28 @@
     fn();
   }
   function handleTap(x, y){
-    var w = window.innerWidth;
-    var inLeft  = x < w * ZONE_FRACTION;
-    var inRight = x > w * (1 - ZONE_FRACTION);
+    // Zones are measured against the SLIDE IMAGE (stage rect), not the
+    // screen: left/right 20% OF THE IMAGE page-turns; any tap fully
+    // OUTSIDE the image (letterbox margins) page-turns by which half of
+    // the image it falls on — so the margins are one big prev/next button.
+    var inLeft = false, inRight = false, outsideImage = false;
+    var st = document.getElementById('stage');
+    var sr = st ? st.getBoundingClientRect() : null;
+    if (sr && sr.width > 0){
+      if (x < sr.left || x > sr.right || y < sr.top || y > sr.bottom){
+        outsideImage = true;
+        inLeft  = x < sr.left + sr.width / 2;
+        inRight = !inLeft;
+      } else {
+        var fxZone = (x - sr.left) / sr.width;
+        inLeft  = fxZone < ZONE_FRACTION;
+        inRight = fxZone > 1 - ZONE_FRACTION;
+      }
+    } else {
+      var w = window.innerWidth;
+      inLeft  = x < w * ZONE_FRACTION;
+      inRight = x > w * (1 - ZONE_FRACTION);
+    }
     if (document.getElementById('__preload')) return;  // still loading
     if (document.getElementById('__tutorial')) return; // tutorial owns taps
     if (onCard){
@@ -365,6 +411,11 @@
         var inside = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
         if (!inside) hideNavigator();
       }
+      return;
+    }
+    // Letterbox margins: big prev/next buttons, no hyperlinks out there.
+    if (outsideImage){
+      if (inLeft || inRight) tapNav(inLeft ? goPrev : goNext);
       return;
     }
     // LAST Keynote page: the bar's ▶ hyperlink has no native next slide to
@@ -398,9 +449,10 @@
       tapNav(inLeft ? goPrev : goNext);
       return;
     }
-    // middle blank space: detect double-tap
+    // middle blank space: detect double-tap (450ms / 80px tolerance —
+    // loosened so real-world double-taps register reliably on phones)
     var now = Date.now();
-    if (now - lastTapTime < 400 && Math.abs(x - lastTapX) < 60 && Math.abs(y - lastTapY) < 60){
+    if (now - lastTapTime < 450 && Math.abs(x - lastTapX) < 80 && Math.abs(y - lastTapY) < 80){
       lastTapTime = 0;
       showNavigator();
     } else {
