@@ -201,7 +201,6 @@
   function hideCard(){ onCard = false; closingCard.style.display = 'none'; }
 
   function goNext(){
-    hideGifPlayBtn();
     if (onCard){
       location.replace(location.pathname + location.search); // loop to #0
       return;
@@ -212,7 +211,6 @@
     console.log('[nav] goNext cur=' + cur + ' target=' + (cur + 1));
   }
   function goPrev(){
-    hideGifPlayBtn();
     if (onCard){
       if (scene() > LAST_SCENE) prevPage(); // pull back out of the blank end state
       hideCard();
@@ -253,9 +251,16 @@
     // a jump landed while the sidebar was open (thumbnail tap): close it
     if (navigatorIsOpen()) hideNavigator();
 
-    // Hide any existing GIF play button, then show one for the new scene
-    hideGifPlayBtn();
-    if (s <= LAST_SCENE) checkGifBtn(s);
+    // Automatic GIF restart via the ping-pong URL swap (no visible UI).
+    // Retry once at 350ms if the first pass found no visible GIF yet
+    // (slide transition may not have finished).
+    if (s <= LAST_SCENE){
+      setTimeout(function(){
+        gifRestartNav(function(n){
+          if (!n) setTimeout(function(){ gifRestartNav(); }, 350);
+        });
+      }, 450);
+    }
   }
 
   // ---- GIF restart on navigation ----------------------------------------
@@ -300,139 +305,6 @@
       });
       console.log('[gif] total restarted:', gifs.length);
     }, 0);
-  }
-  // ---- GIF play button (Option B) ----------------------------------------
-  // iOS Safari GIF decoder is cached per URL — src manipulation is unreliable.
-  // Instead: show a ▶ button over each GIF when landing on a slide.
-  // Tap it → set src to unique ?_p=timestamp URL → brand-new decoder → frame 0.
-  // The button disappears on tap or on the next navigation.
-  //
-  // Scene mapping (computed from slide data): GIF scenes are 1, 2, 5, 6.
-  // Scene 1+2 → slide 8AC9B357 (下眼瞼周圍常見問題.gif)
-  // Scene 5+6 → slide 515BF58C (眼袋脂肪 remove + transfer .gif)
-  var GIF_SCENES = {1:true, 2:true, 5:true, 6:true};
-  var __gifPlayBtn = null;
-  function hideGifPlayBtn(){
-    if (__gifPlayBtn){
-      __gifPlayBtn.parentNode && __gifPlayBtn.parentNode.removeChild(__gifPlayBtn);
-      __gifPlayBtn = null;
-    }
-  }
-  // Find the GIF element — checks both <img> and <video> since Keynote classifies
-  // GIFs as "video" type internally; the web player may render either.
-  function findGifElement(){
-    var all = document.querySelectorAll('img');
-    for (var i = 0; i < all.length; i++){
-      var img = all[i];
-      if (!img.src || img.src.indexOf('.gif') < 0) continue;
-      if (img.offsetWidth === 0 || img.offsetHeight === 0) continue;
-      var cs = getComputedStyle(img);
-      if (cs.display === 'none' || cs.visibility === 'hidden') continue;
-      return img;
-    }
-    var vids = document.querySelectorAll('video');
-    for (var i = 0; i < vids.length; i++){
-      var vid = vids[i];
-      var vsrc = vid.src || vid.currentSrc || '';
-      if (vsrc.indexOf('.gif') < 0) continue;
-      if (vid.offsetWidth === 0 || vid.offsetHeight === 0) continue;
-      return vid;
-    }
-    return null;
-  }
-  // gifEl: found element (img or video), or null → center-of-stage fallback
-  function showGifPlayBtn(gifEl){
-    hideGifPlayBtn();
-    var cx, cy;
-    if (gifEl){
-      var r = gifEl.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0){
-        // element exists but not laid out yet — fall back to stage center
-        gifEl = null;
-      } else {
-        cx = Math.round(r.left + r.width  / 2);
-        cy = Math.round(r.top  + r.height / 2);
-      }
-    }
-    if (!gifEl){
-      // Fallback: center of the stage area
-      var sa = document.getElementById('stageArea') || document.getElementById('stage');
-      var sr = sa ? sa.getBoundingClientRect() : null;
-      cx = sr && sr.width ? Math.round(sr.left + sr.width  / 2) : Math.round(window.innerWidth  / 2);
-      cy = sr && sr.height? Math.round(sr.top  + sr.height / 2) : Math.round(window.innerHeight / 2);
-    }
-    var btn = document.createElement('div');
-    btn.id = '__gifPlay';
-    applyStyles(btn, {
-      position:'fixed', zIndex:'50000',
-      left:(cx - 44)+'px', top:(cy - 44)+'px',
-      width:'88px', height:'88px', borderRadius:'50%',
-      background:'rgba(0,0,0,0.48)',
-      border:'3px solid rgba(255,255,255,0.9)',
-      display:'flex', alignItems:'center', justifyContent:'center',
-      cursor:'pointer', touchAction:'manipulation',
-      boxShadow:'0 4px 20px rgba(0,0,0,0.4)'
-    });
-    // Play triangle
-    var tri = document.createElement('div');
-    applyStyles(tri, {
-      width:'0', height:'0',
-      borderTop:'18px solid transparent',
-      borderBottom:'18px solid transparent',
-      borderLeft:'32px solid white',
-      marginLeft:'10px'
-    });
-    btn.appendChild(tri);
-    function doPlay(e){
-      e.preventDefault(); e.stopPropagation();
-      hideGifPlayBtn();
-      var el = gifEl || findGifElement(); // re-find in case it appeared after button was shown
-      if (el){
-        var base = (el.src || el.currentSrc || '').replace(/[?#].*$/, '');
-        if (el.tagName === 'VIDEO'){
-          el.src = base + '?_p=' + Date.now();
-          try { el.load(); el.play(); } catch(ex){}
-        } else {
-          el.src = base + '?_p=' + Date.now(); // unique URL → new iOS GIF decoder → frame 0
-        }
-      } else {
-        // Last-resort: change src on every GIF img currently in DOM
-        var imgs = document.querySelectorAll('img');
-        for (var j = 0; j < imgs.length; j++){
-          if (imgs[j].src && imgs[j].src.indexOf('.gif') > -1){
-            imgs[j].src = imgs[j].src.replace(/[?#].*$/, '') + '?_p=' + Date.now();
-          }
-        }
-      }
-    }
-    ['pointerup','touchend'].forEach(function(ev){
-      btn.addEventListener(ev, doPlay, { once:true, passive:false });
-    });
-    document.body.appendChild(btn);
-    __gifPlayBtn = btn;
-  }
-  function checkGifBtn(expectedScene){
-    // Wait 500 ms for the slide transition to finish, then find visible GIFs.
-    // Falls back to showing at stage center if element not found but scene is
-    // a known GIF scene (GIF_SCENES). Re-tries once at +500 ms if on a GIF
-    // scene and still no element (handles slow renders / late builds).
-    function attempt(retry){
-      setTimeout(function(){
-        if (scene() !== expectedScene || onCard) return;
-        if (document.getElementById('__preload')) return;
-        var el = findGifElement();
-        if (el){
-          showGifPlayBtn(el);
-        } else if (GIF_SCENES[expectedScene]){
-          if (retry){
-            showGifPlayBtn(null); // element not found after 1 s — show fallback
-          } else {
-            attempt(true); // try once more
-          }
-        }
-      }, retry ? 500 : 500);
-    }
-    attempt(false);
   }
   window.addEventListener('hashchange', function(){});
   var __lastScene = scene();
