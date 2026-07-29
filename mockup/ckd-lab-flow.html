@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>血檢報告辨識 — 流程示意</title>
+<style>
+:root{
+  --sky1:#0683AA; --sky2:#1793BA; --sky3:#28A3CA; --sky4:#94DCEA;
+  --green:#3BAE8C; --amber:#E8912B; --red:#D9534F;
+  --line:#E6EEF1; --g1:#17272E; --g3:#3E535D; --g4:#5C6C74; --g5:#93A3AB;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:system-ui,-apple-system,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;
+  background:#E9EFF2;color:var(--g1);padding:28px 20px 60px;-webkit-font-smoothing:antialiased;
+}
+.page-head{max-width:1360px;margin:0 auto 26px}
+.page-head h1{font-size:21px;font-weight:700}
+.page-head p{margin-top:7px;font-size:13.5px;color:var(--g4);line-height:1.7;max-width:820px}
+.page-head .meta{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+.page-head .meta span{background:#fff;border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:12px;color:var(--g3)}
+
+.rail{max-width:1360px;margin:0 auto;display:flex;gap:26px;overflow-x:auto;padding-bottom:20px;align-items:flex-start}
+.rail::-webkit-scrollbar{height:9px}
+.rail::-webkit-scrollbar-thumb{background:#c3d2d8;border-radius:9px}
+.slot{flex:0 0 auto;width:340px}
+.cap{margin-bottom:11px;padding-left:2px;min-height:74px}
+.cap .n{display:inline-flex;align-items:center;justify-content:center;min-width:21px;height:21px;padding:0 6px;
+  border-radius:6px;background:var(--sky1);color:#fff;font-size:11.5px;font-weight:700;margin-right:7px;vertical-align:2px}
+.cap .n.alt{background:var(--g4)}
+.cap b{font-size:14.5px;font-weight:700}
+.cap p{margin-top:6px;font-size:12px;color:var(--g4);line-height:1.65}
+
+.phone{width:340px;height:718px;background:#fff;border-radius:36px;border:1px solid #d3dfe4;
+  box-shadow:0 14px 34px rgba(23,49,60,.13);overflow:hidden;display:flex;flex-direction:column;position:relative}
+.sb{height:26px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-size:11px;
+  font-weight:600;color:var(--g3);flex:0 0 auto}
+.sb .dots{display:flex;gap:3px;align-items:center}
+.sb .dots i{width:4px;height:4px;background:var(--g4);border-radius:50%}
+.appbar{height:42px;display:flex;align-items:center;gap:9px;padding:0 15px;flex:0 0 auto}
+.appbar .bk{width:30px;height:30px;border-radius:50%;background:#F1F6F8;display:flex;align-items:center;justify-content:center}
+.appbar .ttl{font-size:13.5px;font-weight:600;color:var(--g3)}
+.hwrap{padding:4px 20px 12px;flex:0 0 auto}
+.hwrap .tag{display:inline-block;font-size:11px;font-weight:600;color:var(--sky1);background:#E7F5F9;
+  border-radius:999px;padding:4px 10px;margin-bottom:8px}
+.hwrap h2{font-size:19px;font-weight:700;line-height:1.45}
+.hwrap .sub{margin-top:6px;font-size:11.5px;color:var(--g4);line-height:1.65}
+.body{flex:1;overflow-y:auto;padding:0 16px 14px}
+.body::-webkit-scrollbar{width:0}
+.actionbar{flex:0 0 auto;padding:10px 16px 18px;border-top:1px solid var(--line);background:#fff;display:flex;gap:9px}
+.btn{flex:1;border:none;border-radius:13px;padding:13px 0;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer}
+.btn-pri{background:var(--sky1);color:#fff}
+.btn-sec{background:#EEF4F6;color:var(--g3)}
+
+.card{background:#fff;border:1px solid var(--line);border-radius:15px;padding:14px 15px;margin-bottom:11px}
+.card.flat{border:none;background:#F6FAFB}
+.ctitle{font-size:13px;font-weight:700;display:flex;align-items:center;gap:7px;margin-bottom:10px}
+.ctitle .bar{width:3px;height:13px;border-radius:2px;background:var(--sky1)}
+.hint{font-size:10.5px;color:var(--g5);line-height:1.6;margin-top:8px}
+
+/* ---------- 張數選擇（放大字級與點擊區） ---------- */
+.pick{
+  display:block;width:100%;background:#fff;border:2.5px solid #DCE7EC;border-radius:20px;
+  padding:20px 18px;margin-bottom:15px;text-align:left;cursor:pointer;font-family:inherit;
+  display:flex;align-items:center;gap:16px;
+}
+.pick.on{border-color:var(--sky1);background:#F2FAFC;box-shadow:0 0 0 3px rgba(6,131,170,.10)}
+.pick .art{flex:0 0 auto;width:82px;height:82px}
+.pick .tx{flex:1;min-width:0}
+.pick .tx b{display:block;font-size:20px;font-weight:700;line-height:1.35;letter-spacing:.01em}
+.pick .tx span{display:block;font-size:13.5px;color:var(--g4);line-height:1.65;margin-top:6px}
+.pick .tick{flex:0 0 auto;width:26px;height:26px;border-radius:50%;border:2.5px solid #CBD9DF}
+.pick.on .tick{border-color:var(--sky1);background:var(--sky1);
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'><polyline points='4 12.5 9.5 18 20 6.5'/></svg>");
+  background-size:16px;background-repeat:no-repeat;background-position:center}
+.unsure{background:#FFF8EA;border:1px solid #F2E1BF;border-radius:14px;padding:13px 15px;margin-top:4px}
+.unsure b{font-size:14px;font-weight:700;color:#8A6320;display:block;margin-bottom:4px}
+.unsure p{font-size:13px;color:#7A5C28;line-height:1.7}
+.bigq{font-size:23px;font-weight:700;line-height:1.5;padding:6px 4px 16px}
+.bigq span{display:block;font-size:14px;font-weight:400;color:var(--g4);margin-top:8px;line-height:1.7}
+
+/* ---------- 相機 ---------- */
+.cam{position:absolute;inset:0;background:#101B20;display:flex;flex-direction:column}
+.cam-top{height:46px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;color:#fff}
+.cam-top .mode{background:rgba(255,255,255,.16);border-radius:999px;padding:5px 13px;font-size:12.5px;font-weight:600}
+.cam-view{flex:1;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.sheet{width:228px;background:#fbfbf7;border-radius:3px;padding:13px 11px;transform:rotate(-1.1deg);
+  box-shadow:0 8px 22px rgba(0,0,0,.5);font-size:6.5px;color:#2a2a2a;line-height:1.9}
+.sheet .sh-t{text-align:center;font-size:9px;color:#8B2C8B;letter-spacing:.14em;margin-bottom:7px;font-weight:600}
+.sheet table{width:100%;border-collapse:collapse}
+.sheet td,.sheet th{border:.5px solid #999;padding:1.5px 3px;text-align:left;font-weight:400}
+.sheet th{background:#f0efe8;font-size:6px}
+.sheet .ab{background:#F6C177}
+.corner{position:absolute;inset:44px 30px}
+.corner i{position:absolute;width:26px;height:26px;border:3px solid #F5C518}
+.corner i:nth-child(1){top:0;left:0;border-right:0;border-bottom:0}
+.corner i:nth-child(2){top:0;right:0;border-left:0;border-bottom:0}
+.corner i:nth-child(3){bottom:0;left:0;border-right:0;border-top:0}
+.corner i:nth-child(4){bottom:0;right:0;border-left:0;border-top:0}
+.cam-guide{position:absolute;left:12px;right:12px;top:12px;background:rgba(20,32,38,.85);border-radius:12px;
+  padding:10px 13px;color:#EAF3F7;font-size:13px;line-height:1.6;font-weight:600;text-align:center}
+.cam-bot{flex:0 0 auto;padding:16px 14px 22px}
+.progress{display:flex;align-items:center;justify-content:center;gap:7px;margin-bottom:14px}
+.progress .th{width:34px;height:43px;border-radius:5px;background:#e8e6dd;border:2px solid #fff;position:relative}
+.progress .th::after{content:'';position:absolute;inset:4px;background:repeating-linear-gradient(
+  180deg,#b9b6ab 0 1px,transparent 1px 4px)}
+.progress .txt{color:#fff;font-size:14px;font-weight:600;margin-left:6px}
+.camrow{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px}
+.shutter{width:74px;height:74px;border-radius:50%;background:#fff;border:5px solid rgba(255,255,255,.32);
+  justify-self:center;cursor:pointer}
+.sidebtn{border:none;font-family:inherit;border-radius:15px;padding:15px 6px;font-size:16px;font-weight:700;
+  cursor:pointer;line-height:1.3;justify-self:stretch}
+.sidebtn.next{background:#fff;color:var(--sky1)}
+.sidebtn.done{background:var(--green);color:#fff}
+.sidebtn.retake{background:rgba(255,255,255,.18);color:#fff;font-size:14px;font-weight:600}
+.sidebtn small{display:block;font-size:11px;font-weight:500;opacity:.75;margin-top:2px}
+.camnote{color:#B9CCD4;font-size:12px;text-align:center;line-height:1.6;margin-top:14px}
+
+/* ---------- 核對 ---------- */
+.srcbar{display:flex;align-items:center;gap:8px;background:#E7F5F9;border-radius:11px;padding:9px 12px;margin-bottom:11px;flex-wrap:wrap}
+.srcbar .h{font-size:11.5px;font-weight:600;color:var(--sky1)}
+.srcbar .d{font-size:11px;color:var(--g4);margin-left:auto}
+.pagepill{display:inline-flex;align-items:center;gap:5px;background:#fff;border:1px solid #C9E4EE;border-radius:999px;
+  padding:3px 9px;font-size:10.5px;font-weight:600;color:var(--sky1)}
+.lrow{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--line)}
+.lrow:last-child{border-bottom:none}
+.lrow .nm{flex:1;min-width:0}
+.lrow .nm b{display:block;font-size:12.5px;font-weight:600}
+.lrow .nm span{font-size:10px;color:var(--g5)}
+.lrow .vv{display:flex;align-items:baseline;gap:3px;border:1px dashed #B9CED6;border-radius:8px;padding:4px 8px;background:#FBFDFD}
+.lrow .vv b{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
+.lrow .vv i{font-style:normal;font-size:9.5px;color:var(--g5)}
+.lrow.miss .vv{border-color:#E2B8B4;background:#FDF6F5}
+.lrow.miss .vv b{color:#C9736C;font-size:11.5px;font-weight:600}
+
+/* ---------- 結果 ---------- */
+.lgroup{border-radius:15px;padding:13px 14px;margin-bottom:11px;border:1px solid}
+.lgroup.red{background:#FDF3F2;border-color:#F2D4D1}
+.lgroup.amb{background:#FEF8EE;border-color:#F5E2C4}
+.lgroup.grn{background:#F1FAF7;border-color:#D3EDE4}
+.lgroup.gry{background:#F6F8F9;border-color:#E3EAED}
+.lg-h{display:flex;align-items:center;gap:7px;margin-bottom:4px}
+.lg-h .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+.lg-h b{font-size:13px;font-weight:700}
+.lg-h .cnt{margin-left:auto;font-size:11px;color:var(--g4)}
+.lg-sub{font-size:10.5px;color:var(--g4);line-height:1.6;margin-bottom:9px}
+.vrow{display:flex;align-items:center;gap:9px;padding:8px 0;border-top:1px solid rgba(0,0,0,.055)}
+.vrow .k{flex:1;min-width:0}
+.vrow .k b{display:block;font-size:12.5px;font-weight:600}
+.vrow .k span{font-size:10px;color:var(--g5)}
+.vrow .now{text-align:right}
+.vrow .now b{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+.vrow .now span{display:block;font-size:9.5px;color:var(--g5)}
+.delta{font-size:10.5px;font-weight:600;padding:2px 6px;border-radius:6px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.d-up,.d-dn{background:#FBE4E1;color:#B8453E}
+.d-ok{background:#E7F0F3;color:var(--g4)}
+.callbtn{display:flex;align-items:center;justify-content:center;background:var(--red);color:#fff;
+  border-radius:11px;padding:11px;font-size:13px;font-weight:600;margin-top:10px}
+
+/* ---------- 趨勢 ---------- */
+.legend{display:flex;gap:13px;flex-wrap:wrap;margin:2px 0 8px}
+.legend span{display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--g4)}
+.legend .sq{width:9px;height:9px;border-radius:2px}
+.mini{display:flex;gap:7px;margin-top:9px}
+.mini .m{flex:1;background:#F6FAFB;border-radius:11px;padding:9px 10px;text-align:center}
+.mini .m span{display:block;font-size:10px;color:var(--g5)}
+.mini .m b{display:block;font-size:15px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums}
+.mini .m i{font-style:normal;font-size:10px;font-weight:600}
+
+/* ---------- 任務 ---------- */
+.tk{display:flex;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}
+.tk:last-child{border-bottom:none}
+.tk .box{width:19px;height:19px;border-radius:6px;border:1.8px solid #C4D5DC;flex:0 0 auto;margin-top:1px}
+.tk .tx b{display:block;font-size:12.5px;font-weight:600;line-height:1.45}
+.tk .tx p{font-size:10.5px;color:var(--g4);line-height:1.6;margin-top:3px}
+.why{display:inline-block;font-size:9.5px;font-weight:600;color:var(--sky1);background:#E7F5F9;
+  border-radius:5px;padding:2px 6px;margin-top:5px}
+.freq{font-size:10px;font-weight:600;color:var(--g5);white-space:nowrap;margin-left:auto;align-self:flex-start;margin-top:2px}
+.banner{background:linear-gradient(135deg,#0683AA,#1793BA);border-radius:15px;padding:14px 15px;color:#fff;margin-bottom:11px}
+.banner b{font-size:14px;font-weight:700;display:block}
+.banner p{font-size:11px;opacity:.92;line-height:1.65;margin-top:5px}
+.datechip{display:inline-flex;align-items:center;background:rgba(255,255,255,.2);border-radius:8px;
+  padding:5px 9px;font-size:11.5px;font-weight:600;margin-top:9px}
+.disc{font-size:10px;color:var(--g5);line-height:1.65;text-align:center;padding:12px 6px 4px}
+@media(max-width:900px){.rail{flex-direction:column;align-items:center}.slot{width:340px}.cap{min-height:0}}
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>血檢報告拍照辨識 — 流程示意</h1>
+  <p>假設一位第 3b 期病患，過去一年在兩家醫院抽血。步驟 1 為新增的張數選擇頁：先問清楚報告有幾張，後續相機的按鈕就只會出現使用者需要的那一個，避免長者面對「下一張」和「完成」同時存在時按錯。數值為虛構示意。</p>
+  <div class="meta">
+    <span>本次：2026/05/16 三軍總醫院</span>
+    <span>上次：2025/12/02 高雄榮總</span>
+    <span>再上次：2025/07/01 高雄榮總</span>
+  </div>
+</div>
+
+<div class="rail">
+
+<!-- ============ 1. 張數選擇 ============ -->
+<div class="slot">
+  <div class="cap"><span class="n">1</span><b>先問有幾張</b>
+    <p>用圖像對照「一張」與「好幾張」，選完才決定相機長什麼樣。字級放大、點擊區整塊可按。</p></div>
+  <div class="phone">
+    <div class="sb"><span>9:41</span><span class="dots"><i></i><i></i><i></i></span></div>
+    <div class="appbar"><span class="bk">‹</span><span class="ttl">記錄檢驗報告</span></div>
+    <div class="body" style="padding-top:6px">
+      <div class="bigq">您這次拿到的報告<br>總共有幾張？
+        <span>同一天抽的血，有時候會分成好幾張紙。<br>請看一下手上的報告再選。</span>
+      </div>
+
+      <button class="pick">
+        <svg class="art" viewBox="0 0 88 88" fill="none">
+          <rect x="22" y="10" width="44" height="60" rx="4" fill="#fff" stroke="#0683AA" stroke-width="3"/>
+          <line x1="30" y1="24" x2="58" y2="24" stroke="#94DCEA" stroke-width="3.4" stroke-linecap="round"/>
+          <line x1="30" y1="34" x2="58" y2="34" stroke="#94DCEA" stroke-width="3.4" stroke-linecap="round"/>
+          <line x1="30" y1="44" x2="50" y2="44" stroke="#94DCEA" stroke-width="3.4" stroke-linecap="round"/>
+          <line x1="30" y1="54" x2="58" y2="54" stroke="#94DCEA" stroke-width="3.4" stroke-linecap="round"/>
+          <text x="44" y="84" text-anchor="middle" font-size="15" font-weight="700" fill="#0683AA"
+                font-family="system-ui">1 張</text>
+        </svg>
+        <span class="tx"><b>只有一張</b><span>拍完就結束</span></span>
+        <span class="tick"></span>
+      </button>
+
+      <button class="pick on">
+        <svg class="art" viewBox="0 0 88 88" fill="none">
+          <rect x="10" y="14" width="40" height="54" rx="4" fill="#fff" stroke="#8FB6C4" stroke-width="2.6"/>
+          <rect x="20" y="10" width="40" height="54" rx="4" fill="#fff" stroke="#4A9FBE" stroke-width="2.8"/>
+          <rect x="30" y="6" width="40" height="54" rx="4" fill="#fff" stroke="#0683AA" stroke-width="3"/>
+          <line x1="37" y1="19" x2="63" y2="19" stroke="#94DCEA" stroke-width="3.2" stroke-linecap="round"/>
+          <line x1="37" y1="28" x2="63" y2="28" stroke="#94DCEA" stroke-width="3.2" stroke-linecap="round"/>
+          <line x1="37" y1="37" x2="55" y2="37" stroke="#94DCEA" stroke-width="3.2" stroke-linecap="round"/>
+          <line x1="37" y1="46" x2="63" y2="46" stroke="#94DCEA" stroke-width="3.2" stroke-linecap="round"/>
+          <text x="44" y="82" text-anchor="middle" font-size="15" font-weight="700" fill="#0683AA"
+                font-family="system-ui">2 張以上</text>
+        </svg>
+        <span class="tx"><b>有好幾張</b><span>可以一張一張慢慢拍</span></span>
+        <span class="tick"></span>
+      </button>
+
+      <div class="unsure">
+        <b>不確定的話，選「有好幾張」</b>
+        <p>多拍幾張沒關係，下一步可以刪掉不要的。少拍才需要重來一次。</p>
+      </div>
+    </div>
+    <div class="actionbar">
+      <button class="btn btn-pri" style="font-size:16px;padding:16px 0">開始拍照</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 2A. 相機 — 多張 ============ -->
+<div class="slot">
+  <div class="cap"><span class="n">2A</span><b>相機・多張模式</b>
+    <p>右邊只有「下一張」。拍完第一張立刻回到取景畫面，不跳出任何確認視窗打斷。</p></div>
+  <div class="phone">
+    <div class="cam">
+      <div class="cam-top">
+        <span style="font-size:20px">✕</span>
+        <span class="mode">多張模式</span>
+        <span style="opacity:.55;font-size:18px">⚡</span>
+      </div>
+      <div class="cam-view">
+        <div class="cam-guide">把整張報告放進黃色框裡</div>
+        <div class="sheet">
+          <div class="sh-t">檢 驗 報 告</div>
+          <div style="display:flex;justify-content:space-between;font-size:5.5px;margin-bottom:5px">
+            <span>姓名：▉▉▉</span><span>報告日期：2026/05/16</span>
+          </div>
+          <table>
+            <tr><th>檢驗代碼</th><th>結果</th><th>單位</th><th>參考值</th></tr>
+            <tr><td>Creatinine</td><td>1.72</td><td>mg/dL</td><td>0.7 - 1.3</td></tr>
+            <tr><td>eGFR</td><td>38</td><td>ml/min</td><td>&gt; 60</td></tr>
+            <tr class="ab"><td>K</td><td>H 5.6</td><td>mmol/L</td><td>3.5 - 5.1</td></tr>
+            <tr><td>P</td><td>4.9</td><td>mg/dL</td><td>2.5 - 4.5</td></tr>
+            <tr><td>Ca</td><td>8.9</td><td>mg/dL</td><td>8.5 - 10.5</td></tr>
+            <tr><td>Albumin</td><td>3.8</td><td>g/dL</td><td>3.5 - 5.0</td></tr>
+            <tr class="ab"><td>Hb</td><td>L 9.8</td><td>g/dL</td><td>13.5 - 18.0</td></tr>
+          </table>
+        </div>
+        <div class="corner"><i></i><i></i><i></i><i></i></div>
+      </div>
+      <div class="cam-bot">
+        <div class="progress">
+          <span class="th"></span><span class="th"></span>
+          <span class="txt">已拍 2 張</span>
+        </div>
+        <div class="camrow">
+          <button class="sidebtn retake">重拍<small>上一張</small></button>
+          <button class="shutter"></button>
+          <button class="sidebtn next">下一張<small>還要再拍</small></button>
+        </div>
+        <p class="camnote">全部拍完後，按「下一張」旁邊會出現完成</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 2B. 相機 — 單張 ============ -->
+<div class="slot">
+  <div class="cap"><span class="n alt">2B</span><b>相機・單張模式</b>
+    <p>右邊只有「完成」，綠色、字大。選了「只有一張」的人不會看到「下一張」，少一個誤按機會。</p></div>
+  <div class="phone">
+    <div class="cam">
+      <div class="cam-top">
+        <span style="font-size:20px">✕</span>
+        <span class="mode">單張模式</span>
+        <span style="opacity:.55;font-size:18px">⚡</span>
+      </div>
+      <div class="cam-view">
+        <div class="cam-guide">把整張報告放進黃色框裡</div>
+        <div class="sheet">
+          <div class="sh-t">檢 驗 報 告</div>
+          <div style="display:flex;justify-content:space-between;font-size:5.5px;margin-bottom:5px">
+            <span>姓名：▉▉▉</span><span>報告日期：2026/05/16</span>
+          </div>
+          <table>
+            <tr><th>檢驗代碼</th><th>結果</th><th>單位</th><th>參考值</th></tr>
+            <tr><td>Creatinine</td><td>1.72</td><td>mg/dL</td><td>0.7 - 1.3</td></tr>
+            <tr><td>eGFR</td><td>38</td><td>ml/min</td><td>&gt; 60</td></tr>
+            <tr class="ab"><td>K</td><td>H 5.6</td><td>mmol/L</td><td>3.5 - 5.1</td></tr>
+            <tr><td>P</td><td>4.9</td><td>mg/dL</td><td>2.5 - 4.5</td></tr>
+            <tr><td>Ca</td><td>8.9</td><td>mg/dL</td><td>8.5 - 10.5</td></tr>
+            <tr><td>Albumin</td><td>3.8</td><td>g/dL</td><td>3.5 - 5.0</td></tr>
+            <tr class="ab"><td>Hb</td><td>L 9.8</td><td>g/dL</td><td>13.5 - 18.0</td></tr>
+          </table>
+        </div>
+        <div class="corner"><i></i><i></i><i></i><i></i></div>
+      </div>
+      <div class="cam-bot">
+        <div class="progress">
+          <span class="th"></span>
+          <span class="txt">已拍 1 張</span>
+        </div>
+        <div class="camrow">
+          <button class="sidebtn retake">重拍<small>這一張</small></button>
+          <button class="shutter"></button>
+          <button class="sidebtn done">完成<small>拍好了</small></button>
+        </div>
+        <p class="camnote">還有其他張沒拍到？按左上角 ✕ 可以回去改選</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 3. 核對 ============ -->
+<div class="slot">
+  <div class="cap"><span class="n">3</span><b>核對辨識結果</b>
+    <p>多張會自動依報告日期合併成一筆。每一格都能點開修改，沒抓到的項目留白讓使用者補。</p></div>
+  <div class="phone">
+    <div class="sb"><span>9:41</span><span class="dots"><i></i><i></i><i></i></span></div>
+    <div class="appbar"><span class="bk">‹</span><span class="ttl">核對檢驗數值</span></div>
+    <div class="hwrap">
+      <span class="tag">請確認以下數值是否正確</span>
+      <h2>已讀取 18 個項目</h2>
+      <div class="sub">數字有誤請直接點擊修改。虛線框代表由照片辨識，尚未經您確認。</div>
+    </div>
+    <div class="body">
+      <div class="srcbar">
+        <span class="h">三軍總醫院</span>
+        <span class="pagepill">3 張已合併</span>
+        <span class="d">報告日期 2026/05/16</span>
+      </div>
+
+      <div class="card">
+        <div class="ctitle"><span class="bar"></span>腎功能</div>
+        <div class="lrow"><span class="nm"><b>肌酸酐 Cr</b><span>參考值 0.7 – 1.3 mg/dL</span></span>
+          <span class="vv"><b>1.72</b><i>mg/dL</i></span></div>
+        <div class="lrow"><span class="nm"><b>腎絲球過濾率 eGFR</b><span>參考值 ≥ 60</span></span>
+          <span class="vv"><b>38</b><i>ml/min</i></span></div>
+        <div class="lrow"><span class="nm"><b>尿蛋白比值 UPCR</b><span>參考值 &lt; 150 mg/g</span></span>
+          <span class="vv"><b>850</b><i>mg/g</i></span></div>
+      </div>
+
+      <div class="card">
+        <div class="ctitle"><span class="bar"></span>電解質與礦物質</div>
+        <div class="lrow"><span class="nm"><b>鉀 K</b><span>參考值 3.5 – 5.1 mmol/L</span></span>
+          <span class="vv"><b>5.6</b><i>mmol/L</i></span></div>
+        <div class="lrow"><span class="nm"><b>磷 P</b><span>參考值 2.5 – 4.5 mg/dL</span></span>
+          <span class="vv"><b>4.9</b><i>mg/dL</i></span></div>
+        <div class="lrow"><span class="nm"><b>鈣 Ca</b><span>參考值 8.5 – 10.5 mg/dL</span></span>
+          <span class="vv"><b>8.9</b><i>mg/dL</i></span></div>
+        <div class="lrow miss"><span class="nm"><b>碳酸氫根 HCO₃</b><span>本次報告未找到</span></span>
+          <span class="vv"><b>點此輸入</b></span></div>
+      </div>
+
+      <div class="card">
+        <div class="ctitle"><span class="bar"></span>血脂與代謝</div>
+        <div class="lrow"><span class="nm"><b>低密度脂蛋白 LDL-C</b><span>建議控制在 100 以下</span></span>
+          <span class="vv"><b>118</b><i>mg/dL</i></span></div>
+        <div class="lrow"><span class="nm"><b>三酸甘油脂 TG</b><span>建議控制在 150 以下</span></span>
+          <span class="vv"><b>162</b><i>mg/dL</i></span></div>
+        <div class="lrow"><span class="nm"><b>糖化血色素 HbA1c</b><span>參考值 4.0 – 6.0 %</span></span>
+          <span class="vv"><b>7.4</b><i>%</i></span></div>
+      </div>
+
+      <div class="card flat">
+        <div class="ctitle"><span class="bar"></span>其他數值（9 項）</div>
+        <p style="font-size:11.5px;color:var(--g4);line-height:1.7">血色素 9.8、白蛋白 3.8、尿酸 7.8、鈉 138、
+        AST 22、ALT 47、白血球 6.40、血小板 248、CRP 0.4　<span style="color:var(--sky1);font-weight:600">展開核對 ▾</span></p>
+      </div>
+
+      <p class="hint">參考值以這張報告上印的為準。不同醫院的參考區間略有差異，App 會分開記錄。</p>
+    </div>
+    <div class="actionbar">
+      <button class="btn btn-sec">重拍</button>
+      <button class="btn btn-pri">數值正確，儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 4. 總覽 ============ -->
+<div class="slot">
+  <div class="cap"><span class="n">4</span><b>本次結果總覽</b>
+    <p>紅／黃／綠／灰四級。紅燈是「現在就聯絡」，灰燈是「本次沒驗到」，避免沒出現被誤會成正常。</p></div>
+  <div class="phone">
+    <div class="sb"><span>9:41</span><span class="dots"><i></i><i></i><i></i></span></div>
+    <div class="appbar"><span class="bk">‹</span><span class="ttl">2026/05/16 檢驗結果</span></div>
+    <div class="hwrap">
+      <span class="tag">共 18 項・與 2025/12/02 比較</span>
+      <h2>有 1 項需要盡快處理</h2>
+    </div>
+    <div class="body">
+
+      <div class="lgroup red">
+        <div class="lg-h"><span class="dot" style="background:var(--red)"></span><b>建議盡快聯絡醫療團隊</b><span class="cnt">1 項</span></div>
+        <div class="lg-sub">此數值超出一般安全範圍，不建議等到下次回診再處理。</div>
+        <div class="vrow">
+          <span class="k"><b>鉀 K</b><span>安全範圍 3.5 – 5.1 mmol/L</span></span>
+          <span class="delta d-up">↑ 0.5</span>
+          <span class="now"><b style="color:var(--red)">5.6</b><span>上次 5.1</span></span>
+        </div>
+        <div class="callbtn">聯絡您的腎臟科診間</div>
+      </div>
+
+      <div class="lgroup amb">
+        <div class="lg-h"><span class="dot" style="background:var(--amber)"></span><b>下次回診請醫師評估</b><span class="cnt">7 項</span></div>
+        <div class="lg-sub">已加入回診討論清單，回診時把手機拿給醫師看即可。</div>
+        <div class="vrow"><span class="k"><b>腎絲球過濾率 eGFR</b><span>一年內下降 14</span></span>
+          <span class="delta d-dn">↓ 7</span><span class="now"><b>38</b><span>上次 45</span></span></div>
+        <div class="vrow"><span class="k"><b>血色素 Hb</b><span>低於 10 建議評估</span></span>
+          <span class="delta d-dn">↓ 1.1</span><span class="now"><b>9.8</b><span>上次 10.9</span></span></div>
+        <div class="vrow"><span class="k"><b>尿蛋白比值 UPCR</b><span>持續上升</span></span>
+          <span class="delta d-up">↑ 170</span><span class="now"><b>850</b><span>上次 680</span></span></div>
+        <div class="vrow"><span class="k"><b>低密度脂蛋白 LDL-C</b><span>建議 100 以下</span></span>
+          <span class="delta d-up">↑ 14</span><span class="now"><b>118</b><span>上次 104</span></span></div>
+        <div class="vrow"><span class="k"><b>三酸甘油脂 TG</b><span>建議 150 以下</span></span>
+          <span class="delta d-up">↑ 22</span><span class="now"><b>162</b><span>上次 140</span></span></div>
+        <div class="vrow"><span class="k"><b>磷 P</b><span>略高於參考值</span></span>
+          <span class="delta d-up">↑ 0.3</span><span class="now"><b>4.9</b><span>上次 4.6</span></span></div>
+        <div class="vrow"><span class="k"><b>糖化血色素 HbA1c</b><span>高於一般控制目標</span></span>
+          <span class="delta d-up">↑ 0.2</span><span class="now"><b>7.4</b><span>上次 7.2</span></span></div>
+      </div>
+
+      <div class="lgroup grn">
+        <div class="lg-h"><span class="dot" style="background:var(--green)"></span><b>目前穩定</b><span class="cnt">9 項</span></div>
+        <div class="lg-sub">鈣、白蛋白、鈉、肝功能、血球數等維持在參考範圍。</div>
+        <div class="vrow"><span class="k"><b>鈣 Ca</b><span>8.5 – 10.5 mg/dL</span></span>
+          <span class="delta d-ok">持平</span><span class="now"><b>8.9</b><span>上次 9.0</span></span></div>
+        <div class="vrow"><span class="k"><b>白蛋白 Albumin</b><span>3.5 – 5.0 g/dL</span></span>
+          <span class="delta d-ok">持平</span><span class="now"><b>3.8</b><span>上次 3.9</span></span></div>
+        <p style="font-size:11.5px;color:var(--sky1);font-weight:600;padding-top:9px">展開其餘 7 項 ▾</p>
+      </div>
+
+      <div class="lgroup gry">
+        <div class="lg-h"><span class="dot" style="background:#B4C2C8"></span><b>本次未檢驗</b><span class="cnt">2 項</span></div>
+        <div class="lg-sub">這次的報告沒有這些項目，顯示的是上一次的數值。</div>
+        <div class="vrow"><span class="k"><b>碳酸氫根 HCO₃</b><span>2025/12 檢驗</span></span>
+          <span class="now"><b style="color:var(--g5)">21</b><span>已 5 個月</span></span></div>
+        <div class="vrow"><span class="k"><b>尿白蛋白比值 UACR</b><span>尚無記錄</span></span>
+          <span class="now"><b style="color:var(--g5)">—</b><span>未曾記錄</span></span></div>
+      </div>
+
+      <p class="disc">本頁僅比對報告上印的參考值，不代表診斷。變化幅度小於 10% 通常屬儀器誤差範圍。</p>
+    </div>
+    <div class="actionbar">
+      <button class="btn btn-sec">看變化趨勢</button>
+      <button class="btn btn-pri">產生本季任務</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 5. 趨勢 ============ -->
+<div class="slot">
+  <div class="cap"><span class="n">5</span><b>年度變化</b>
+    <p>eGFR 折線配上 CKD 分期色帶，點的形狀區分醫院——跨院比較一定要標來源。</p></div>
+  <div class="phone">
+    <div class="sb"><span>9:41</span><span class="dots"><i></i><i></i><i></i></span></div>
+    <div class="appbar"><span class="bk">‹</span><span class="ttl">數值變化</span></div>
+    <div class="hwrap">
+      <span class="tag">近 12 個月・3 次抽血</span>
+      <h2>腎功能變化</h2>
+    </div>
+    <div class="body">
+      <div class="card">
+        <div class="ctitle"><span class="bar"></span>eGFR　ml/min/1.73m²</div>
+        <div class="legend">
+          <span><span class="sq" style="background:#0683AA;border-radius:50%"></span>高雄榮總</span>
+          <span><span class="sq" style="background:#0683AA"></span>三軍總醫院</span>
+        </div>
+        <svg viewBox="0 0 340 185" style="width:100%;display:block">
+          <rect x="40" y="10"  width="280" height="50" fill="#EAF7F1"/>
+          <rect x="40" y="60"  width="280" height="25" fill="#F4F7DE"/>
+          <rect x="40" y="85"  width="280" height="25" fill="#FCF2DC"/>
+          <rect x="40" y="110" width="280" height="25" fill="#FBE6DA"/>
+          <rect x="40" y="135" width="280" height="25" fill="#F7DAD8"/>
+          <g font-size="7.5" fill="#8A9AA2" font-family="system-ui">
+            <text x="322" y="38">第 1–2 期</text>
+            <text x="322" y="75">3a</text>
+            <text x="322" y="100" font-weight="700" fill="#B8813A">3b</text>
+            <text x="322" y="125">第 4 期</text>
+            <text x="322" y="150">第 5 期</text>
+          </g>
+          <g stroke="#D7E3E8" stroke-width=".7">
+            <line x1="40" y1="10" x2="320" y2="10"/><line x1="40" y1="60" x2="320" y2="60"/>
+            <line x1="40" y1="85" x2="320" y2="85"/><line x1="40" y1="110" x2="320" y2="110"/>
+            <line x1="40" y1="135" x2="320" y2="135"/><line x1="40" y1="160" x2="320" y2="160"/>
+          </g>
+          <g font-size="8" fill="#93A3AB" text-anchor="end" font-family="system-ui">
+            <text x="34" y="13">90</text><text x="34" y="63">60</text><text x="34" y="88">45</text>
+            <text x="34" y="113">30</text><text x="34" y="138">15</text>
+          </g>
+          <polyline points="80,73.3 180,85 280,96.7" fill="none" stroke="#0683AA" stroke-width="2.6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="80" cy="73.3" r="5" fill="#fff" stroke="#0683AA" stroke-width="2.6"/>
+          <circle cx="180" cy="85" r="5" fill="#fff" stroke="#0683AA" stroke-width="2.6"/>
+          <rect x="275" y="91.7" width="10" height="10" fill="#fff" stroke="#0683AA" stroke-width="2.6"/>
+          <g font-size="9" font-weight="700" fill="#17272E" text-anchor="middle" font-family="system-ui">
+            <text x="80" y="66">52</text><text x="180" y="77.5">45</text><text x="280" y="86">38</text>
+          </g>
+          <g font-size="8" fill="#5C6C74" text-anchor="middle" font-family="system-ui">
+            <text x="80" y="174">2025/07</text><text x="180" y="174">2025/12</text><text x="280" y="174">2026/05</text>
+          </g>
+        </svg>
+        <div class="mini">
+          <div class="m"><span>一年變化</span><b style="color:var(--red)">−14</b><i style="color:var(--red)">下降較快</i></div>
+          <div class="m"><span>目前分期</span><b>3b</b><i style="color:var(--g4)">30–44</i></div>
+        </div>
+        <p class="hint">一年內 eGFR 下降超過 5，屬於變化較快，建議回診時特別提出討論。</p>
+      </div>
+
+      <div class="card">
+        <div class="ctitle"><span class="bar"></span>其他項目變化</div>
+        <div class="lrow"><span class="nm"><b>鉀 K</b><span>4.8 → 5.1 → 5.6</span></span><span class="delta d-up">持續上升</span></div>
+        <div class="lrow"><span class="nm"><b>血色素 Hb</b><span>12.1 → 10.9 → 9.8</span></span><span class="delta d-dn">持續下降</span></div>
+        <div class="lrow"><span class="nm"><b>低密度脂蛋白 LDL-C</b><span>96 → 104 → 118</span></span><span class="delta d-up">持續上升</span></div>
+        <div class="lrow"><span class="nm"><b>鈣 Ca</b><span>9.1 → 9.0 → 8.9</span></span><span class="delta d-ok">持平</span></div>
+      </div>
+
+      <p class="disc">不同醫院的檢驗儀器與方法略有差異，微小變化不一定代表身體狀況改變。</p>
+    </div>
+    <div class="actionbar">
+      <button class="btn btn-pri">匯出給醫師看</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 6. 任務 ============ -->
+<div class="slot">
+  <div class="cap"><span class="n">6</span><b>依數值生成任務</b>
+    <p>不是每個人給同一套衛教——哪一項異常，就長出哪些任務，並標明「為什麼給你這條」。</p></div>
+  <div class="phone">
+    <div class="sb"><span>9:41</span><span class="dots"><i></i><i></i><i></i></span></div>
+    <div class="appbar"><span class="bk">‹</span><span class="ttl">本季照護任務</span></div>
+    <div class="hwrap">
+      <span class="tag">依 2026/05/16 檢驗結果調整</span>
+      <h2>已為您新增 6 項任務</h2>
+      <div class="sub">下次抽血後會重新調整。任務為衛教參考，飲食細節請與營養師確認。</div>
+    </div>
+    <div class="body">
+      <div class="banner">
+        <b>下次回診提醒</b>
+        <p>依您設定的回診週期（3 個月），提醒您記得回診並帶著這次的記錄。</p>
+        <span class="datechip">2026/08/16（日）・還有 92 天</span>
+      </div>
+
+      <div class="card">
+        <div class="ctitle"><span class="bar" style="background:var(--red)"></span>每日</div>
+        <div class="tk"><span class="box"></span><span class="tx">
+          <b>蔬菜先汆燙去水再炒</b><p>切小塊、水煮 3–5 分鐘後撈起，可減少一部分鉀。菜湯不要喝。</p>
+          <span class="why">因為 鉀 5.6 偏高</span></span><span class="freq">每餐</span></div>
+        <div class="tk"><span class="box"></span><span class="tx">
+          <b>暫停使用低鈉鹽</b><p>低鈉鹽是用氯化鉀取代食鹽，鉀偏高時要避開。</p>
+          <span class="why">因為 鉀 5.6 偏高</span></span><span class="freq">每日</span></div>
+        <div class="tk"><span class="box"></span><span class="tx">
+          <b>早晚量血壓並記錄</b><p>連續 7 天、早晚各 2 次，固定同一手臂。</p>
+          <span class="why">因為 尿蛋白 850 上升</span></span><span class="freq">每日 2 次</span></div>
+        <div class="tk"><span class="box"></span><span class="tx">
+          <b>記錄疲倦、頭暈或走路會喘</b><p>今天有沒有？勾選就好，會整理成回診時的參考。</p>
+          <span class="why">因為 血色素 9.8 偏低</span></span><span class="freq">每日</span></div>
+      </div>
+
+      <div class="card">
+        <div class="ctitle"><span class="bar" style="background:var(--amber)"></span>每餐與每週</div>
+        <div class="tk"><span class="box"></span><span class="tx">
+          <b>磷結合劑隨餐服用</b><p>和食物一起吃才有效果，飯後補吃效果會打折。</p>
+          <span class="why">因為 磷 4.9 偏高</span></span><span class="freq">每餐</span></div>
+        <div class="tk"><span class="box"></span><span class="tx">
+          <b>散步 30 分鐘 × 5 天</b><p>強度以「還能邊走邊講話」為準，不舒服就停下來休息。</p>
+          <span class="why">因為 LDL-C 118、HbA1c 7.4</span></span><span class="freq">每週</span></div>
+      </div>
+
+      <div class="card flat">
+        <div class="ctitle"><span class="bar" style="background:var(--sky3)"></span>回診時記得問醫師</div>
+        <p style="font-size:11.5px;color:var(--g3);line-height:1.85">
+          ・血色素降到 9.8，需要進一步評估嗎？<br>
+          ・eGFR 一年掉了 14，追蹤頻率要調整嗎？<br>
+          ・鉀偏高，目前的用藥需要調整嗎？<br>
+          ・碳酸氫根已 5 個月未追蹤，需要再驗嗎？</p>
+        <p class="hint">這幾題由本次異常數值自動整理，可自行增減。</p>
+      </div>
+
+      <p class="disc">本 App 不判讀病情、不提供治療建議。任何身體不適請聯絡您的醫療團隊。</p>
+    </div>
+    <div class="actionbar">
+      <button class="btn btn-sec">調整任務</button>
+      <button class="btn btn-pri">開始今天的打卡</button>
+    </div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>
