@@ -230,16 +230,45 @@
     // a jump landed while the sidebar was open (thumbnail tap): close it
     if (navigatorIsOpen()) hideNavigator();
 
-    // Automatic GIF restart via the ping-pong URL swap (no visible UI).
-    // Retry once at 350ms if the first pass found no visible GIF yet
-    // (slide transition may not have finished).
+    // Visible gifs: ping-pong restart (fresh decoder -> frame 0).
     if (s <= LAST_SCENE){
-      setTimeout(function(){
-        gifRestartNav(function(n){
-          if (!n) setTimeout(function(){ gifRestartNav(); }, 350);
-        });
-      }, 450);
+      setTimeout(function(){ gifRestartNav(); }, 450);
     }
+    // MEASURED live on this deck (2026-08-03): the gif pages are #2/#6
+    // arriving FORWARD, but the same visual pages arrive as #1/#5 going
+    // backward or via the sidebar — and on those arrivals the player
+    // REMOVES the gif <img> from the DOM entirely (verified: 0 elements).
+    // No src-reset can fix a missing element. The only path that recreates
+    // it is a real forward build (verified live: #5 -> prev(#4) -> next(#6)
+    // = both gifs back and playing). So when we land on a gif page and no
+    // gif element exists, silently re-enter it forward: one page back,
+    // then one forward.
+    if (GIF_PAGES[s] && !onCard){
+      setTimeout(function(){ maybeNudgeForGif(s); }, 700);
+    }
+  }
+  var GIF_PAGES = { 1:1, 2:1, 5:1, 6:1 };
+  var gifNudging = false;
+  function visibleGifCount(){
+    var n = 0, imgs = document.querySelectorAll('img');
+    for (var i = 0; i < imgs.length; i++){
+      var im = imgs[i];
+      if (im.src && im.src.indexOf('.gif') > -1 && im.offsetWidth > 0) n++;
+    }
+    return n;
+  }
+  function maybeNudgeForGif(s){
+    if (scene() !== s || onCard) return;                 // already moved on
+    if (document.getElementById('__preload') || document.getElementById('__tutorial')) return;
+    if (visibleGifCount() > 0) return;                   // element exists — fine
+    if (gifNudging){ console.log('[gif] nudge already ran, still no gif at #' + s); return; }
+    gifNudging = true;
+    console.log('[gif] no gif element at #' + s + ' -> re-entering forward (back+next)');
+    prevPage();
+    setTimeout(function(){
+      nextPage();
+      setTimeout(function(){ gifNudging = false; }, 2000);
+    }, 1000);
   }
 
   // ---- GIF restart on navigation ----------------------------------------
