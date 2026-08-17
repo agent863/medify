@@ -53,10 +53,21 @@ const sourceFor = (
     ? `/api/audio/${slot}?v=${track.sourceVersion}`
     : PUBLIC_AUDIO_FALLBACKS[slot];
 
+const slotsForFloor = (floor: 1 | 2) =>
+  floor === 1
+    ? ({ music: "music", ambience: "ambience", chime: "chime" } as const)
+    : ({
+        music: "floor2Music",
+        ambience: "floor2Ambience",
+        chime: "floor2Chime",
+      } as const);
+
 export default function AmbientSound({
   audio,
+  activeFloor,
 }: {
   audio: Record<AudioSlot, AudioTrackConfig>;
+  activeFloor: 1 | 2;
 }) {
   const [enabled, setEnabled] = useState(false);
   const graphRef = useRef<AmbientGraph | null>(null);
@@ -68,19 +79,22 @@ export default function AmbientSound({
         webkitAudioContext?: typeof AudioContext;
       }).webkitAudioContext;
     if (!AudioContextClass) return null;
+    const slots = slotsForFloor(activeFloor);
     const context = new AudioContextClass();
     const ambientMaster = context.createGain();
     const chimeGain = context.createGain();
     const musicGain = context.createGain();
-    const ambient = new Audio(sourceFor("ambience", audio.ambience) ?? "");
-    const music = new Audio(sourceFor("music", audio.music) ?? "");
-    const chimeSrc = sourceFor("chime", audio.chime);
+    const ambient = new Audio(
+      sourceFor(slots.ambience, audio[slots.ambience]) ?? "",
+    );
+    const music = new Audio(sourceFor(slots.music, audio[slots.music]) ?? "");
+    const chimeSrc = sourceFor(slots.chime, audio[slots.chime]);
     const chime = chimeSrc ? new Audio(chimeSrc) : undefined;
     const ambientSource = context.createMediaElementSource(ambient);
     const musicSource = context.createMediaElementSource(music);
     const chimeSource = chime ? context.createMediaElementSource(chime) : null;
     ambientMaster.gain.value = 0.0001;
-    chimeGain.gain.value = audio.chime.volume;
+    chimeGain.gain.value = audio[slots.chime].volume;
     musicGain.gain.value = 0.0001;
     ambient.loop = true;
     ambient.preload = "auto";
@@ -136,17 +150,18 @@ export default function AmbientSound({
     // resume promise pending while negotiating an audio device even though the
     // user gesture has already granted playback.
     const resume = graph.context.resume();
+    const slots = slotsForFloor(activeFloor);
     const now = graph.context.currentTime;
     graph.ambientMaster.gain.cancelScheduledValues(now);
     graph.musicGain.gain.cancelScheduledValues(now);
     graph.ambientMaster.gain.setValueAtTime(0.0001, now);
     graph.musicGain.gain.setValueAtTime(0.0001, now);
     graph.ambientMaster.gain.exponentialRampToValueAtTime(
-      Math.max(0.0001, audio.ambience.volume),
+      Math.max(0.0001, audio[slots.ambience].volume),
       now + 0.7,
     );
     graph.musicGain.gain.exponentialRampToValueAtTime(
-      Math.max(0.0001, audio.music.volume),
+      Math.max(0.0001, audio[slots.music].volume),
       now + 0.9,
     );
     setEnabled(true);
@@ -171,8 +186,9 @@ export default function AmbientSound({
   useEffect(() => {
     const graph = graphRef.current;
     if (!graph) return;
-    const ambientSrc = sourceFor("ambience", audio.ambience) ?? "";
-    const musicSrc = sourceFor("music", audio.music) ?? "";
+    const slots = slotsForFloor(activeFloor),
+      ambientSrc = sourceFor(slots.ambience, audio[slots.ambience]) ?? "",
+      musicSrc = sourceFor(slots.music, audio[slots.music]) ?? "";
     if (!graph.ambient.src.endsWith(ambientSrc)) {
       graph.ambient.src = ambientSrc;
       graph.ambient.load();
@@ -183,7 +199,7 @@ export default function AmbientSound({
       graph.music.load();
       if (enabled) void graph.music.play();
     }
-    const chimeSrc = sourceFor("chime", audio.chime);
+    const chimeSrc = sourceFor(slots.chime, audio[slots.chime]);
     if (chimeSrc && !graph.chime?.src.endsWith(chimeSrc)) {
       graph.chime?.pause();
       const chime = new Audio(chimeSrc);
@@ -195,12 +211,18 @@ export default function AmbientSound({
       graph.chime.src = "";
       graph.chime = undefined;
     }
-    graph.chimeGain.gain.value = audio.chime.volume;
+    graph.chimeGain.gain.value = audio[slots.chime].volume;
     if (enabled) {
-      graph.ambientMaster.gain.value = Math.max(0.0001, audio.ambience.volume);
-      graph.musicGain.gain.value = Math.max(0.0001, audio.music.volume);
+      graph.ambientMaster.gain.value = Math.max(
+        0.0001,
+        audio[slots.ambience].volume,
+      );
+      graph.musicGain.gain.value = Math.max(
+        0.0001,
+        audio[slots.music].volume,
+      );
     }
-  }, [audio, enabled]);
+  }, [activeFloor, audio, enabled]);
 
   useEffect(
     () => () => {

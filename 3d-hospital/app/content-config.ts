@@ -4,6 +4,11 @@ export const QR_IDS = [
   "waiting-table-2",
   "waiting-table-3",
   "waiting-table-4",
+  "upper-info-screen",
+  "lobby-waiting-1",
+  "lobby-waiting-2",
+  "lobby-waiting-3",
+  "lobby-waiting-4",
   "clinic-door-1",
   "clinic-door-2",
   "clinic-door-3",
@@ -17,7 +22,15 @@ export const QR_IDS = [
 ] as const;
 
 export type QrId = (typeof QR_IDS)[number];
-export type AudioSlot = "music" | "ambience" | "chime";
+export const AUDIO_SLOTS = [
+  "music",
+  "ambience",
+  "chime",
+  "floor2Music",
+  "floor2Ambience",
+  "floor2Chime",
+] as const;
+export type AudioSlot = (typeof AUDIO_SLOTS)[number];
 
 export type QrEntry = {
   id: QrId;
@@ -100,6 +113,14 @@ export const DEFAULT_CONTENT: SiteContentConfig = {
     qr("waiting-table-2", "候診桌 QR Code 2", "右前候診區"),
     qr("waiting-table-3", "候診桌 QR Code 3", "左後候診區"),
     qr("waiting-table-4", "候診桌 QR Code 4", "右後候診區"),
+    qr("upper-info-screen", "二樓資訊螢幕 QR Code", "二樓候診資訊螢幕"),
+    ...Array.from({ length: 4 }, (_, index) =>
+      qr(
+        `lobby-waiting-${index + 1}` as QrId,
+        `二樓候診桌 QR Code ${index + 1}`,
+        `二樓候診區 ${index + 1}`,
+      ),
+    ),
     ...Array.from({ length: 5 }, (_, index) =>
       qr(
         `clinic-door-${index + 1}` as QrId,
@@ -160,7 +181,7 @@ export const DEFAULT_CONTENT: SiteContentConfig = {
   },
   audio: {
     music: {
-      name: "背景音樂",
+      name: "一樓背景音樂",
       fileName: "StudioKolomna - 30 sec version.mp3",
       objectKey: "",
       sourceVersion: 0,
@@ -168,7 +189,7 @@ export const DEFAULT_CONTENT: SiteContentConfig = {
       hasCustomAudio: false,
     },
     ambience: {
-      name: "醫院環境音",
+      name: "一樓醫院環境音",
       fileName: "hospital-waiting-room-ambience.mp3",
       objectKey: "",
       sourceVersion: 0,
@@ -176,7 +197,31 @@ export const DEFAULT_CONTENT: SiteContentConfig = {
       hasCustomAudio: false,
     },
     chime: {
-      name: "診間叫號音",
+      name: "一樓診間叫號音",
+      fileName: "系統雙音叫號音",
+      objectKey: "",
+      sourceVersion: 0,
+      volume: 0.18,
+      hasCustomAudio: false,
+    },
+    floor2Music: {
+      name: "二樓背景音樂",
+      fileName: "StudioKolomna - 30 sec version.mp3",
+      objectKey: "",
+      sourceVersion: 0,
+      volume: 0.065,
+      hasCustomAudio: false,
+    },
+    floor2Ambience: {
+      name: "二樓醫院環境音",
+      fileName: "hospital-waiting-room-ambience.mp3",
+      objectKey: "",
+      sourceVersion: 0,
+      volume: 0.144,
+      hasCustomAudio: false,
+    },
+    floor2Chime: {
+      name: "二樓叫號提示音",
       fileName: "系統雙音叫號音",
       objectKey: "",
       sourceVersion: 0,
@@ -191,6 +236,9 @@ export const PUBLIC_AUDIO_FALLBACKS: Record<AudioSlot, string | null> = {
   music: "/medify-open-morning.mp3",
   ambience: "/hospital-waiting-room-ambience.mp3",
   chime: null,
+  floor2Music: "/medify-open-morning.mp3",
+  floor2Ambience: "/hospital-waiting-room-ambience.mp3",
+  floor2Chime: null,
 };
 
 export function cloneDefaultContent(): SiteContentConfig {
@@ -217,7 +265,7 @@ export function mergeContentConfig(
     ...base.patientDetails,
     ...(stored.patientDetails ?? {}),
   };
-  for (const slot of ["music", "ambience", "chime"] as const)
+  for (const slot of AUDIO_SLOTS)
     base.audio[slot] = { ...base.audio[slot], ...(stored.audio?.[slot] ?? {}) };
   base.updatedAt = stored.updatedAt ?? "";
   return base;

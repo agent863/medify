@@ -1,4 +1,5 @@
 import {
+  AUDIO_SLOTS,
   DEFAULT_CONTENT,
   QR_IDS,
   cloneDefaultContent,
@@ -135,7 +136,7 @@ export function normalizeAdminContent(
       raw.patientDetails?.[key],
       result.patientDetails[key],
     );
-  for (const slot of ["music", "ambience", "chime"] as AudioSlot[])
+  for (const slot of AUDIO_SLOTS)
     result.audio[slot] = {
       ...current.audio[slot],
       volume: cleanVolume(raw.audio?.[slot]?.volume, current.audio[slot].volume),
@@ -171,7 +172,5 @@ export async function requireAdminApi(): Promise<
 }
 
 export function audioSlot(value: string | null): AudioSlot | null {
-  return value === "music" || value === "ambience" || value === "chime"
-    ? value
-    : null;
+  return AUDIO_SLOTS.includes(value as AudioSlot) ? (value as AudioSlot) : null;
 }

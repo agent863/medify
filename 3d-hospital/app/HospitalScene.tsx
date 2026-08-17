@@ -8,7 +8,15 @@ import type { QrId, SiteContentConfig } from "./content-config";
 
 type Role = "doctor" | "nurse" | "patient" | "assistant";
 type Gender = "male" | "female";
-export type CameraView = "panorama" | "clinics" | "reception" | "pharmacy";
+export type CameraView =
+  | "panorama"
+  | "clinics"
+  | "reception"
+  | "pharmacy"
+  | "operating"
+  | "exam"
+  | "waiting"
+  | "elevator";
 export type CharacterInteraction = {
   title: string;
   line: string;
@@ -22,6 +30,9 @@ type Props = {
   patientFocusClearRequest: number;
   onKnock: (room: number) => void;
   onPatientCount: (count: number) => void;
+  onElevatorOpen: () => void;
+  activeFloor: 1 | 2;
+  elevatorOpen: boolean;
   cameraView: CameraView;
   cameraViewRequest: number;
 };
@@ -571,7 +582,7 @@ function smallPlant(scene: THREE.Scene, x: number, z: number, s = 1, y = 0.14) {
   return g;
 }
 function chair(
-  scene: THREE.Scene,
+  scene: THREE.Scene | THREE.Group,
   x: number,
   z: number,
   color: number,
@@ -601,7 +612,7 @@ function chair(
   scene.add(g);
 }
 function stool(
-  scene: THREE.Scene,
+  scene: THREE.Scene | THREE.Group,
   x: number,
   z: number,
   color: number,
@@ -658,7 +669,7 @@ function table(
   scene.add(g);
 }
 function person(
-  scene: THREE.Scene,
+  scene: THREE.Scene | THREE.Group,
   role: Role,
   color: number,
   start: THREE.Vector3,
@@ -704,6 +715,7 @@ function person(
       new THREE.SphereGeometry(0.09, 10, 8),
       material(skin),
     );
+    hand.userData.handPart = true;
     hand.position.set(0, -0.49, 0);
     arm.add(hand);
     hands.push(hand);
@@ -764,6 +776,7 @@ function person(
       rotation: [number, number, number] = [0, 0, 0],
     ) => {
       const piece = new THREE.Mesh(geometry, hairMaterial);
+      piece.userData.hairPart = true;
       piece.position.set(...position);
       piece.scale.set(...scale);
       piece.rotation.set(...rotation);
@@ -772,6 +785,7 @@ function person(
       return piece;
     };
   hair.position.y = hairStyle === 0 ? 0.085 : 0.045;
+  hair.userData.hairPart = true;
   hair.castShadow = true;
   headRig.add(hair);
   if (hairStyle === 1) {
@@ -806,12 +820,18 @@ function person(
     );
   }
   if (role === "nurse") {
-    const cap = box(0.43, 0.08, 0.3, 0xffffff);
+    const cap = box(0.43, 0.08, 0.3, 0xffffff),
+      capCrown = box(0.24, 0.14, 0.18, 0xffffff),
+      capMarkH = box(0.1, 0.028, 0.02, CYAN),
+      capMarkV = box(0.028, 0.1, 0.02, CYAN);
     cap.position.set(0, 0.24, 0);
     headRig.add(cap);
-    put(headRig, box(0.24, 0.14, 0.18, 0xffffff), 0, 0.32, 0.01);
-    put(headRig, box(0.1, 0.028, 0.02, CYAN), 0, 0.33, -0.1);
-    put(headRig, box(0.028, 0.1, 0.02, CYAN), 0, 0.33, -0.11);
+    put(headRig, capCrown, 0, 0.32, 0.01);
+    put(headRig, capMarkH, 0, 0.33, -0.1);
+    put(headRig, capMarkV, 0, 0.33, -0.11);
+    [cap, capCrown, capMarkH, capMarkV].forEach((part) => {
+      part.userData.nurseCapPart = true;
+    });
   }
   let phone: THREE.Mesh | undefined,
     medicineBag: THREE.Group | undefined,
@@ -1069,6 +1089,9 @@ export default function HospitalScene({
   patientFocusClearRequest,
   onKnock,
   onPatientCount,
+  onElevatorOpen,
+  activeFloor,
+  elevatorOpen,
   cameraView,
   cameraViewRequest,
 }: Props) {
@@ -1077,11 +1100,22 @@ export default function HospitalScene({
   const controlsRef = useRef<OrbitControls | null>(null);
   const cameraTransitionRef = useRef<CameraTransition | null>(null);
   const clearPatientFocusRef = useRef<(() => void) | null>(null);
+  const applyFloorRef = useRef<((floor: 1 | 2) => void) | null>(null);
+  const activeFloorRef = useRef<1 | 2>(activeFloor);
+  const elevatorOpenRef = useRef(elevatorOpen);
   const previousCameraViewRef = useRef<CameraView>("panorama");
+  const previousActiveFloorRef = useRef<1 | 2>(activeFloor);
   const contentRef = useRef(content);
   useEffect(() => {
     contentRef.current = content;
   }, [content]);
+  useEffect(() => {
+    activeFloorRef.current = activeFloor;
+    applyFloorRef.current?.(activeFloor);
+  }, [activeFloor]);
+  useEffect(() => {
+    elevatorOpenRef.current = elevatorOpen;
+  }, [elevatorOpen]);
   useEffect(() => {
     if (!mount.current) return;
     const host = mount.current,
@@ -1527,99 +1561,142 @@ export default function HospitalScene({
       );
       makeDoor(room, x, z, baseRot, side);
     });
-    // Elevator at the lower-left/front corner, aligned with the fan wall.
-    const elevator = new THREE.Group();
-    // Clay-like recessed doorway from the supplied reference: two soft blue-grey
-    // door leaves inside a thick rounded frame, with an inset indicator above.
-    put(elevator, box(2.72, 3.05, 0.22, 0xf2eee7), 0, 1.52, 0.04);
-    put(elevator, box(1.2, 2.72, 0.1, 0x91aebc), -0.62, 1.38, -0.14);
-    put(elevator, box(1.2, 2.72, 0.1, 0x88a9b8), 0.62, 1.38, -0.14);
-    put(elevator, box(0.055, 2.72, 0.045, 0x4f7181), 0, 1.38, -0.205);
-    [-1.38, 1.38].forEach((x) => {
-      const post = new THREE.Mesh(
-        new RoundedBoxGeometry(0.42, 3.15, 0.4, 8, 0.18),
-        material(0x79a8bf, 0.58),
-      );
-      post.position.set(x, 1.53, -0.03);
-      elevator.add(post);
-    });
-    const frameTop = new THREE.Mesh(
-      new RoundedBoxGeometry(3.18, 0.72, 0.42, 10, 0.3),
-      material(0x79a8bf, 0.58),
-    );
-    frameTop.position.set(0, 3.12, -0.03);
-    elevator.add(frameTop);
-    const indicatorPanel = new THREE.Mesh(
-      new RoundedBoxGeometry(2.78, 0.72, 0.24, 8, 0.25),
-      material(0x638fa8, 0.48),
-    );
-    indicatorPanel.position.set(0, 3.62, -0.12);
-    elevator.add(indicatorPanel);
-    // Five separate illuminated number boxes. The warm third-floor box matches
-    // the reference and clearly communicates the current floor.
-    for (let floor = 1; floor <= 5; floor++) {
-      const active = floor === 3;
-      const floorMat = new THREE.MeshStandardMaterial({
-          color: active ? 0xf2c968 : 0xf6f1e8,
-          roughness: 0.34,
-          metalness: 0.08,
-          emissive: active ? 0xe6a93f : 0x9fc8d8,
-          emissiveIntensity: active ? 0.72 : 0.2,
-        }),
-        floorBox = new THREE.Mesh(
-          new RoundedBoxGeometry(0.46, 0.48, 0.14, 6, 0.09),
-          floorMat,
+    // Both floors share one vertically aligned elevator shaft. The second-floor
+    // group is hidden while the visitor is on the lobby level.
+    const SECOND_FLOOR_Y = 5.35,
+      secondFloor = new THREE.Group(),
+      elevatorDoorLeaves = new Map<
+        1 | 2,
+        {
+          left: THREE.Mesh;
+          right: THREE.Mesh;
+          seam: THREE.Mesh;
+          openAmount: number;
+        }
+      >();
+    secondFloor.position.y = SECOND_FLOOR_Y;
+    secondFloor.visible = false;
+    scene.add(secondFloor);
+
+    const elevatorZ = 3.8,
+      elevatorInward = new THREE.Vector3(1, 0, FAN_SLOPE).normalize(),
+      elevatorWallPoint = new THREE.Vector3(sideX(-1, elevatorZ), 0, elevatorZ),
+      elevatorPosition = elevatorWallPoint
+        .clone()
+        .addScaledVector(elevatorInward, 0.2),
+      elevatorRotation = Math.atan2(-1, -FAN_SLOPE);
+
+    const buildElevatorModel = (
+      floorNumber: 1 | 2,
+      parent: THREE.Scene | THREE.Group,
+    ) => {
+      const lift = new THREE.Group(),
+        recess = box(2.72, 3.05, 0.22, 0x364f5b, 0.42),
+        leftDoor = box(1.2, 2.72, 0.1, 0x91aebc),
+        rightDoor = box(1.2, 2.72, 0.1, 0x88a9b8),
+        seam = box(0.055, 2.72, 0.045, 0x4f7181),
+        frameTop = new THREE.Mesh(
+          new RoundedBoxGeometry(3.18, 0.72, 0.42, 10, 0.3),
+          material(0x79a8bf, 0.58),
         ),
-        floorNumber = new THREE.Mesh(
-          new THREE.PlaneGeometry(0.31, 0.34),
+        indicatorPanel = new THREE.Mesh(
+          new RoundedBoxGeometry(1.58, 0.72, 0.24, 8, 0.25),
+          material(0x638fa8, 0.48),
+        ),
+        liftButtonPanel = new THREE.Mesh(
+          new RoundedBoxGeometry(0.5, 0.94, 0.1, 5, 0.055),
+          material(0xdcebed, 0.55),
+        );
+      recess.position.set(0, 1.52, 0.04);
+      leftDoor.position.set(-0.62, 1.38, -0.14);
+      rightDoor.position.set(0.62, 1.38, -0.14);
+      seam.position.set(0, 1.38, -0.205);
+      leftDoor.name = `elevator-door-${floorNumber}-left`;
+      rightDoor.name = `elevator-door-${floorNumber}-right`;
+      frameTop.position.set(0, 3.12, -0.03);
+      indicatorPanel.position.set(0, 3.62, -0.12);
+      liftButtonPanel.position.set(-1.82, 1.5, -0.08);
+      lift.add(
+        recess,
+        leftDoor,
+        rightDoor,
+        seam,
+        frameTop,
+        indicatorPanel,
+        liftButtonPanel,
+      );
+      [-1.38, 1.38].forEach((x) => {
+        const post = new THREE.Mesh(
+          new RoundedBoxGeometry(0.42, 3.15, 0.4, 8, 0.18),
+          material(0x79a8bf, 0.58),
+        );
+        post.position.set(x, 1.53, -0.03);
+        lift.add(post);
+      });
+      ([1, 2] as const).forEach((displayFloor) => {
+        const active = displayFloor === floorNumber,
+          floorMat = new THREE.MeshStandardMaterial({
+            color: active ? 0xf2c968 : 0xf6f1e8,
+            roughness: 0.34,
+            metalness: 0.08,
+            emissive: active ? 0xe6a93f : 0x9fc8d8,
+            emissiveIntensity: active ? 0.72 : 0.2,
+          }),
+          floorBox = new THREE.Mesh(
+            new RoundedBoxGeometry(0.5, 0.48, 0.14, 6, 0.09),
+            floorMat,
+          ),
+          floorLabel = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.32, 0.34),
+            new THREE.MeshBasicMaterial({
+              map: elevatorFloorNumberTexture(String(displayFloor), active),
+              transparent: true,
+              depthWrite: false,
+              side: THREE.DoubleSide,
+            }),
+          ),
+          displayX = displayFloor === 1 ? 0.32 : -0.32;
+        floorBox.position.set(displayX, 3.62, -0.265);
+        floorLabel.position.set(displayX, 3.62, -0.342);
+        floorLabel.rotation.y = Math.PI;
+        lift.add(floorBox, floorLabel);
+      });
+      const buttons: THREE.Mesh[] = [];
+      ([
+        ["▲", 1.69],
+        ["▼", 1.27],
+      ] as const).forEach(([label, y]) => {
+        const button = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.34, 0.34),
           new THREE.MeshBasicMaterial({
-            map: elevatorFloorNumberTexture(String(floor), active),
+            map: elevatorButtonTexture(label),
             transparent: true,
-            depthWrite: false,
             side: THREE.DoubleSide,
           }),
         );
-      // The elevator is mounted facing the reverse local axis, so reversing the
-      // local X assignment preserves the user-facing order 1 → 5 from left to right.
-      const displayX = (3 - floor) * 0.5;
-      floorBox.position.set(displayX, 3.62, -0.265);
-      elevator.add(floorBox);
-      floorNumber.position.set(displayX, 3.62, -0.342);
-      floorNumber.rotation.y = Math.PI;
-      elevator.add(floorNumber);
-    }
-    const liftButtonPanel = new THREE.Mesh(
-      new RoundedBoxGeometry(0.5, 0.94, 0.1, 5, 0.055),
-      material(0xdcebed, 0.55),
-    );
-    // The elevator faces the lobby from its local -Z side, so local -X is the
-    // visitor's right-hand side when looking at the doors.
-    liftButtonPanel.position.set(-1.82, 1.5, -0.08);
-    elevator.add(liftButtonPanel);
-    ([
-      ["▲", 1.69],
-      ["▼", 1.27],
-    ] as const).forEach(([label, y]) => {
-      const button = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.34, 0.34),
-        new THREE.MeshBasicMaterial({
-          map: elevatorButtonTexture(label),
-          transparent: true,
-          side: THREE.DoubleSide,
-        }),
-      );
-      button.position.set(-1.82, y, -0.14);
-      button.rotation.y = Math.PI;
-      elevator.add(button);
-    });
-    const elevatorZ = 3.8,
-      elevatorInward = new THREE.Vector3(1, 0, FAN_SLOPE).normalize(),
-      elevatorWallPoint = new THREE.Vector3(sideX(-1, elevatorZ), 0, elevatorZ);
-    elevator.position.copy(
-      elevatorWallPoint.addScaledVector(elevatorInward, 0.2),
-    );
-    elevator.rotation.y = Math.atan2(-1, -FAN_SLOPE);
-    scene.add(elevator);
+        button.position.set(-1.82, y, -0.14);
+        button.rotation.y = Math.PI;
+        lift.add(button);
+        buttons.push(button);
+      });
+      lift.position.copy(elevatorPosition);
+      lift.rotation.y = elevatorRotation;
+      lift.userData = { interactive: "elevator", floor: floorNumber };
+      [leftDoor, rightDoor, liftButtonPanel, ...buttons].forEach((object) => {
+        object.userData.hitRoot = lift;
+        interactive.push(object);
+      });
+      parent.add(lift);
+      elevatorDoorLeaves.set(floorNumber, {
+        left: leftDoor,
+        right: rightDoor,
+        seam,
+        openAmount: 0,
+      });
+      return lift;
+    };
+    buildElevatorModel(1, scene);
+    buildElevatorModel(2, secondFloor);
 
     // Enlarged clinics: the consultation desk hugs one side, leaving a straight
     // central aisle from the door to a bed and examination trolley at the rear.
@@ -1657,6 +1734,7 @@ export default function HospitalScene({
       clinicNurseBedTidyHeadPoints: THREE.Vector3[] = [],
       clinicNurseBedTidyFootPoints: THREE.Vector3[] = [],
       clinicStoolZones: { room: number; pos: THREE.Vector3 }[] = [];
+    const clinicInteriorStartIndex = scene.children.length;
     clinicPos.forEach((deskPos, i) => {
       const out = clinicOuts[i],
         tan = clinicTangents[i],
@@ -1936,6 +2014,1795 @@ export default function HospitalScene({
         halfV: 1.12,
       });
     });
+    const floorOneClinicInteriorObjects = scene.children.slice(
+      clinicInteriorStartIndex,
+    );
+
+    // SECOND FLOOR ---------------------------------------------------------
+    // Reuse the fan footprint and vertical elevator alignment, keeping the
+    // whole upper centre independently switchable with its own clinical team.
+    const secondBaseGeometry = new THREE.ExtrudeGeometry(fanShape.clone(), {
+        depth: 0.48,
+        bevelEnabled: true,
+        bevelSize: 0.14,
+        bevelThickness: 0.1,
+        bevelSegments: 3,
+      }),
+      secondFloorGeometry = new THREE.ShapeGeometry(fanShape.clone(), 24);
+    secondBaseGeometry.rotateX(-Math.PI / 2);
+    secondFloorGeometry.rotateX(-Math.PI / 2);
+    const secondBase = new THREE.Mesh(secondBaseGeometry, material(0xdfe9e7)),
+      secondFloorSurface = new THREE.Mesh(
+        secondFloorGeometry,
+        material(0xf7f4ed),
+      );
+    secondBase.position.y = -0.55;
+    secondBase.castShadow = true;
+    secondBase.receiveShadow = true;
+    secondFloorSurface.position.y = 0.02;
+    secondFloorSurface.receiveShadow = true;
+    secondFloor.add(secondBase, secondFloorSurface);
+
+    // While viewing 2F, a continuous lower envelope hides the open first-floor
+    // clinic and pharmacy interiors. It follows the same fan footprint, so the
+    // street remains visible through the front facade.
+    const lowerEnvelopeHeight = SECOND_FLOOR_Y - 0.08;
+    [-1, 1].forEach((side) => {
+      const z1 = -8.35,
+        z2 = 7.15,
+        z = (z1 + z2) / 2,
+        length = (z2 - z1) * Math.sqrt(1 + FAN_SLOPE * FAN_SLOPE),
+        wall = box(0.42, lowerEnvelopeHeight, length, CREAM);
+      wall.position.set(
+        sideX(side, z),
+        -lowerEnvelopeHeight / 2,
+        z,
+      );
+      wall.rotation.y = side * FAN_ANGLE;
+      secondFloor.add(wall);
+    });
+    const lowerRearEnvelope = box(11.6, lowerEnvelopeHeight, 0.42, CREAM);
+    lowerRearEnvelope.position.set(
+      0,
+      -lowerEnvelopeHeight / 2,
+      -8.48,
+    );
+    secondFloor.add(lowerRearEnvelope);
+
+    // Rebuild the five downstairs clinic modules as closed architectural
+    // shells for the upstairs view. Their live dollhouse interiors are hidden,
+    // but these cream exterior walls and roofs remain visible beneath 2F.
+    clinicDoorPoints.forEach((door, index) => {
+      const out = clinicOuts[index],
+        tan = clinicTangents[index],
+        wallAngle = doorDefs[index].side * FAN_ANGLE,
+        shellCentre = door.clone().addScaledVector(out, 3.72),
+        roof = box(7.35, 0.28, 5.9, 0xe7ebe7),
+        back = box(0.3, lowerEnvelopeHeight, 5.9, CREAM);
+      roof.position.copy(shellCentre);
+      roof.position.y = -0.18;
+      roof.rotation.y = wallAngle;
+      back.position.copy(door.clone().addScaledVector(out, 7.28));
+      back.position.y = -lowerEnvelopeHeight / 2;
+      back.rotation.y = wallAngle;
+      secondFloor.add(roof, back);
+      [-2.9, 2.9].forEach((sideOffset) => {
+        const sideWall = box(7.15, lowerEnvelopeHeight, 0.28, CREAM);
+        sideWall.position.copy(
+          shellCentre.clone().addScaledVector(tan, sideOffset),
+        );
+        sideWall.position.y = -lowerEnvelopeHeight / 2;
+        sideWall.rotation.y = wallAngle;
+        secondFloor.add(sideWall);
+      });
+    });
+
+    const secondRearWall = box(11.4, 3.7, 0.34, CREAM);
+    secondRearWall.position.set(0, 1.85, -8.48);
+    secondFloor.add(secondRearWall);
+
+    // Full-height front glazing keeps the street, cars and first-floor facade
+    // visible from the upper level without rendering the lower lobby interior.
+    const upperGlassMaterial = new THREE.MeshPhysicalMaterial({
+      color: 0xbfe5e8,
+      transparent: true,
+      opacity: 0.34,
+      roughness: 0.08,
+      metalness: 0,
+      transmission: 0.24,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    [-10.5, -3.5, 3.5, 10.5].forEach((x) => {
+      const glass = new THREE.Mesh(
+        new THREE.PlaneGeometry(6.86, 3.4),
+        upperGlassMaterial,
+      );
+      glass.position.set(x, 1.75, 7.72);
+      glass.renderOrder = 3;
+      secondFloor.add(glass);
+    });
+    [-13.9, -7, 0, 7, 13.9].forEach((x) => {
+      const mullion = box(0.16, 3.5, 0.18, 0xf5f1e9);
+      mullion.position.set(x, 1.82, 7.7);
+      secondFloor.add(mullion);
+    });
+    const upperWindowBottom = box(28, 0.18, 0.2, 0xf5f1e9);
+    upperWindowBottom.position.set(0, 0.12, 7.7);
+    secondFloor.add(upperWindowBottom);
+    const upperWindowTop = box(28, 0.22, 0.22, 0xf5f1e9);
+    upperWindowTop.position.set(0, 3.58, 7.7);
+    secondFloor.add(upperWindowTop);
+
+    const averagePoint = (a: THREE.Vector3, b: THREE.Vector3) =>
+      a.clone().add(b).multiplyScalar(0.5);
+    const leftOperatingDoor = averagePoint(
+        clinicDoorPoints[0],
+        clinicDoorPoints[1],
+      ),
+      rightOperatingDoor = averagePoint(
+        clinicDoorPoints[2],
+        clinicDoorPoints[3],
+      );
+
+    // Build the upper lobby frontage as two uninterrupted fan-shaped walls.
+    // Only the room doorways are cut out; their lintels and frames bridge the
+    // openings, so elevator, rooms and rear display wall read as one envelope.
+    const addUpperWingWall = (side: number, z1: number, z2: number) => {
+      if (z2 <= z1) return;
+      const z = (z1 + z2) / 2,
+        length = (z2 - z1) * Math.sqrt(1 + FAN_SLOPE * FAN_SLOPE),
+        wall = box(0.4, 3.7, length, CREAM);
+      wall.position.set(sideX(side, z), 1.85, z);
+      wall.rotation.y = side * FAN_ANGLE;
+      secondFloor.add(wall);
+    };
+    const buildUpperWing = (
+      side: number,
+      openings: { z: number; half: number }[],
+    ) => {
+      let start = -8.35;
+      [...openings]
+        .sort((a, b) => a.z - b.z)
+        .forEach(({ z, half }) => {
+          addUpperWingWall(side, start, z - half);
+          start = z + half;
+        });
+      addUpperWingWall(side, start, 7.15);
+    };
+    buildUpperWing(-1, [{ z: leftOperatingDoor.z, half: 1.32 }]);
+    buildUpperWing(1, [
+      { z: rightOperatingDoor.z, half: 1.32 },
+      { z: clinicDoorPoints[4].z, half: 1.03 },
+    ]);
+
+    type UpperRoomKind = "operating" | "exam";
+    const addUpperRoom = (
+      title: string,
+      subtitle: string,
+      doorCentre: THREE.Vector3,
+      out: THREE.Vector3,
+      tan: THREE.Vector3,
+      wallAngle: number,
+      width: number,
+      depth: number,
+      kind: UpperRoomKind,
+      accent: number,
+    ) => {
+      const roomFloor = box(depth, 0.1, width, kind === "exam" ? 0xe7f3f1 : 0xe6eef4),
+        backWall = box(0.3, 2.75, width, CREAM),
+        doorOpening = kind === "operating" ? 2.8 : 2.05;
+      roomFloor.position.copy(doorCentre.clone().addScaledVector(out, depth / 2));
+      roomFloor.position.y = 0.06;
+      roomFloor.rotation.y = wallAngle;
+      backWall.position.copy(doorCentre.clone().addScaledVector(out, depth));
+      backWall.position.y = 1.38;
+      backWall.rotation.y = wallAngle;
+      secondFloor.add(roomFloor, backWall);
+      [-1, 1].forEach((side) => {
+        const sideWall = box(depth, 2.35, 0.26, CREAM);
+        sideWall.position.copy(
+          doorCentre
+            .clone()
+            .addScaledVector(out, depth / 2)
+            .addScaledVector(tan, side * width / 2),
+        );
+        sideWall.position.y = 1.18;
+        sideWall.rotation.y = wallAngle;
+        secondFloor.add(sideWall);
+      });
+
+      const framePostOffset = doorOpening / 2 + 0.18;
+      [-1, 1].forEach((side) => {
+        const post = new THREE.Mesh(
+          new RoundedBoxGeometry(0.36, 3.08, 0.42, 8, 0.17),
+          material(accent, 0.55),
+        );
+        post.position.copy(doorCentre.clone().addScaledVector(tan, side * framePostOffset));
+        post.position.y = 1.54;
+        post.rotation.y = wallAngle;
+        secondFloor.add(post);
+      });
+      const lintel = new THREE.Mesh(
+        new RoundedBoxGeometry(0.42, 0.5, doorOpening + 0.72, 8, 0.2),
+        material(accent, 0.55),
+      );
+      lintel.position.copy(doorCentre);
+      lintel.position.y = 2.92;
+      lintel.rotation.y = wallAngle;
+      secondFloor.add(lintel);
+      [-1, 1].forEach((side) => {
+        const leaf = new THREE.Mesh(
+          new RoundedBoxGeometry(
+            0.12,
+            2.68,
+            doorOpening / 2 + 0.035,
+            6,
+            0.08,
+          ),
+          material(side < 0 ? 0x91aebc : 0x88a9b8, 0.54),
+        );
+        leaf.position.copy(
+          doorCentre.clone().addScaledVector(tan, side * doorOpening / 4),
+        );
+        leaf.position.y = 1.36;
+        leaf.rotation.y = wallAngle;
+        secondFloor.add(leaf);
+      });
+      const roomSign = new THREE.Mesh(
+        new THREE.PlaneGeometry(kind === "operating" ? 2.5 : 2.1, 0.72),
+        new THREE.MeshBasicMaterial({
+          map: canvasTexture(title, subtitle),
+          side: THREE.DoubleSide,
+          transparent: true,
+        }),
+      );
+      roomSign.position.copy(doorCentre.clone().addScaledVector(out, -0.12));
+      roomSign.position.y = 3.48;
+      roomSign.rotation.y =
+        wallAngle + Math.PI / 2 + (doorCentre.x > 0 ? Math.PI : 0);
+      secondFloor.add(roomSign);
+
+      const bedCentre = doorCentre.clone().addScaledVector(out, depth * 0.58),
+        bedYaw = Math.atan2(-out.z, out.x),
+        treatmentBed = new THREE.Group(),
+        bedBase = new THREE.Mesh(
+          new RoundedBoxGeometry(
+            kind === "operating" ? 2.9 : 2.55,
+            0.3,
+            1.18,
+            6,
+            0.12,
+          ),
+          material(0xe7e3da, 0.58),
+        );
+      bedBase.position.y = 0.58;
+      treatmentBed.add(bedBase);
+      put(
+        treatmentBed,
+        new THREE.Mesh(
+          new RoundedBoxGeometry(1.18, 0.45, 0.82, 6, 0.12),
+          material(0xd4d0c7, 0.62),
+        ),
+        0,
+        0.26,
+        0,
+      );
+      if (kind === "operating") {
+        [-0.98, -0.34, 0.34, 0.98].forEach((x, index) => {
+          const pad = new THREE.Mesh(
+            new RoundedBoxGeometry(index === 0 ? 0.58 : 0.62, 0.24, 1.06, 6, 0.11),
+            material(index % 2 ? 0x8bc1d9 : 0x82b8d3, 0.62),
+          );
+          pad.position.set(x, 0.85, 0);
+          treatmentBed.add(pad);
+        });
+        put(treatmentBed, box(0.46, 0.2, 0.78, 0x91c6dc), -1.34, 0.92, 0);
+      } else {
+        const seatPad = new THREE.Mesh(
+            new RoundedBoxGeometry(1.42, 0.25, 1.08, 6, 0.12),
+            material(0xf5f5f0, 0.6),
+          ),
+          backPad = new THREE.Mesh(
+            new RoundedBoxGeometry(1.45, 0.25, 1.08, 6, 0.12),
+            material(0xf5f5f0, 0.6),
+          ),
+          leftRail = box(2.32, 0.26, 0.16, 0x83b9d3),
+          rightRail = box(2.32, 0.26, 0.16, 0x83b9d3);
+        seatPad.position.set(0.48, 0.84, 0);
+        backPad.position.set(-0.66, 0.84, 0);
+        leftRail.position.set(0, 0.84, -0.54);
+        rightRail.position.set(0, 0.84, 0.54);
+        treatmentBed.add(seatPad, backPad, leftRail, rightRail);
+      }
+      treatmentBed.position.copy(bedCentre);
+      treatmentBed.rotation.y =
+        bedYaw + (kind === "operating" || doorCentre.x > 0 ? Math.PI : 0);
+      secondFloor.add(treatmentBed);
+
+      const monitorCart = new THREE.Group(),
+        cartBody = new THREE.Mesh(
+          new RoundedBoxGeometry(0.75, 0.6, 0.62, 5, 0.1),
+          material(0xf6f8f6),
+        ),
+        monitorFace = new THREE.Mesh(
+          new RoundedBoxGeometry(0.15, 0.65, 0.78, 5, 0.08),
+          material(0x315f7c, 0.42),
+        );
+      cartBody.position.y = 0.42;
+      monitorFace.position.y = 1.08;
+      monitorCart.add(cartBody, monitorFace);
+      [0.16, 0, -0.16].forEach((z, index) =>
+        put(
+          monitorCart,
+          box(0.025, 0.035, 0.47 - index * 0.05, index === 1 ? 0xf2c968 : CYAN),
+          -0.09,
+          1.1 + index * 0.1,
+          z,
+        ),
+      );
+      if (kind === "exam") {
+        const controlPanel = box(0.5, 0.12, 0.72, 0xdbe6e4);
+        controlPanel.position.set(0, 0.77, 0);
+        controlPanel.rotation.z = 0.1;
+        monitorCart.add(controlPanel);
+        [-0.19, 0, 0.19].forEach((z) =>
+          put(monitorCart, cyl(0.045, 0.06, 0x7896a2, 10), -0.27, 0.84, z),
+        );
+      }
+      monitorCart.position.copy(
+        bedCentre
+          .clone()
+          .addScaledVector(tan, kind === "operating" ? 2.65 : -1.75)
+          .addScaledVector(out, kind === "operating" ? 0.8 : 0.85),
+      );
+      monitorCart.rotation.y = bedYaw;
+      secondFloor.add(monitorCart);
+
+      const cabinet = new THREE.Group();
+      put(cabinet, box(0.8, 1.55, 2.15, 0xf2f5f2), 0, 0.78, 0);
+      [-0.48, 0, 0.48].forEach((z) =>
+        put(cabinet, box(0.05, 0.055, 0.9, 0x77a4b7), -0.43, 0.72, z),
+      );
+      cabinet.position.copy(
+        doorCentre
+          .clone()
+          .addScaledVector(out, depth - 0.72)
+          .addScaledVector(tan, width / 2 - 1.2),
+      );
+      cabinet.rotation.y = wallAngle;
+      if (kind === "exam") secondFloor.add(cabinet);
+
+      // Sink, storage and wall cabinets follow the soft clinical furniture in
+      // the supplied references and make each room read as a working space.
+      const clinicalCounter = new THREE.Group(),
+        counterSpan = kind === "operating" ? width - 0.7 : 3.2,
+        upperCabinetCount = kind === "operating" ? 9 : 3;
+      put(clinicalCounter, new THREE.Mesh(
+        new RoundedBoxGeometry(0.82, 0.82, counterSpan, 6, 0.12),
+        material(0xf0eee8, 0.68),
+      ), 0, 0.45, 0);
+      put(clinicalCounter, new THREE.Mesh(
+        new RoundedBoxGeometry(0.96, 0.12, counterSpan + 0.16, 6, 0.08),
+        material(kind === "operating" ? 0xe2e0d8 : 0x9bc9c7, 0.58),
+      ), -0.04, 0.92, 0);
+      put(clinicalCounter, new THREE.Mesh(
+        new RoundedBoxGeometry(0.17, 0.06, 0.72, 6, 0.04),
+        material(0xb7c6c7, 0.48),
+      ), -0.12, 0.99, 0.25);
+      const faucet = new THREE.Mesh(
+        new THREE.TorusGeometry(0.18, 0.035, 8, 18),
+        material(0x87989c, 0.42),
+      );
+      faucet.rotation.y = Math.PI / 2;
+      put(clinicalCounter, faucet, -0.34, 1.22, 0.25);
+      Array.from({ length: upperCabinetCount }, (_, index) =>
+        THREE.MathUtils.lerp(
+          -counterSpan / 2 + 0.55,
+          counterSpan / 2 - 0.55,
+          index / (upperCabinetCount - 1),
+        ),
+      ).forEach((z, index) => {
+        const upperCabinet = new THREE.Mesh(
+          new RoundedBoxGeometry(0.48, 0.66, 0.92, 5, 0.08),
+          material(index % 2 ? 0xa9c8ca : 0xf1eee8, 0.64),
+        );
+        upperCabinet.position.set(0.02, 2.05, z);
+        clinicalCounter.add(upperCabinet);
+      });
+      clinicalCounter.position.copy(
+        doorCentre
+          .clone()
+          .addScaledVector(out, depth - 0.5)
+          .addScaledVector(tan, kind === "operating" ? 0 : -width * 0.12),
+      );
+      clinicalCounter.rotation.y =
+        wallAngle + (doorCentre.x > 0 ? Math.PI : 0);
+      secondFloor.add(clinicalCounter);
+
+      const ivStand = new THREE.Group();
+      put(ivStand, cyl(0.035, 2.15, 0x849398, 10), 0, 1.1, 0);
+      [-0.32, 0, 0.32].forEach((angle) => {
+        const leg = box(0.48, 0.055, 0.055, 0x849398);
+        leg.position.set(Math.cos(angle) * 0.12, 0.06, Math.sin(angle) * 0.12);
+        leg.rotation.y = angle;
+        ivStand.add(leg);
+      });
+      put(ivStand, box(0.48, 0.04, 0.04, 0x849398), 0, 2.12, 0);
+      [-0.2, 0.2].forEach((x) =>
+        put(ivStand, cyl(0.035, 0.08, 0x849398, 10), x, 2.08, 0),
+      );
+      const fluidBag = new THREE.Mesh(
+        new RoundedBoxGeometry(0.24, 0.48, 0.12, 5, 0.04),
+        new THREE.MeshStandardMaterial({
+          color: 0xc8edf0,
+          transparent: true,
+          opacity: 0.72,
+          roughness: 0.28,
+        }),
+      );
+      fluidBag.position.set(0.2, 1.82, 0);
+      ivStand.add(fluidBag);
+      ivStand.position.copy(
+        bedCentre
+          .clone()
+          .addScaledVector(tan, kind === "operating" ? -1.05 : 1.8)
+          .addScaledVector(out, kind === "operating" ? 1.05 : 0.85),
+      );
+      secondFloor.add(ivStand);
+
+      if (kind === "operating") {
+        const light = new THREE.Group(),
+          stem = cyl(0.07, 1.15, 0xd9e3e1, 12),
+          crossArm = box(1.6, 0.09, 0.09, 0xd9e3e1);
+        stem.position.y = 2.72;
+        crossArm.position.y = 3.25;
+        light.add(stem, crossArm);
+        [
+          [0.78, -0.55],
+          [0.78, 0.55],
+          [1.2, 0],
+        ].forEach(([x, z]) => {
+          const lamp = new THREE.Mesh(
+              new THREE.TorusGeometry(0.4, 0.1, 10, 24),
+              material(0xa9c6d3, 0.44),
+            ),
+            centreLamp = cyl(0.15, 0.12, 0xfff4c8, 18);
+          lamp.position.set(x, 3.03, z);
+          lamp.rotation.x = Math.PI / 2;
+          centreLamp.position.set(x, 3.03, z);
+          light.add(lamp, centreLamp);
+        });
+        light.position.copy(bedCentre.clone().addScaledVector(out, -0.25));
+        light.rotation.y = bedYaw;
+        secondFloor.add(light);
+
+        const anesthesia = new THREE.Group();
+        put(anesthesia, new THREE.Mesh(
+          new RoundedBoxGeometry(0.82, 0.9, 0.72, 6, 0.1),
+          material(0xe9ece8, 0.62),
+        ), 0, 0.5, 0);
+        put(anesthesia, new THREE.Mesh(
+          new RoundedBoxGeometry(0.18, 0.62, 0.86, 5, 0.07),
+          material(0x315f7c, 0.4),
+        ), -0.08, 1.28, 0);
+        [-0.23, 0, 0.23].forEach((z) =>
+          put(anesthesia, cyl(0.1, 0.48, 0xa9c8ca, 12), 0.42, 0.46, z),
+        );
+        anesthesia.position.copy(
+          bedCentre
+            .clone()
+            .addScaledVector(tan, -2.5)
+            .addScaledVector(out, -0.8),
+        );
+        anesthesia.rotation.y = bedYaw;
+        secondFloor.add(anesthesia);
+
+        const trolley = new THREE.Group();
+        put(trolley, box(1.25, 0.1, 0.65, 0x9da5a6), 0, 0.8, 0);
+        put(trolley, box(1.15, 0.08, 0.58, 0x7f898b), 0, 0.28, 0);
+        [-0.48, 0.48].forEach((x) =>
+          [-0.23, 0.23].forEach((z) =>
+            put(trolley, cyl(0.035, 0.72, 0x6f8791, 10), x, 0.4, z),
+          ),
+        );
+        trolley.position.copy(
+          bedCentre
+            .clone()
+            .addScaledVector(tan, 2.45)
+            .addScaledVector(out, -1.35),
+        );
+        trolley.rotation.y = bedYaw;
+        secondFloor.add(trolley);
+
+        // Wall services make the operating rooms feel clinically complete
+        // without reducing the circulation zone around the operating table.
+        const medicalRail = new THREE.Group();
+        put(
+          medicalRail,
+          new THREE.Mesh(
+            new RoundedBoxGeometry(0.14, 0.42, 3.3, 6, 0.07),
+            material(0xe7ece9, 0.58),
+          ),
+          0,
+          0,
+          0,
+        );
+        [-1.12, -0.48, 0.18, 0.84].forEach((z, index) => {
+          const port = cyl(
+            0.105,
+            0.075,
+            [0x78b4c7, 0x72a36d, 0xf0c75e, 0xdb766c][index],
+            18,
+          );
+          port.rotation.z = Math.PI / 2;
+          put(medicalRail, port, -0.11, 0, z);
+        });
+        [1.25, 1.48].forEach((z) =>
+          put(medicalRail, box(0.08, 0.18, 0.18, 0xffffff), -0.1, 0, z),
+        );
+        medicalRail.position.copy(
+          doorCentre
+            .clone()
+            .addScaledVector(out, depth - 0.2)
+            .addScaledVector(tan, -width * 0.24),
+        );
+        medicalRail.position.y = 1.68;
+        medicalRail.rotation.y = wallAngle;
+        secondFloor.add(medicalRail);
+
+        const wallClock = new THREE.Group(),
+          clockFace = cyl(0.28, 0.07, 0xf7f5ef, 24);
+        clockFace.rotation.z = Math.PI / 2;
+        wallClock.add(clockFace);
+        [0, Math.PI / 2, Math.PI, Math.PI * 1.5].forEach((angle) => {
+          const tick = box(0.03, 0.04, 0.07, 0x55717c);
+          tick.position.set(-0.055, Math.sin(angle) * 0.2, Math.cos(angle) * 0.2);
+          wallClock.add(tick);
+        });
+        const hourHand = box(0.04, 0.05, 0.14, 0x55717c),
+          minuteHand = box(0.04, 0.05, 0.2, 0x55717c);
+        hourHand.position.set(-0.06, 0.045, 0.04);
+        hourHand.rotation.x = -0.55;
+        minuteHand.position.set(-0.06, -0.015, -0.055);
+        minuteHand.rotation.x = 0.78;
+        wallClock.add(hourHand, minuteHand);
+        wallClock.position.copy(
+          doorCentre
+            .clone()
+            .addScaledVector(out, 0.22)
+            .addScaledVector(tan, width * 0.36),
+        );
+        wallClock.position.y = 2.58;
+        wallClock.rotation.y = wallAngle;
+        secondFloor.add(wallClock);
+
+        const dispenserRack = new THREE.Group();
+        [0xe9f1ef, 0xb7d9dc, 0xf0eee8].forEach((color, index) =>
+          put(
+            dispenserRack,
+            new THREE.Mesh(
+              new RoundedBoxGeometry(0.18, 0.38, 0.42, 5, 0.06),
+              material(color, 0.64),
+            ),
+            0,
+            0,
+            (index - 1) * 0.5,
+          ),
+        );
+        dispenserRack.position.copy(
+          doorCentre
+            .clone()
+            .addScaledVector(out, depth - 0.17)
+            .addScaledVector(tan, width * 0.08),
+        );
+        dispenserRack.position.y = 1.65;
+        dispenserRack.rotation.y = wallAngle;
+        secondFloor.add(dispenserRack);
+
+        const sterilePrep = new THREE.Group();
+        put(
+          sterilePrep,
+          new THREE.Mesh(
+            new RoundedBoxGeometry(1.55, 0.12, 0.82, 5, 0.06),
+            material(0x929c9e, 0.42),
+          ),
+          0,
+          0.86,
+          0,
+        );
+        put(sterilePrep, box(1.42, 0.035, 0.7, 0xaed8e1), 0, 0.94, 0);
+        [-0.55, 0.55].forEach((x) =>
+          [-0.28, 0.28].forEach((z) =>
+            put(sterilePrep, cyl(0.04, 0.76, 0x7d898c, 10), x, 0.44, z),
+          ),
+        );
+        [-0.38, 0, 0.38].forEach((x, index) =>
+          put(
+            sterilePrep,
+            cyl(0.09, 0.22 + index * 0.04, index === 1 ? 0xd7eee9 : 0xf2eee6, 14),
+            x,
+            1.08 + index * 0.02,
+            0,
+          ),
+        );
+        sterilePrep.position.copy(
+          bedCentre
+            .clone()
+            .addScaledVector(tan, 3.65)
+            .addScaledVector(out, 1.75),
+        );
+        sterilePrep.rotation.y = bedYaw;
+        secondFloor.add(sterilePrep);
+
+        const utilityCorner = new THREE.Group();
+        put(
+          utilityCorner,
+          new THREE.Mesh(
+            new RoundedBoxGeometry(0.64, 0.82, 0.58, 6, 0.11),
+            material(0xd9e2df, 0.7),
+          ),
+          -0.44,
+          0.42,
+          0,
+        );
+        put(utilityCorner, box(0.58, 0.08, 0.52, 0x78949b), -0.44, 0.86, 0);
+        const linenHamper = cyl(0.34, 0.72, 0xc7d8d5, 18);
+        put(utilityCorner, linenHamper, 0.42, 0.36, 0);
+        put(utilityCorner, cyl(0.36, 0.08, 0x78949b, 18), 0.42, 0.75, 0);
+        put(utilityCorner, box(0.82, 0.16, 0.48, 0xaab6b7), 0, 0.1, 0.92);
+        utilityCorner.position.copy(
+          doorCentre
+            .clone()
+            .addScaledVector(out, 1.1)
+            .addScaledVector(tan, width / 2 - 0.75),
+        );
+        utilityCorner.rotation.y = bedYaw;
+        secondFloor.add(utilityCorner);
+
+        // Operating room 2 receives a compact imaging/endoscopy tower so the
+        // two operating rooms retain distinct functions and silhouettes.
+        if (doorCentre.x > 0) {
+          const imagingTower = new THREE.Group();
+          put(
+            imagingTower,
+            new THREE.Mesh(
+              new RoundedBoxGeometry(0.78, 1.52, 0.66, 6, 0.09),
+              material(0xe9ece8, 0.6),
+            ),
+            0,
+            0.82,
+            0,
+          );
+          put(
+            imagingTower,
+            new THREE.Mesh(
+              new RoundedBoxGeometry(0.16, 0.72, 0.88, 5, 0.07),
+              material(0x294e64, 0.38),
+            ),
+            -0.32,
+            1.75,
+            0,
+          );
+          [0.16, 0, -0.16].forEach((z, index) =>
+            put(
+              imagingTower,
+              box(0.025, 0.035, 0.48 - index * 0.04, index === 1 ? 0xf2c968 : CYAN),
+              -0.42,
+              1.74 + index * 0.1,
+              z,
+            ),
+          );
+          [-0.24, 0, 0.24].forEach((z) =>
+            put(imagingTower, box(0.08, 0.2, 0.18, 0x6d858e), -0.42, 0.78, z),
+          );
+          imagingTower.position.copy(
+            bedCentre
+              .clone()
+              .addScaledVector(tan, -4.35)
+              .addScaledVector(out, 1.65),
+          );
+          imagingTower.rotation.y = bedYaw;
+          secondFloor.add(imagingTower);
+        }
+      } else {
+        stool(secondFloor, bedCentre.x + tan.x * 1.35, bedCentre.z + tan.z * 1.35, CYAN, bedYaw);
+        const privacy = new THREE.Group();
+        put(privacy, box(2.5, 0.06, 0.06, 0x879b9f), 0, 2.72, 0);
+        [-0.94, -0.47, 0, 0.47, 0.94].forEach((x, index) =>
+          put(
+            privacy,
+            new THREE.Mesh(
+              new RoundedBoxGeometry(0.44, 1.55, 0.04, 4, 0.025),
+              material(index % 2 ? 0xb8d9dc : 0x87bdca, 0.78),
+            ),
+            x,
+            1.9,
+            0,
+          ),
+        );
+        privacy.position.copy(
+          bedCentre.clone().addScaledVector(tan, -2.55).addScaledVector(out, 1.65),
+        );
+        privacy.rotation.y = bedYaw;
+        secondFloor.add(privacy);
+
+        const diagnosticRack = new THREE.Group();
+        put(diagnosticRack, box(0.16, 0.48, 1.35, 0xf0eee8), 0, 0, 0);
+        [-0.43, 0, 0.43].forEach((z, index) => {
+          put(diagnosticRack, cyl(0.08, 0.34, index === 1 ? 0x4e6671 : 0x7796a2, 10), -0.12, -0.12, z);
+          put(diagnosticRack, box(0.32, 0.035, 0.035, 0x4e6671), -0.23, -0.38, z);
+        });
+        diagnosticRack.position.copy(
+          doorCentre
+            .clone()
+            .addScaledVector(out, depth - 0.2)
+            .addScaledVector(tan, width * 0.27),
+        );
+        diagnosticRack.position.y = 1.82;
+        diagnosticRack.rotation.y = wallAngle;
+        secondFloor.add(diagnosticRack);
+      }
+    };
+
+    addUpperRoom(
+      "手術室 1",
+      "OPERATING ROOM 1",
+      leftOperatingDoor,
+      clinicOuts[0],
+      clinicTangents[0],
+      -FAN_ANGLE,
+      11.25,
+      7.35,
+      "operating",
+      BLUE,
+    );
+    addUpperRoom(
+      "手術室 2",
+      "OPERATING ROOM 2",
+      rightOperatingDoor,
+      clinicOuts[2],
+      clinicTangents[2],
+      FAN_ANGLE,
+      11.25,
+      7.35,
+      "operating",
+      BLUE,
+    );
+    addUpperRoom(
+      "檢查室",
+      "EXAMINATION ROOM",
+      clinicDoorPoints[4],
+      clinicOuts[4],
+      clinicTangents[4],
+      FAN_ANGLE,
+      5.9,
+      7.35,
+      "exam",
+      CYAN,
+    );
+
+    type UpperClinicalJob =
+      | "surgeon"
+      | "scrubNurse"
+      | "circulatingNurse"
+      | "anesthetist"
+      | "surgicalPatient"
+      | "examDoctor"
+      | "examNurse"
+      | "examPatient";
+    const upperClinicalActors: {
+      walker: Walker;
+      job: UpperClinicalJob;
+      phase: number;
+      baseY: number;
+      baseYaw: number;
+      room: number;
+    }[] = [];
+    const facingYaw = (position: THREE.Vector3, target: THREE.Vector3) => {
+      const direction = target.clone().sub(position);
+      return Math.atan2(-direction.x, -direction.z);
+    };
+    const createUpperClinicalActor = (
+      role: Role,
+      job: UpperClinicalJob,
+      uniformColor: number,
+      position: THREE.Vector3,
+      target: THREE.Vector3,
+      room: number,
+      gender: Gender,
+      styleSeed: number,
+      surgical = false,
+    ) => {
+      const walker = person(
+        secondFloor,
+        role,
+        uniformColor,
+        position,
+        [position.clone()],
+        0,
+        room,
+        gender,
+        styleSeed,
+      );
+      walker.group.rotation.y = facingYaw(position, target);
+      walker.group.userData.upperClinicalJob = job;
+      walker.group.traverse((object) => {
+        if (
+          object instanceof THREE.Mesh &&
+          object.userData.uniformPart &&
+          object.material instanceof THREE.MeshStandardMaterial
+        )
+          object.material.color.setHex(uniformColor);
+      });
+      if (walker.chart)
+        walker.chart.visible =
+          job === "circulatingNurse" || job === "examNurse";
+      if (surgical) {
+        walker.headRig.traverse((object) => {
+          if (object.userData.hairPart || object.userData.nurseCapPart)
+            object.visible = false;
+        });
+        const cap = new THREE.Mesh(
+            new THREE.SphereGeometry(
+              0.275,
+              16,
+              10,
+              0,
+              Math.PI * 2,
+              0,
+              Math.PI * 0.64,
+            ),
+            material(role === "patient" ? 0x75bdb2 : uniformColor, 0.62),
+          ),
+          mask = new THREE.Mesh(
+            new RoundedBoxGeometry(0.34, 0.15, 0.07, 5, 0.035),
+            material(0xb8e1dc, 0.72),
+          );
+        cap.position.y = 0.04;
+        cap.scale.set(1.04, 0.94, 1.04);
+        mask.position.set(0, -0.05, -0.225);
+        walker.headRig.add(cap, mask);
+      }
+      if (role === "patient") {
+        const gown = new THREE.Mesh(
+          new RoundedBoxGeometry(0.62, 0.72, 0.3, 6, 0.12),
+          material(uniformColor, 0.72),
+        );
+        gown.position.set(0, 0.82, -0.015);
+        gown.userData.uniformPart = true;
+        walker.group.add(gown);
+        walker.legs.forEach((leg) => {
+          if (leg.material instanceof THREE.MeshStandardMaterial)
+            leg.material.color.setHex(0xdbe9e7);
+        });
+        if (walker.phone) walker.phone.visible = false;
+        if (walker.medicineBag) walker.medicineBag.visible = false;
+        const eyeMaterial = material(0x354d58, 0.62);
+        [-0.082, 0.082].forEach((x) => {
+          const eye = new THREE.Mesh(
+            new THREE.SphereGeometry(0.018, 8, 6),
+            eyeMaterial,
+          );
+          eye.position.set(x, 0.045, -0.236);
+          walker.headRig.add(eye);
+        });
+      }
+      if (job === "surgeon" || job === "scrubNurse") {
+        walker.arms.forEach((arm) =>
+          arm.traverse((object) => {
+            if (
+              object instanceof THREE.Mesh &&
+              object.userData.handPart &&
+              object.material instanceof THREE.MeshStandardMaterial
+            )
+              object.material.color.setHex(0xffffff);
+          }),
+        );
+      }
+      if (job === "surgeon") {
+        walker.arms.forEach((arm, index) => {
+          const instrument = box(
+            0.035,
+            0.035,
+            index === 0 ? 0.5 : 0.42,
+            0x899497,
+            0.34,
+          );
+          instrument.position.set(0, -0.47, -0.25);
+          instrument.rotation.y = index === 0 ? -0.08 : 0.08;
+          arm.add(instrument);
+        });
+      }
+      if (job === "scrubNurse") {
+        const instrument = box(0.035, 0.035, 0.58, 0x929b9d, 0.38);
+        instrument.position.set(0, -0.43, -0.18);
+        walker.arms[1].add(instrument);
+      }
+      if (role !== "patient")
+        upperClinicalActors.push({
+          walker,
+          job,
+          phase: styleSeed * 0.61,
+          baseY: position.y,
+          baseYaw: walker.group.rotation.y,
+          room,
+        });
+      return walker;
+    };
+    const placeSupinePatient = (
+      patient: Walker,
+      bedCentre: THREE.Vector3,
+      headDirection: THREE.Vector3,
+    ) => {
+      const patientHolder = new THREE.Group();
+      secondFloor.remove(patient.group);
+      patientHolder.add(patient.group);
+      patient.group.position.set(0, 0, 0);
+      // Rotate the standing model onto its back: its face (local -Z) now points
+      // upward, while the head follows local +Z toward the room's north wall.
+      patient.group.rotation.set(Math.PI / 2, 0, 0);
+      patientHolder.position.copy(
+        bedCentre.clone().addScaledVector(headDirection, -0.78),
+      );
+      patientHolder.position.y = 1.25;
+      patientHolder.rotation.y = Math.atan2(headDirection.x, headDirection.z);
+      secondFloor.add(patientHolder);
+    };
+    const populateOperatingRoom = (
+      room: number,
+      doorCentre: THREE.Vector3,
+      out: THREE.Vector3,
+      tan: THREE.Vector3,
+      seed: number,
+    ) => {
+      const bedCentre = doorCentre.clone().addScaledVector(out, 7.35 * 0.58),
+        surgeonPosition = bedCentre
+          .clone()
+          .addScaledVector(tan, 0.92)
+          .addScaledVector(out, 0.08),
+        scrubPosition = bedCentre
+          .clone()
+          .addScaledVector(tan, 1.55)
+          .addScaledVector(out, -1.15),
+        circulatingPosition = bedCentre
+          .clone()
+          .addScaledVector(tan, 3.8)
+          .addScaledVector(out, 0.3),
+        anesthetistPosition = bedCentre
+          .clone()
+          .addScaledVector(tan, -1.45)
+          .addScaledVector(out, 0.15)
+          .add(
+            new THREE.Vector3(
+              room === 1 ? 0.45 : -0.45,
+              0,
+              -0.45,
+            ),
+          );
+      const surgeon = createUpperClinicalActor(
+        "doctor",
+        "surgeon",
+        0x2f7779,
+        surgeonPosition,
+        bedCentre,
+        room,
+        room === 1 ? "female" : "male",
+        seed,
+        true,
+      ),
+        scrubNurse = createUpperClinicalActor(
+          "nurse",
+          "scrubNurse",
+          0x6db9b4,
+          scrubPosition,
+          surgeonPosition,
+          room,
+          "female",
+          seed + 1,
+          true,
+        );
+      surgeon.group.userData.handoffYaw = facingYaw(
+        surgeonPosition,
+        scrubPosition,
+      );
+      scrubNurse.group.userData.handoffYaw = facingYaw(
+        scrubPosition,
+        surgeonPosition,
+      );
+      createUpperClinicalActor(
+        "nurse",
+        "circulatingNurse",
+        0x82c5c0,
+        circulatingPosition,
+        bedCentre,
+        room,
+        room === 1 ? "male" : "female",
+        seed + 2,
+        true,
+      );
+      const anesthesiaMachinePoint = bedCentre
+          .clone()
+          .addScaledVector(tan, -2.5)
+          .addScaledVector(out, -0.8),
+        patientHeadPoint = bedCentre.clone().addScaledVector(out, 0.84),
+        anesthesiaFocus = anesthesiaMachinePoint
+          .clone()
+          .lerp(patientHeadPoint, 0.5),
+        anesthesiaYaw = facingYaw(anesthetistPosition, anesthesiaFocus);
+      stool(
+        secondFloor,
+        anesthetistPosition.x,
+        anesthetistPosition.z,
+        0x75aeb9,
+        anesthesiaYaw,
+      );
+      const anesthetist = createUpperClinicalActor(
+        "doctor",
+        "anesthetist",
+        0x79aaca,
+        anesthetistPosition,
+        anesthesiaFocus,
+        room,
+        room === 1 ? "male" : "female",
+        seed + 3,
+        true,
+      );
+      anesthetist.group.position.y = 0.14;
+      anesthetist.group.scale.set(1, 0.88, 1);
+      anesthetist.legs.forEach((leg, index) => {
+        leg.position.set(index ? 0.14 : -0.14, 0.69, -0.3);
+        leg.rotation.x = -Math.PI / 2;
+      });
+      const anesthetistActor = upperClinicalActors.find(
+        (actor) => actor.walker === anesthetist,
+      );
+      if (anesthetistActor) {
+        anesthetistActor.baseY = 0.14;
+        anesthetistActor.baseYaw = anesthesiaYaw;
+      }
+      const patient = createUpperClinicalActor(
+          "patient",
+          "surgicalPatient",
+          room === 1 ? 0xd9b49d : 0xc7b6d9,
+          bedCentre,
+          bedCentre.clone().add(out),
+          room,
+          room === 1 ? "male" : "female",
+          seed + 4,
+          true,
+        );
+      placeSupinePatient(patient, bedCentre, out);
+    };
+    populateOperatingRoom(
+      1,
+      leftOperatingDoor,
+      clinicOuts[0],
+      clinicTangents[0],
+      210,
+    );
+    populateOperatingRoom(
+      2,
+      rightOperatingDoor,
+      clinicOuts[2],
+      clinicTangents[2],
+      220,
+    );
+
+    const examBedCentre = clinicDoorPoints[4]
+        .clone()
+        .addScaledVector(clinicOuts[4], 7.35 * 0.58),
+      examDoctorPosition = examBedCentre
+        .clone()
+        .addScaledVector(clinicTangents[4], -1.2)
+        .addScaledVector(clinicOuts[4], 0.28),
+      examNursePosition = examBedCentre
+        .clone()
+        .addScaledVector(clinicTangents[4], 1.3)
+        .addScaledVector(clinicOuts[4], -0.75),
+      examWorkTarget = examBedCentre
+        .clone()
+        .addScaledVector(clinicTangents[4], -0.72)
+        .addScaledVector(clinicOuts[4], 0.52);
+    createUpperClinicalActor(
+      "doctor",
+      "examDoctor",
+      0xf8fbfa,
+      examDoctorPosition,
+      examWorkTarget,
+      5,
+      "female",
+      230,
+    );
+    createUpperClinicalActor(
+      "nurse",
+      "examNurse",
+      0x74c3c8,
+      examNursePosition,
+      examBedCentre,
+      5,
+      "male",
+      231,
+    );
+    const examPatient = createUpperClinicalActor(
+      "patient",
+      "examPatient",
+      0x9fcbd1,
+      examBedCentre,
+      examBedCentre.clone().add(clinicOuts[4]),
+      5,
+      "female",
+      232,
+      true,
+    );
+    placeSupinePatient(examPatient, examBedCentre, clinicOuts[4]);
+
+    const makeUpperInfoTexture = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1024;
+      canvas.height = 512;
+      const context = canvas.getContext("2d")!,
+        gradient = context.createLinearGradient(0, 0, 1024, 512),
+        qr = qrTexture(
+          "術前衛教",
+          `${window.location.origin}/qr/upper-info-screen`,
+        ).image as HTMLCanvasElement;
+      gradient.addColorStop(0, "#244a62");
+      gradient.addColorStop(1, "#3d7f99");
+      context.fillStyle = gradient;
+      context.fillRect(0, 0, 1024, 512);
+      context.fillStyle = "rgba(255,255,255,.08)";
+      context.fillRect(22, 22, 980, 468);
+      context.drawImage(qr, 52, 80, 252, 315);
+      context.fillStyle = "#ffffff";
+      context.textAlign = "center";
+      context.font = "700 25px Arial, sans-serif";
+      context.fillText("術前衛教資訊", 178, 446);
+      context.textAlign = "left";
+      context.font = "800 38px Arial, sans-serif";
+      context.fillText("二樓候診資訊", 350, 72);
+      const rows = [
+        ["手術室 1", "A021"],
+        ["手術室 2", "A018"],
+        ["檢查室", "B006"],
+      ];
+      rows.forEach(([label, number], index) => {
+        const y = 146 + index * 103;
+        context.fillStyle = index === 0 ? "#f2c968" : "rgba(255,255,255,.12)";
+        context.beginPath();
+        context.roundRect(350, y - 42, 610, 78, 18);
+        context.fill();
+        context.fillStyle = index === 0 ? "#244a62" : "#ffffff";
+        context.font = "700 28px Arial, sans-serif";
+        context.fillText(label, 380, y + 8);
+        context.textAlign = "right";
+        context.font = "800 43px Arial, sans-serif";
+        context.fillText(number, 925, y + 11);
+        context.textAlign = "left";
+      });
+      context.fillStyle = "rgba(255,255,255,.78)";
+      context.font = "600 20px Arial, sans-serif";
+      context.fillText("請依螢幕號碼前往指定空間", 350, 468);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      return texture;
+    };
+
+    const upperInfoScreen = new THREE.Mesh(
+        new THREE.PlaneGeometry(7.9, 3.02),
+        new THREE.MeshBasicMaterial({
+          map: makeUpperInfoTexture(),
+          side: THREE.DoubleSide,
+        }),
+      );
+    upperInfoScreen.position.set(0, 1.84, -8.295);
+    secondFloor.add(upperInfoScreen);
+
+    // Four compact waiting islands echo the first-floor furniture language,
+    // while sitting closer to the centre aisle. Unlike the two front islands
+    // downstairs, both upper corner seats are present here.
+    const upperWaitingSeats: { position: THREE.Vector3; yaw: number }[] = [];
+    const upperWaitingIslands = [
+      [-3.35, -1.0],
+      [3.35, -1.0],
+      [-3.35, 3.8],
+      [3.35, 3.8],
+    ] as const;
+    upperWaitingIslands.forEach(([cx, cz], islandIndex) => {
+      const rugShape = new THREE.Shape(),
+        rugWidth = 5.5,
+        rugDepth = 3.65,
+        rugRadius = 0.72;
+      rugShape.moveTo(-rugWidth / 2 + rugRadius, -rugDepth / 2);
+      rugShape.lineTo(rugWidth / 2 - rugRadius, -rugDepth / 2);
+      rugShape.quadraticCurveTo(
+        rugWidth / 2,
+        -rugDepth / 2,
+        rugWidth / 2,
+        -rugDepth / 2 + rugRadius,
+      );
+      rugShape.lineTo(rugWidth / 2, rugDepth / 2 - rugRadius);
+      rugShape.quadraticCurveTo(
+        rugWidth / 2,
+        rugDepth / 2,
+        rugWidth / 2 - rugRadius,
+        rugDepth / 2,
+      );
+      rugShape.lineTo(-rugWidth / 2 + rugRadius, rugDepth / 2);
+      rugShape.quadraticCurveTo(
+        -rugWidth / 2,
+        rugDepth / 2,
+        -rugWidth / 2,
+        rugDepth / 2 - rugRadius,
+      );
+      rugShape.lineTo(-rugWidth / 2, -rugDepth / 2 + rugRadius);
+      rugShape.quadraticCurveTo(
+        -rugWidth / 2,
+        -rugDepth / 2,
+        -rugWidth / 2 + rugRadius,
+        -rugDepth / 2,
+      );
+      const rugGeometry = new THREE.ExtrudeGeometry(rugShape, {
+          depth: 0.055,
+          bevelEnabled: true,
+          bevelSize: 0.045,
+          bevelThickness: 0.025,
+          bevelSegments: 3,
+        }),
+        rug = new THREE.Mesh(
+          rugGeometry,
+          material(islandIndex % 2 ? 0xc7e7e4 : 0xbde2df, 0.94),
+        );
+      rugGeometry.rotateX(-Math.PI / 2);
+      rug.position.set(cx, 0.115, cz);
+      rug.castShadow = true;
+      rug.receiveShadow = true;
+      secondFloor.add(rug);
+      [
+        [-1.02, -0.72, 0],
+        [0, -0.72, 0],
+        [1.02, -0.72, 0],
+        [-1.58, 0.4, -Math.PI / 2],
+        [1.58, 0.4, Math.PI / 2],
+      ].forEach(([dx, dz, yaw], seatIndex) => {
+        upperWaitingSeats.push({
+          position: new THREE.Vector3(cx + dx, 0, cz + dz),
+          yaw,
+        });
+        chair(
+          secondFloor,
+          cx + dx,
+          cz + dz,
+          (islandIndex + seatIndex) % 2 ? 0x6eb4c0 : 0x5e91bd,
+          yaw,
+        );
+      });
+      const table = new THREE.Group();
+      put(table, cyl(0.52, 0.12, 0xf2d79a, 22), 0, 0.58, 0);
+      put(table, cyl(0.08, 0.54, 0x75929d, 12), 0, 0.28, 0);
+      put(table, cyl(0.38, 0.07, 0x75929d, 18), 0, 0.04, 0);
+      table.position.set(cx, 0, cz + 0.42);
+      secondFloor.add(table);
+
+      const waitingQrStand = new THREE.Group();
+      put(waitingQrStand, box(0.46, 0.56, 0.045, 0xffffff), 0, 0.28, 0);
+      const waitingQrFace = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.38, 0.48),
+        new THREE.MeshBasicMaterial({
+          map: qrTexture(
+            `2F WAIT ${islandIndex + 1}`,
+            `${window.location.origin}/qr/lobby-waiting-${islandIndex + 1}`,
+          ),
+          side: THREE.DoubleSide,
+        }),
+      );
+      waitingQrFace.position.set(0, 0.29, 0.026);
+      waitingQrFace.userData = {
+        interactive: "qr",
+        qrId: `lobby-waiting-${islandIndex + 1}`,
+      };
+      interactive.push(waitingQrFace);
+      waitingQrStand.add(waitingQrFace);
+      waitingQrStand.position.set(cx, 0.64, cz + 0.42);
+      waitingQrStand.rotation.y = 0;
+      secondFloor.add(waitingQrStand);
+    });
+
+    const makeUpperPlanter = (x: number) => {
+      const planter = new THREE.Group(),
+        body = new THREE.Mesh(
+          new RoundedBoxGeometry(2.15, 0.48, 0.68, 7, 0.13),
+          material(0xd7e7e3, 0.62),
+        ),
+        soil = new THREE.Mesh(
+          new RoundedBoxGeometry(1.82, 0.05, 0.43, 5, 0.04),
+          material(0x55483c, 0.82),
+        );
+      body.position.y = 0.28;
+      soil.position.y = 0.55;
+      planter.add(body, soil);
+      [-0.68, 0, 0.68].forEach((leafX, cluster) =>
+        [-0.38, 0, 0.38].forEach((offset, index) => {
+          const leaf = new THREE.Mesh(
+            leafGeometry(0.34, 0.72, 0.045),
+            material((cluster + index) % 2 ? 0x6fa064 : 0x7eaf70, 0.7),
+          );
+          leaf.position.set(leafX + offset * 0.25, 0.56, offset * 0.35);
+          leaf.rotation.y = cluster * 0.72 + index * 0.34;
+          leaf.rotation.z = -offset * 0.72;
+          planter.add(leaf);
+        }),
+      );
+      planter.position.set(x, 0, 6.9);
+      secondFloor.add(planter);
+    };
+    makeUpperPlanter(-11.65);
+    makeUpperPlanter(11.65);
+
+    const hydrationStation = new THREE.Group();
+    put(
+      hydrationStation,
+      new THREE.Mesh(
+        new RoundedBoxGeometry(0.72, 1.2, 0.68, 6, 0.1),
+        material(0xf0f2ee, 0.65),
+      ),
+      0,
+      0.62,
+      0,
+    );
+    const waterBottle = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.25, 0.48, 6, 16),
+      new THREE.MeshStandardMaterial({
+        color: 0xc4edf0,
+        transparent: true,
+        opacity: 0.72,
+        roughness: 0.25,
+      }),
+    );
+    waterBottle.position.y = 1.5;
+    hydrationStation.add(waterBottle);
+    // Clearly distinguish the hot/cold outlets on the face used by visitors.
+    // The short metallic nozzles make the filling action readable from the
+    // elevated camera instead of looking like two decorative squares.
+    [
+      [-0.16, 0xe45d55],
+      [0.16, 0x4a9ed4],
+    ].forEach(([z, color]) => {
+      const outlet = cyl(0.085, 0.09, color, 16);
+      outlet.rotation.z = Math.PI / 2;
+      put(hydrationStation, outlet, 0.385, 0.92, z);
+      put(hydrationStation, box(0.16, 0.055, 0.055, 0x71858b), 0.45, 0.8, z);
+      put(hydrationStation, cyl(0.028, 0.1, 0x71858b, 10), 0.51, 0.74, z);
+    });
+    const upperWaterStream = cyl(0.018, 0.24, 0x79d5e8, 10);
+    upperWaterStream.position.set(0.51, 0.57, 0.16);
+    upperWaterStream.visible = false;
+    hydrationStation.add(upperWaterStream);
+    const upperServiceWallCentre = averagePoint(
+      elevatorWallPoint,
+      leftOperatingDoor,
+    ).addScaledVector(elevatorInward, 0.5);
+    hydrationStation.position.copy(
+      upperServiceWallCentre.clone().addScaledVector(clinicTangents[0], 0.62),
+    );
+    hydrationStation.rotation.y = -FAN_ANGLE;
+    secondFloor.add(hydrationStation);
+    const recyclingBin = new THREE.Group();
+    put(
+      recyclingBin,
+      new THREE.Mesh(
+        new RoundedBoxGeometry(0.72, 0.82, 0.66, 6, 0.09),
+        material(0x9fc9bf, 0.72),
+      ),
+      0,
+      0.43,
+      0,
+    );
+    put(recyclingBin, box(0.48, 0.04, 0.2, 0x466f70), 0, 0.86, 0);
+    recyclingBin.position.copy(
+      upperServiceWallCentre.clone().addScaledVector(clinicTangents[0], -0.4),
+    );
+    recyclingBin.rotation.y = -FAN_ANGLE;
+    secondFloor.add(recyclingBin);
+
+    const brochureStand = new THREE.Group();
+    put(brochureStand, box(0.08, 1.45, 0.08, 0x7c9197), 0, 0.74, 0);
+    put(brochureStand, box(0.88, 0.08, 0.58, 0x7c9197), 0, 0.05, 0);
+    [0.62, 1.02, 1.42].forEach((y, index) => {
+      const pocket = new THREE.Mesh(
+        new RoundedBoxGeometry(0.16, 0.42, 0.78, 5, 0.05),
+        material(index % 2 ? 0xb8dedb : 0x8ec3d3, 0.58),
+      );
+      pocket.position.set(-0.09, y, 0);
+      brochureStand.add(pocket);
+      put(brochureStand, box(0.035, 0.3, 0.58, 0xf7f5ef), -0.19, y + 0.08, 0);
+    });
+    brochureStand.position.set(10.25, 0, 5.65);
+    brochureStand.rotation.y = 0.18;
+    secondFloor.add(brochureStand);
+
+    const waitingClock = new THREE.Group(),
+      waitingClockFace = cyl(0.46, 0.08, 0xf7f5ef, 28);
+    waitingClockFace.rotation.x = Math.PI / 2;
+    waitingClock.add(waitingClockFace);
+    [0, Math.PI / 2, Math.PI, Math.PI * 1.5].forEach((angle) => {
+      const tick = box(0.045, 0.13, 0.035, 0x55717c);
+      tick.position.set(Math.sin(angle) * 0.33, Math.cos(angle) * 0.33, 0.06);
+      tick.rotation.z = -angle;
+      waitingClock.add(tick);
+    });
+    const waitingHour = box(0.045, 0.22, 0.04, 0x55717c),
+      waitingMinute = box(0.045, 0.3, 0.04, 0x55717c);
+    waitingHour.position.set(-0.06, 0.07, 0.06);
+    waitingHour.rotation.z = -0.55;
+    waitingMinute.position.set(0.08, -0.04, 0.06);
+    waitingMinute.rotation.z = 0.92;
+    waitingClock.add(waitingHour, waitingMinute);
+    waitingClock.position.copy(
+      upperServiceWallCentre.clone().addScaledVector(elevatorInward, -0.08),
+    );
+    waitingClock.position.y = 2.68;
+    waitingClock.lookAt(
+      waitingClock.position.clone().add(elevatorInward),
+    );
+    secondFloor.add(waitingClock);
+
+    type UpperFamilyRestActivity = "conversation" | "quiet";
+    type UpperFamilyTaskKind = "screen" | "water";
+    const upperFamilyActors: {
+      walker: Walker;
+      familyGroup: 1 | 2 | 3;
+      restActivity: UpperFamilyRestActivity;
+      phase: number;
+      basePosition: THREE.Vector3;
+      baseYaw: number;
+      seatExit: THREE.Vector3;
+      activeTask?: UpperFamilyTaskKind;
+      phoneRaised: boolean;
+      phoneChangeAt: number;
+      cup: THREE.Group;
+      cupWater: THREE.Mesh;
+      avoidanceOffset: THREE.Vector3;
+    }[] = [];
+    const familyColors = [
+      0xb77f70, 0x7896ad, 0x9a9870, 0x8b7d9c, 0x699789, 0xa77f68,
+      0x7688a5,
+    ];
+    const addUpperFamily = (
+      familyGroup: 1 | 2 | 3,
+      restActivity: UpperFamilyRestActivity,
+      position: THREE.Vector3,
+      yaw: number,
+      gender: Gender,
+      styleSeed: number,
+    ) => {
+      const walker = person(
+        secondFloor,
+        "patient",
+        familyColors[styleSeed % familyColors.length],
+        position.clone(),
+        [position.clone()],
+        0,
+        undefined,
+        gender,
+        310 + styleSeed,
+      );
+      walker.group.userData.familyGroup = familyGroup;
+      walker.group.userData.waitingRole = "companion";
+      walker.group.userData.floor = 2;
+      walker.group.rotation.y = yaw;
+      walker.group.position.y = 0.14;
+      walker.group.scale.set(1, 0.88, 1);
+      walker.legs.forEach((leg, index) => {
+        leg.position.set(index ? 0.14 : -0.14, 0.69, -0.3);
+        leg.rotation.set(-Math.PI / 2, 0, 0);
+      });
+      const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+      const cup = new THREE.Group(),
+        cupBody = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.075, 0.06, 0.17, 14, 1, true),
+          new THREE.MeshStandardMaterial({
+            color: 0xf7fbfa,
+            transparent: true,
+            opacity: 0.9,
+            roughness: 0.42,
+          }),
+        ),
+        cupWater = cyl(0.058, 0.012, 0x78c7de, 14);
+      cupBody.position.y = -0.08;
+      cupWater.position.y = -0.012;
+      cup.add(cupBody, cupWater);
+      cup.position.set(0, -0.52, -0.08);
+      cup.visible = false;
+      walker.arms[1].add(cup);
+      upperFamilyActors.push({
+        walker,
+        familyGroup,
+        restActivity,
+        phase: styleSeed * 0.73,
+        basePosition: position.clone(),
+        baseYaw: yaw,
+        seatExit: position.clone().addScaledVector(forward, 1.35),
+        phoneRaised: styleSeed % 2 === 0,
+        phoneChangeAt: 6 + Math.random() * 9,
+        cup,
+        cupWater,
+        avoidanceOffset: new THREE.Vector3(),
+      });
+    };
+
+    // Family allocation: operating room 1 has three companions, operating
+    // room 2 has two and the examination patient has two. Every companion owns
+    // a seat; screen and water duties rotate across all seven people.
+    [
+      [1, "quiet", 0, "female", 0],
+      [1, "conversation", 1, "male", 1],
+      [1, "quiet", 2, "female", 2],
+      [2, "quiet", 5, "male", 3],
+      [2, "conversation", 6, "female", 4],
+      [3, "quiet", 15, "female", 5],
+      [3, "conversation", 16, "male", 6],
+    ].forEach(([familyGroup, restActivity, seatIndex, gender, styleSeed]) => {
+      const seat = upperWaitingSeats[seatIndex as number];
+      addUpperFamily(
+        familyGroup as 1 | 2 | 3,
+        restActivity as UpperFamilyRestActivity,
+        seat.position,
+        seat.yaw,
+        gender as Gender,
+        styleSeed as number,
+      );
+    });
+    const screenStart = new THREE.Vector3(0.28, 0, 1.7),
+      screenEnd = new THREE.Vector3(0, 0, -5.5),
+      screenScanEnd = new THREE.Vector3(-2.15, 0, -5.5),
+      waterDirection = new THREE.Vector3()
+        .subVectors(new THREE.Vector3(0, 0, 0), hydrationStation.position)
+        .setY(0)
+        .normalize(),
+      waterEnd = hydrationStation.position
+        .clone()
+        .addScaledVector(waterDirection, 0.92)
+        .setY(0),
+      waterStart = waterEnd
+        .clone()
+        .addScaledVector(waterDirection, 1.55)
+        .setY(0);
+    const shuffledFamilyOrder = (lastFamily?: 1 | 2 | 3) => {
+      const actorIndexes = upperFamilyActors.map((_, index) => index),
+        isValid = (order: number[]) =>
+          (!lastFamily ||
+            upperFamilyActors[order[0]].familyGroup !== lastFamily) &&
+          order.every(
+            (actorIndex, index) =>
+              index === 0 ||
+              upperFamilyActors[order[index - 1]].familyGroup !==
+                upperFamilyActors[actorIndex].familyGroup,
+          );
+      for (let attempt = 0; attempt < 80; attempt++) {
+        const order = actorIndexes.slice();
+        for (let index = order.length - 1; index > 0; index--) {
+          const swapIndex = Math.floor(Math.random() * (index + 1));
+          [order[index], order[swapIndex]] = [order[swapIndex], order[index]];
+        }
+        if (isValid(order)) return order;
+      }
+      const fallback = [0, 3, 1, 5, 2, 4, 6];
+      if (lastFamily === 1) fallback.push(fallback.shift()!);
+      return fallback;
+    };
+    type UpperFamilyTask = {
+      kind: UpperFamilyTaskKind;
+      routeStart: THREE.Vector3;
+      routeEnd: THREE.Vector3;
+      order: number[];
+      orderIndex: number;
+      activeActor: number | null;
+      phase:
+        | "idle"
+        | "outbound"
+        | "viewing"
+        | "scanMove"
+        | "activity"
+        | "returning";
+      phaseStart: number;
+      nextStartAt: number;
+      lastFamily?: 1 | 2 | 3;
+    };
+    const upperFamilyTasks: UpperFamilyTask[] = [
+      {
+        kind: "screen",
+        routeStart: screenStart,
+        routeEnd: screenEnd,
+        order: shuffledFamilyOrder(),
+        orderIndex: 0,
+        activeActor: null,
+        phase: "idle",
+        phaseStart: 0,
+        nextStartAt: 4,
+      },
+      {
+        kind: "water",
+        routeStart: waterStart,
+        routeEnd: waterEnd,
+        order: shuffledFamilyOrder(),
+        orderIndex: 0,
+        activeActor: null,
+        phase: "idle",
+        phaseStart: 0,
+        nextStartAt: 11,
+      },
+    ];
+    const UPPER_FAMILY_WALK_SPEED = 0.76,
+      smoothUpperFamilyPath = (corners: THREE.Vector3[]) => {
+        if (corners.length < 3) return corners.map((point) => point.clone());
+        const smoothPoints = [corners[0].clone()];
+        for (let index = 1; index < corners.length - 1; index++) {
+          const previous = corners[index - 1],
+            corner = corners[index],
+            next = corners[index + 1],
+            incomingLength = previous.distanceTo(corner),
+            outgoingLength = corner.distanceTo(next),
+            roundingDistance = Math.min(
+              index === 1 ? 0.34 : 0.62,
+              incomingLength * 0.28,
+              outgoingLength * 0.28,
+            ),
+            entry = corner
+              .clone()
+              .addScaledVector(
+                previous.clone().sub(corner).normalize(),
+                roundingDistance,
+              ),
+            exit = corner
+              .clone()
+              .addScaledVector(
+                next.clone().sub(corner).normalize(),
+                roundingDistance,
+              );
+          if (smoothPoints[smoothPoints.length - 1].distanceTo(entry) > 0.02)
+            smoothPoints.push(entry);
+          const cornerCurve = new THREE.QuadraticBezierCurve3(
+            entry,
+            corner,
+            exit,
+          );
+          smoothPoints.push(...cornerCurve.getSpacedPoints(7).slice(1));
+        }
+        smoothPoints.push(corners[corners.length - 1].clone());
+        return smoothPoints;
+      },
+      upperFamilyPath = (
+        actor: (typeof upperFamilyActors)[number],
+        task: UpperFamilyTask,
+      ) => {
+        const centreAisle = new THREE.Vector3(
+            screenStart.x,
+            0,
+            actor.seatExit.z,
+          ),
+          points = [actor.basePosition, actor.seatExit];
+        // Visitors seated in the two front islands already face the display.
+        // Let them cross the open floor diagonally instead of walking back to
+        // the centre aisle and making an artificial ninety-degree turn.
+        if (task.kind === "screen" && actor.basePosition.z < 1.5) {
+          points.push(screenEnd);
+          return smoothUpperFamilyPath(points);
+        }
+        // The upper-left waiting group can turn toward the nearby water wall as
+        // soon as it clears the chair.  Its direct diagonal is both shorter and
+        // closer to how a visitor would naturally choose the open passage.
+        if (
+          task.kind === "water" &&
+          (actor.basePosition.z > 2.2 ||
+            (actor.basePosition.x < 0 && actor.basePosition.z < 1.5))
+        ) {
+          points.push(waterStart, waterEnd);
+          return smoothUpperFamilyPath(points);
+        }
+        points.push(centreAisle);
+        // The central aisle runs between the waiting islands. Water visitors
+        // use its upper junction before turning toward the wall station; screen
+        // visitors can continue straight toward the display.
+        if (
+          task.kind === "water" &&
+          centreAisle.distanceTo(screenStart) > 0.05
+        )
+          points.push(screenStart);
+        if (task.kind === "water") points.push(task.routeStart);
+        points.push(task.routeEnd);
+        return smoothUpperFamilyPath(points);
+      },
+      upperFamilyPathLength = (points: THREE.Vector3[]) =>
+        points.slice(1).reduce(
+          (distance, point, index) =>
+            distance + point.distanceTo(points[index]),
+          0,
+        ),
+      upperFamilyPathPoint = (
+        points: THREE.Vector3[],
+        distance: number,
+      ) => {
+        let remaining = Math.max(0, distance);
+        for (let index = 1; index < points.length; index++) {
+          const segmentLength = points[index - 1].distanceTo(points[index]);
+          if (remaining <= segmentLength) {
+            const progress = segmentLength > 0 ? remaining / segmentLength : 1;
+            const position = new THREE.Vector3().lerpVectors(
+              points[index - 1],
+              points[index],
+              progress,
+            );
+            return { position, lookAt: points[index].clone() };
+          }
+          remaining -= segmentLength;
+        }
+        return {
+          position: points[points.length - 1].clone(),
+          lookAt: points[points.length - 1].clone(),
+        };
+      },
+      placeAlongUpperFamilyPath = (
+        actor: (typeof upperFamilyActors)[number],
+        points: THREE.Vector3[],
+        distance: number,
+        frameDelta: number,
+      ) => {
+        const { position: nominalPosition, lookAt } = upperFamilyPathPoint(
+            points,
+            distance,
+          ),
+          travelDirection = lookAt.clone().sub(nominalPosition).setY(0),
+          desiredOffset = new THREE.Vector3();
+        if (travelDirection.lengthSq() > 0.0001) travelDirection.normalize();
+        else
+          travelDirection.set(
+            -Math.sin(actor.walker.group.rotation.y),
+            0,
+            -Math.cos(actor.walker.group.rotation.y),
+          );
+        const lateral = new THREE.Vector3(
+          -travelDirection.z,
+          0,
+          travelDirection.x,
+        );
+        upperFamilyActors.forEach((other, otherIndex) => {
+          if (other === actor) return;
+          const gap = nominalPosition
+              .clone()
+              .sub(other.walker.group.position)
+              .setY(0),
+            distanceToPerson = gap.length(),
+            awarenessRadius = 1.08;
+          if (distanceToPerson >= awarenessRadius) return;
+          const urgency = 1 - distanceToPerson / awarenessRadius,
+            cross = travelDirection.x * gap.z - travelDirection.z * gap.x,
+            actorIndex = upperFamilyActors.indexOf(actor),
+            side = Math.abs(cross) > 0.06
+              ? Math.sign(cross)
+              : (actorIndex + otherIndex) % 2
+                ? 1
+                : -1;
+          desiredOffset.addScaledVector(lateral, side * urgency * 0.52);
+          if (distanceToPerson < 0.62) {
+            if (gap.lengthSq() < 0.0001)
+              gap.copy(lateral).multiplyScalar(side);
+            else gap.normalize();
+            desiredOffset.addScaledVector(gap, (0.64 - distanceToPerson) * 0.72);
+          }
+        });
+        if (desiredOffset.length() > 0.55) desiredOffset.setLength(0.55);
+        actor.avoidanceOffset.lerp(
+          desiredOffset,
+          Math.min(1, frameDelta * (desiredOffset.lengthSq() ? 4.6 : 3.1)),
+        );
+        actor.walker.group.position.copy(nominalPosition).add(actor.avoidanceOffset);
+        if (lookAt.distanceToSquared(nominalPosition) > 0.0001)
+          actor.walker.group.rotation.y = facingYaw(
+            actor.walker.group.position,
+            lookAt.clone().add(actor.avoidanceOffset),
+          );
+      };
 
     // Move the full reception ensemble toward the entrance. The narrower arch
     // leaves a walkable passage on each side into the pharmacy behind it.
@@ -4110,9 +5977,15 @@ export default function HospitalScene({
       ray.setFromCamera(mouse, camera);
       return ray
         .intersectObjects(interactive, true)
-        .find((hit) => isVisibleInteractiveObject(hit.object));
+        .find((hit) => {
+          if (!isVisibleInteractiveObject(hit.object)) return false;
+          const root = hit.object.userData.hitRoot || hit.object,
+            objectFloor = (root.userData.floor as 1 | 2 | undefined) ?? 1;
+          return objectFloor === activeFloorRef.current;
+        });
     };
     const birdAtPointer = (e: PointerEvent) => {
+      if (activeFloorRef.current !== 1) return undefined;
       const bounds = renderer.domElement.getBoundingClientRect(),
         radius = touchDevice ? 54 : 42;
       return streetBirds.find((bird) => {
@@ -4329,7 +6202,10 @@ export default function HospitalScene({
       const hit = pointer(e);
       if (!hit) return;
       const root = hit.object.userData.hitRoot || hit.object;
-      if (root.userData.interactive === "qr") {
+      if (root.userData.interactive === "elevator") {
+        if (focusedPatient) clearFocusedPatient();
+        onElevatorOpen();
+      } else if (root.userData.interactive === "qr") {
         const qrId = root.userData.qrId as string | undefined;
         if (qrId)
           window.open(`/qr/${qrId}`, "_blank", "noopener,noreferrer");
@@ -5440,7 +7316,8 @@ export default function HospitalScene({
       phoneLocalTilt = new THREE.Quaternion().setFromEuler(
         new THREE.Euler(-Math.PI / 6, 0, 0),
       ),
-      phonePalmOffset = new THREE.Vector3();
+      phonePalmOffset = new THREE.Vector3(),
+      upperCupWorldPosition = new THREE.Vector3();
     const bedPoseX = new THREE.Vector3(),
       bedPoseY = new THREE.Vector3(),
       bedPoseZ = new THREE.Vector3(0, -1, 0),
@@ -7142,6 +9019,38 @@ export default function HospitalScene({
           p.group.userData.activePatient && !patientMonitors.has(p.group.uuid),
       )
       .forEach(attachPatientMonitor);
+    const floorOneWalkerVisibility = new Map<string, boolean>();
+    const applyFloor = (floorNumber: 1 | 2) => {
+      secondFloor.visible = floorNumber === 2;
+      // The lower clinic rooms are open dollhouse sets on 1F. Hide every
+      // interior object while upstairs so no camera angle can reveal them
+      // through or above the continuous lower envelope.
+      floorOneClinicInteriorObjects.forEach((object) => {
+        object.visible = floorNumber === 1;
+      });
+      if (floorNumber === 2) {
+        walkers.forEach((walker) => {
+          if (!floorOneWalkerVisibility.has(walker.group.uuid))
+            floorOneWalkerVisibility.set(
+              walker.group.uuid,
+              walker.group.visible,
+            );
+          walker.group.visible = false;
+        });
+        clearFocusedPatient();
+      } else {
+        walkers.forEach((walker) => {
+          const previousVisibility = floorOneWalkerVisibility.get(
+            walker.group.uuid,
+          );
+          if (previousVisibility !== undefined)
+            walker.group.visible = previousVisibility;
+        });
+        floorOneWalkerVisibility.clear();
+      }
+    };
+    applyFloorRef.current = applyFloor;
+    applyFloor(activeFloorRef.current);
     const clock = new THREE.Clock();
     let raf = 0,
       lowMotionTime = 0,
@@ -7153,6 +9062,342 @@ export default function HospitalScene({
       try {
         const dt = Math.min(clock.getDelta(), 0.04),
           t = clock.elapsedTime;
+        if (activeFloorRef.current === 2) {
+          upperClinicalActors.forEach(
+            ({ walker, job, phase, baseY, baseYaw, room }) => {
+              const pulse = Math.sin(t * 2.85 + phase),
+                fasterPulse = Math.sin(t * 5.8 + phase),
+                slowerPulse = Math.sin(t * 1.55 + phase),
+                handoffCycle = (t + room * 1.37) % 8.8,
+                handoffProgress = THREE.MathUtils.clamp(
+                  (handoffCycle - 5.25) / 1.85,
+                  0,
+                  1,
+                ),
+                handoffAmount = Math.sin(handoffProgress * Math.PI);
+              walker.group.position.y =
+                baseY + (job === "anesthetist" ? 0 : slowerPulse * 0.014);
+              const handoffYaw = walker.group.userData.handoffYaw;
+              if (
+                (job === "surgeon" || job === "scrubNurse") &&
+                typeof handoffYaw === "number"
+              ) {
+                const yawDifference = Math.atan2(
+                  Math.sin(handoffYaw - baseYaw),
+                  Math.cos(handoffYaw - baseYaw),
+                );
+                walker.group.rotation.y =
+                  baseYaw +
+                  yawDifference *
+                    handoffAmount *
+                    (job === "surgeon" ? 0.3 : 0.72);
+              } else {
+                walker.group.rotation.y = baseYaw + slowerPulse * 0.025;
+              }
+              walker.arms.forEach((arm) => arm.rotation.set(0, 0, 0));
+              walker.headRig.rotation.set(0, 0, 0);
+              if (job === "surgeon") {
+                walker.arms[0].rotation.x = 0.82 + fasterPulse * 0.18;
+                walker.arms[1].rotation.x = THREE.MathUtils.lerp(
+                  0.76 - fasterPulse * 0.16,
+                  1.24,
+                  handoffAmount,
+                );
+                walker.arms[0].rotation.z = -0.12;
+                walker.arms[1].rotation.z = THREE.MathUtils.lerp(
+                  0.12,
+                  -0.18,
+                  handoffAmount,
+                );
+                walker.headRig.rotation.x = 0.17 + fasterPulse * 0.055;
+                walker.headRig.rotation.y = handoffAmount * 0.2;
+              } else if (job === "scrubNurse") {
+                walker.arms[0].rotation.x = 0.5 + slowerPulse * 0.1;
+                walker.arms[1].rotation.x = THREE.MathUtils.lerp(
+                  0.92 + pulse * 0.13,
+                  1.25,
+                  handoffAmount,
+                );
+                walker.arms[1].rotation.z = THREE.MathUtils.lerp(
+                  -0.09,
+                  0.18,
+                  handoffAmount,
+                );
+                walker.headRig.rotation.y = pulse * 0.08;
+              } else if (job === "circulatingNurse") {
+                if (walker.chart) {
+                  walker.chart.visible = true;
+                  walker.chart.position.set(0, 0.91, -0.39);
+                  walker.chart.rotation.x =
+                    -0.47 + Math.sin(t * 2.3 + phase) * 0.018;
+                }
+                walker.arms[0].rotation.x = 0.91;
+                walker.arms[0].rotation.z = 0.34;
+                walker.arms[1].rotation.x =
+                  1.02 + Math.sin(t * 6.2 + phase) * 0.13;
+                walker.arms[1].rotation.z =
+                  -0.32 + Math.sin(t * 6.2 + phase) * 0.045;
+                walker.headRig.rotation.y = Math.sin(t * 1.8 + phase) * 0.045;
+                walker.headRig.rotation.x =
+                  0.14 + Math.sin(t * 2.2 + phase) * 0.05;
+              } else if (job === "anesthetist") {
+                walker.arms[0].rotation.x = 0.46 + pulse * 0.1;
+                walker.arms[1].rotation.x = 0.58 - pulse * 0.11;
+                walker.headRig.rotation.x =
+                  0.13 + Math.sin(t * 2.2 + phase) * 0.1;
+                walker.headRig.rotation.y = slowerPulse * 0.035;
+              } else if (job === "examDoctor") {
+                walker.arms[0].rotation.x =
+                  1.02 + Math.sin(t * 5.2 + phase) * 0.16;
+                walker.arms[0].rotation.z = 0.22;
+                walker.arms[1].rotation.x =
+                  0.94 + Math.sin(t * 4.6 + phase + 1) * 0.14;
+                walker.arms[1].rotation.z = -0.2;
+                walker.headRig.rotation.x =
+                  0.08 + Math.sin(t * 2.4 + phase) * 0.055;
+              } else if (job === "examNurse") {
+                if (walker.chart) {
+                  walker.chart.visible = true;
+                  walker.chart.position.set(0, 0.91, -0.39);
+                  walker.chart.rotation.x =
+                    -0.47 + Math.sin(t * 2.3 + phase) * 0.018;
+                }
+                walker.arms[0].rotation.x = 0.91;
+                walker.arms[0].rotation.z = 0.34;
+                walker.arms[1].rotation.x =
+                  1.02 + Math.sin(t * 6.2 + phase) * 0.13;
+                walker.arms[1].rotation.z =
+                  -0.32 + Math.sin(t * 6.2 + phase) * 0.045;
+                walker.headRig.rotation.y = Math.sin(t * 1.8 + phase) * 0.045;
+                walker.headRig.rotation.x =
+                  0.14 + Math.sin(t * 2.2 + phase) * 0.05;
+              }
+            },
+          );
+          upperWaterStream.visible = false;
+          upperFamilyTasks.forEach((task) => {
+            if (
+              task.phase === "idle" &&
+              task.activeActor === null &&
+              t >= task.nextStartAt
+            ) {
+              const nextActorIndex = task.order[task.orderIndex],
+                nextActor = upperFamilyActors[nextActorIndex];
+              // Keep the shuffled order intact. If this person is currently at
+              // the other activity, wait for them instead of silently skipping
+              // their turn.
+              if (!nextActor.activeTask) {
+                nextActor.activeTask = task.kind;
+                nextActor.phoneRaised = false;
+                task.activeActor = nextActorIndex;
+                task.phase = "outbound";
+                task.phaseStart = t;
+              }
+            }
+            if (task.activeActor === null) return;
+            const actor = upperFamilyActors[task.activeActor],
+              walker = actor.walker,
+              outboundPath = upperFamilyPath(actor, task),
+              pathLength = upperFamilyPathLength(outboundPath),
+              elapsedDistance = (t - task.phaseStart) * UPPER_FAMILY_WALK_SPEED;
+            if (task.phase === "outbound") {
+              placeAlongUpperFamilyPath(actor, outboundPath, elapsedDistance, dt);
+              if (elapsedDistance >= pathLength) {
+                walker.group.position.copy(task.routeEnd);
+                actor.avoidanceOffset.set(0, 0, 0);
+                task.phase = task.kind === "screen" ? "viewing" : "activity";
+                task.phaseStart = t;
+              }
+            } else if (task.phase === "viewing") {
+              walker.group.position.copy(screenEnd);
+              if (t - task.phaseStart >= 1.8) {
+                task.phase = "scanMove";
+                task.phaseStart = t;
+              }
+            } else if (task.phase === "scanMove") {
+              const scanPath = [screenEnd, screenScanEnd],
+                scanPathLength = upperFamilyPathLength(scanPath);
+              placeAlongUpperFamilyPath(actor, scanPath, elapsedDistance, dt);
+              if (elapsedDistance >= scanPathLength) {
+                walker.group.position.copy(screenScanEnd);
+                actor.avoidanceOffset.set(0, 0, 0);
+                task.phase = "activity";
+                task.phaseStart = t;
+              }
+            } else if (task.phase === "activity") {
+              walker.group.position.copy(
+                task.kind === "screen" ? screenScanEnd : task.routeEnd,
+              );
+              const activityDuration = task.kind === "screen" ? 2.4 : 8.8;
+              if (t - task.phaseStart >= activityDuration) {
+                actor.cup.visible = false;
+                task.phase = "returning";
+                task.phaseStart = t;
+              }
+            } else if (task.phase === "returning") {
+              const returnPath =
+                  task.kind === "screen"
+                    ? [
+                        screenScanEnd,
+                        screenEnd,
+                        ...outboundPath.slice(0, -1).reverse(),
+                      ]
+                    : outboundPath.slice().reverse(),
+                returnLength = upperFamilyPathLength(returnPath);
+              placeAlongUpperFamilyPath(actor, returnPath, elapsedDistance, dt);
+              if (elapsedDistance >= returnLength) {
+                walker.group.position.copy(actor.basePosition);
+                actor.avoidanceOffset.set(0, 0, 0);
+                actor.activeTask = undefined;
+                actor.phoneRaised = false;
+                actor.phoneChangeAt = t + 6 + Math.random() * 9;
+                task.lastFamily = actor.familyGroup;
+                task.activeActor = null;
+                task.phase = "idle";
+                task.nextStartAt = t + 2 + Math.random() * 3;
+                task.orderIndex += 1;
+                if (task.orderIndex >= task.order.length) {
+                  task.order = shuffledFamilyOrder(task.lastFamily);
+                  task.orderIndex = 0;
+                }
+              }
+            }
+          });
+          upperFamilyActors.forEach((actor) => {
+            const {
+                walker,
+                restActivity,
+                phase,
+                basePosition,
+                baseYaw,
+                activeTask,
+              } = actor,
+              task = activeTask
+                ? upperFamilyTasks.find((candidate) => candidate.kind === activeTask)
+                : undefined;
+            resetUpperPose(walker);
+            actor.cup.visible = false;
+            actor.cupWater.visible = false;
+            actor.cup.position.set(0, -0.52, -0.08);
+            actor.cup.rotation.set(0, 0, 0);
+            if (task && task.activeActor !== null) {
+              poseStanding(walker);
+              if (
+                task.phase === "outbound" ||
+                task.phase === "scanMove" ||
+                task.phase === "returning"
+              ) {
+                const gait = Math.sin(
+                  t * Number(walker.group.userData.gaitRate || 6.4) + phase,
+                );
+                walker.legs[0].rotation.x = gait * 0.34;
+                walker.legs[1].rotation.x = -gait * 0.34;
+                walker.arms[0].rotation.x = -gait * 0.2;
+                walker.arms[1].rotation.x = gait * 0.2;
+                walker.group.position.y = Math.abs(gait) * 0.012;
+              } else {
+                const activityTarget =
+                  task.kind === "water"
+                    ? hydrationStation.position
+                    : task.phase === "activity"
+                      ? upperInfoScreen.position
+                          .clone()
+                          .setX(walker.group.position.x)
+                      : upperInfoScreen.position;
+                walker.group.rotation.y = facingYaw(
+                  walker.group.position,
+                  activityTarget,
+                );
+                if (task.kind === "water") {
+                  const activityElapsed = t - task.phaseStart;
+                  actor.cup.visible = task.phase === "activity";
+                  if (activityElapsed < 1.35) {
+                    // Reach for a fresh cup before placing it below the outlet.
+                    walker.arms[1].rotation.x =
+                      0.45 + (activityElapsed / 1.35) * 0.72;
+                    walker.arms[1].rotation.z = -0.22;
+                  } else if (activityElapsed < 3.7) {
+                    // Hold the cup steadily below the red/blue taps while it fills.
+                    walker.arms[1].rotation.x = 1.2;
+                    walker.arms[1].rotation.z = -0.34;
+                    actor.cup.position.z = -0.16;
+                    actor.cup.position.y = -0.5;
+                    upperWaterStream.visible = true;
+                    actor.cupWater.visible = activityElapsed >= 2.75;
+                    walker.headRig.rotation.x = 0.1;
+                  } else {
+                    // Bring the filled cup to the mouth and take several sips.
+                    const sip = Math.sin((activityElapsed - 3.7) * 3.1 + phase);
+                    actor.cupWater.visible = true;
+                    walker.arms[1].rotation.x = 1.72 + sip * 0.08;
+                    walker.arms[1].rotation.z = -0.18;
+                    actor.cup.position.set(0, -0.5, -0.08);
+                    walker.headRig.rotation.x = -0.08 + sip * 0.025;
+                  }
+                  // Keep the open rim aligned with world-up even while the arm
+                  // lifts, and place its base just above the hand instead of
+                  // intersecting the palm mesh.
+                  if (actor.cup.visible && actor.cup.parent) {
+                    walker.group.updateWorldMatrix(true, true);
+                    const cupHand = walker.arms[1].children.find(
+                      (part) => part.userData.handPart,
+                    );
+                    if (cupHand) {
+                      cupHand.getWorldPosition(upperCupWorldPosition);
+                      upperCupWorldPosition.y += 0.3;
+                      actor.cup.position.copy(
+                        actor.cup.parent.worldToLocal(upperCupWorldPosition),
+                      );
+                    }
+                    actor.cup.parent.getWorldQuaternion(phoneParentWorld);
+                    actor.cup.quaternion.copy(phoneParentWorld.invert());
+                  }
+                } else {
+                  if (task.phase === "activity") {
+                    holdPhoneAtFace(walker, t * 2.6 + phase, true);
+                    walker.headRig.rotation.x = 0.08;
+                  } else {
+                    walker.arms[0].rotation.x = 0.18;
+                    walker.arms[1].rotation.x = 0.18;
+                    walker.headRig.rotation.x =
+                      -0.1 + Math.sin(t * 1.45 + phase) * 0.025;
+                  }
+                }
+              }
+              return;
+            }
+
+            walker.group.position.copy(basePosition);
+            walker.group.position.y = 0.14;
+            walker.group.scale.set(1, 0.88, 1);
+            walker.group.rotation.set(0, baseYaw, 0);
+            walker.legs.forEach((leg, index) => {
+              leg.position.set(index ? 0.14 : -0.14, 0.69, -0.3);
+              leg.rotation.set(-Math.PI / 2, 0, 0);
+            });
+            if (t >= actor.phoneChangeAt) {
+              actor.phoneRaised = !actor.phoneRaised;
+              actor.phoneChangeAt = t + 6 + Math.random() * 9;
+            }
+            if (actor.phoneRaised && walker.phone) {
+              holdPhoneAtFace(walker, t * 2.1 + phase);
+              walker.headRig.rotation.x =
+                0.08 + Math.sin(t * 1.8 + phase) * 0.025;
+            } else if (restActivity === "conversation") {
+              walker.arms[0].rotation.x =
+                0.42 + Math.sin(t * 2.25 + phase) * 0.14;
+              walker.arms[1].rotation.x = 0.28;
+              walker.headRig.rotation.y =
+                Math.sin(t * 1.45 + phase) * 0.13;
+            } else {
+              walker.arms[0].rotation.x = 0.5;
+              walker.arms[1].rotation.x = 0.5;
+              walker.headRig.rotation.x =
+                Math.sin(t * 1.35 + phase) * 0.035;
+              walker.headRig.rotation.y = Math.sin(t * 0.75 + phase) * 0.07;
+            }
+          });
+        }
         const showPaymentSuccess = t < paymentSuccessUntil;
         if (showPaymentSuccess !== paymentScreenShowingSuccess) {
           paymentScreenShowingSuccess = showPaymentSuccess;
@@ -7387,6 +9632,36 @@ export default function HospitalScene({
             if (o.userData.carWheel) o.rotation.y += direction * dt * 6;
           });
         });
+        elevatorDoorLeaves.forEach((leaves, floorNumber) => {
+          const target =
+              elevatorOpenRef.current &&
+              activeFloorRef.current === floorNumber
+                ? 1
+                : 0,
+            step = Math.min(1, dt * 3.1);
+          leaves.openAmount = THREE.MathUtils.lerp(
+            leaves.openAmount,
+            target,
+            step,
+          );
+          if (Math.abs(leaves.openAmount - target) < 0.004)
+            leaves.openAmount = target;
+          leaves.left.position.x = THREE.MathUtils.lerp(
+            -0.62,
+            -1.22,
+            leaves.openAmount,
+          );
+          leaves.right.position.x = THREE.MathUtils.lerp(
+            0.62,
+            1.22,
+            leaves.openAmount,
+          );
+          const storedScale = Math.max(0.001, 1 - leaves.openAmount);
+          leaves.left.scale.x = storedScale;
+          leaves.right.scale.x = storedScale;
+          leaves.seam.visible = leaves.openAmount < 0.08;
+        });
+        if (activeFloorRef.current === 1) {
         // The sensor keeps both leaves open while anybody is approaching or
         // crossing either one-way lane. Only after 1.8 seconds with no traffic
         // may the door close. Each leaf first retracts toward the lobby interior,
@@ -11543,6 +13818,7 @@ export default function HospitalScene({
           }
           lowMotionTime = 0;
         }
+        }
         const cameraTransition = cameraTransitionRef.current;
         if (cameraTransition) {
           const progress = THREE.MathUtils.clamp(
@@ -11616,6 +13892,7 @@ export default function HospitalScene({
       controlsRef.current = null;
       cameraTransitionRef.current = null;
       clearPatientFocusRef.current = null;
+      applyFloorRef.current = null;
       scene.traverse((o) => {
         if (o instanceof THREE.Mesh) {
           o.geometry.dispose();
@@ -11625,7 +13902,7 @@ export default function HospitalScene({
       });
       host.replaceChildren();
     };
-  }, [onTalk, onPatientFocus, onKnock, onPatientCount]);
+  }, [onTalk, onPatientFocus, onKnock, onPatientCount, onElevatorOpen]);
   useEffect(() => {
     if (patientFocusClearRequest > 0) clearPatientFocusRef.current?.();
   }, [patientFocusClearRequest]);
@@ -11634,8 +13911,15 @@ export default function HospitalScene({
       controls = controlsRef.current,
       host = mount.current;
     if (!camera || !controls || !host) return;
-    const mobile = host.clientWidth <= 760;
-    const panoramaTarget = new THREE.Vector3(0, 1, -0.6);
+    const mobile = host.clientWidth <= 760,
+      floorY = activeFloor === 2 ? 5.35 : 0,
+      previousFloor = previousActiveFloorRef.current,
+      floorChanged = previousFloor !== activeFloor;
+    const panoramaTarget = new THREE.Vector3(
+      0,
+      activeFloor === 2 ? floorY + 1.35 : 1,
+      activeFloor === 2 ? -0.25 : -0.6,
+    );
     const panoramaPosition = panoramaTarget
       .clone()
       .add(
@@ -11675,11 +13959,54 @@ export default function HospitalScene({
         ),
         target: new THREE.Vector3(0, 1.25, -7.5),
       },
+      operating: {
+        position: new THREE.Vector3(
+          mobile ? -1.5 : -4.2,
+          floorY + (mobile ? 16.5 : 11.8),
+          mobile ? 11.5 : 4.6,
+        ),
+        target: new THREE.Vector3(-11.65, floorY + 1.2, -5.8),
+      },
+      exam: {
+        position: new THREE.Vector3(
+          mobile ? 10.5 : 8.5,
+          floorY + (mobile ? 21 : 17.5),
+          mobile ? 22 : 17,
+        ),
+        target: new THREE.Vector3(15.2, floorY + 1.25, 0.8),
+      },
+      waiting: {
+        position: new THREE.Vector3(
+          0,
+          floorY + (mobile ? 12.5 : 9.5),
+          mobile ? 20 : 14,
+        ),
+        target: new THREE.Vector3(0, floorY + 1.25, 1.45),
+      },
+      elevator: {
+        position: new THREE.Vector3(
+          mobile ? -4.5 : -5.2,
+          floorY + (mobile ? 10.5 : 8.4),
+          mobile ? 16.5 : 12.5,
+        ),
+        target: new THREE.Vector3(-12.92, floorY + 1.55, 3.91),
+      },
     };
-    const preset = presets[cameraView];
+    const floorDelta = (activeFloor - previousFloor) * 5.35;
+    const preset = floorChanged
+      ? {
+          position: camera.position
+            .clone()
+            .add(new THREE.Vector3(0, floorDelta, 0)),
+          target: controls.target
+            .clone()
+            .add(new THREE.Vector3(0, floorDelta, 0)),
+        }
+      : presets[cameraView];
     const previousCameraView = previousCameraViewRef.current;
     const pharmacyTransition =
-      cameraView === "pharmacy" || previousCameraView === "pharmacy";
+        cameraView === "pharmacy" || previousCameraView === "pharmacy",
+      elevatorTransition = cameraView === "elevator";
     controls.enabled = false;
     controls.autoRotate = false;
     cameraTransitionRef.current = {
@@ -11690,12 +14017,17 @@ export default function HospitalScene({
       startedAt: performance.now(),
       duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches
         ? 1
+        : floorChanged
+          ? 1
         : pharmacyTransition
           ? 1600
-          : 980,
+          : elevatorTransition
+            ? 720
+            : 980,
     };
     previousCameraViewRef.current = cameraView;
-  }, [cameraView, cameraViewRequest]);
+    previousActiveFloorRef.current = activeFloor;
+  }, [activeFloor, cameraView, cameraViewRequest]);
   return (
     <div
       ref={mount}

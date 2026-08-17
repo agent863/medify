@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  AUDIO_SLOTS,
   PUBLIC_AUDIO_FALLBACKS,
   type AudioSlot,
   type SiteContentConfig,
@@ -28,7 +29,21 @@ type AudioDraft = {
   loading: boolean;
 };
 
-const audioSlots: AudioSlot[] = ["music", "ambience", "chime"];
+const audioSlots: AudioSlot[] = [...AUDIO_SLOTS];
+const audioFloorGroups: Array<{
+  floor: 1 | 2;
+  title: string;
+  slots: AudioSlot[];
+}> = [
+  { floor: 1, title: "一樓場景聲音", slots: ["music", "ambience", "chime"] },
+  {
+    floor: 2,
+    title: "二樓場景聲音",
+    slots: ["floor2Music", "floor2Ambience", "floor2Chime"],
+  },
+];
+const isChimeSlot = (slot: AudioSlot) =>
+  slot === "chime" || slot === "floor2Chime";
 const dialogueLabels: Record<keyof SiteContentConfig["dialogues"], string> = {
   doctor: "醫師",
   counterNurse: "櫃檯護理師",
@@ -74,6 +89,101 @@ function sourceForTrack(content: SiteContentConfig, slot: AudioSlot) {
   return track.hasCustomAudio
     ? `/api/audio/${slot}?v=${track.sourceVersion}`
     : PUBLIC_AUDIO_FALLBACKS[slot];
+}
+
+type AudioUploadResult = {
+  error?: string;
+  content?: SiteContentConfig;
+  uploadId?: string;
+  key?: string;
+  version?: number;
+  partNumber?: number;
+  etag?: string;
+};
+
+const AUDIO_PART_BYTES = 5 * 1024 * 1024;
+
+async function audioUploadResponse(response: Response) {
+  try {
+    return (await response.json()) as AudioUploadResult;
+  } catch {
+    return {
+      error:
+        response.status === 413
+          ? "音檔分段上傳遭到拒絕，請稍後再試。"
+          : "伺服器沒有回傳有效的上傳結果。",
+    };
+  }
+}
+
+async function uploadAudioTrack(
+  slot: AudioSlot,
+  blob: Blob,
+  fileName: string,
+) {
+  // The hosted form-data parser rejects requests near 3 MB. Use the raw-body
+  // multipart flow for every audio size so compressed files do not hit that
+  // parser before the application's 50 MB validation can run.
+  const startResponse = await fetch(
+      `/api/admin/audio?slot=${slot}&action=start`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileName,
+          contentType: blob.type || "audio/wav",
+          size: blob.size,
+        }),
+      },
+    ),
+    start = await audioUploadResponse(startResponse);
+  if (
+    !startResponse.ok ||
+    !start.uploadId ||
+    !start.key ||
+    !start.version
+  )
+    throw new Error(start.error || "無法開始音檔上傳");
+
+  const parts: Array<{ partNumber: number; etag: string }> = [];
+  for (let offset = 0, partNumber = 1; offset < blob.size; partNumber++) {
+    const chunk = blob.slice(offset, offset + AUDIO_PART_BYTES),
+      partUrl = new URL("/api/admin/audio", window.location.origin);
+    partUrl.searchParams.set("slot", slot);
+    partUrl.searchParams.set("action", "part");
+    partUrl.searchParams.set("key", start.key);
+    partUrl.searchParams.set("uploadId", start.uploadId);
+    partUrl.searchParams.set("partNumber", String(partNumber));
+    const partResponse = await fetch(partUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: chunk,
+      }),
+      part = await audioUploadResponse(partResponse);
+    if (!partResponse.ok || !part.etag || !part.partNumber)
+      throw new Error(part.error || `音檔第 ${partNumber} 段上傳失敗`);
+    parts.push({ partNumber: part.partNumber, etag: part.etag });
+    offset += chunk.size;
+  }
+
+  const completeResponse = await fetch(
+      `/api/admin/audio?slot=${slot}&action=complete`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key: start.key,
+          uploadId: start.uploadId,
+          version: start.version,
+          fileName,
+          parts,
+        }),
+      },
+    ),
+    complete = await audioUploadResponse(completeResponse);
+  if (!completeResponse.ok)
+    throw new Error(complete.error || "音檔合併失敗");
+  return complete;
 }
 
 async function analyzeAudio(file: Blob) {
@@ -376,10 +486,10 @@ export default function AdminClient({
     previewTimers.current = [];
   };
 
-  const synthesizeDefaultChime = () => {
+  const synthesizeDefaultChime = (slot: AudioSlot) => {
     const context = new AudioContext();
     const master = context.createGain();
-    master.gain.value = content.audio.chime.volume;
+    master.gain.value = content.audio[slot].volume;
     master.connect(context.destination);
     const start = context.currentTime + 0.03;
     [523.25, 659.25].forEach((frequency, index) => {
@@ -401,14 +511,14 @@ export default function AdminClient({
     if (!keepExisting) stopPreview();
     const draft = audioDrafts[slot];
     if (!draft.sourceUrl) {
-      if (slot === "chime") synthesizeDefaultChime();
+      if (isChimeSlot(slot)) synthesizeDefaultChime(slot);
       return;
     }
     const audio = new Audio(draft.sourceUrl);
     audio.preload = "auto";
     audio.volume = content.audio[slot].volume;
     audio.currentTime = draft.trimStart || 0;
-    audio.loop = slot !== "chime";
+    audio.loop = !isChimeSlot(slot);
     const end = draft.trimEnd || draft.duration;
     if (end > draft.trimStart) {
       const timer = window.setInterval(() => {
@@ -426,10 +536,15 @@ export default function AdminClient({
     void audio.play();
   };
 
-  const playMix = () => {
+  const playMix = (floor: 1 | 2) => {
     stopPreview();
-    playSlot("music", true);
-    playSlot("ambience", true);
+    if (floor === 1) {
+      playSlot("music", true);
+      playSlot("ambience", true);
+    } else {
+      playSlot("floor2Music", true);
+      playSlot("floor2Ambience", true);
+    }
   };
 
   const selectAudioFile = async (slot: AudioSlot, file: File | null) => {
@@ -585,24 +700,25 @@ export default function AdminClient({
       for (const slot of audioSlots) {
         const draft = audioDrafts[slot];
         if (!draft.dirty || !draft.sourceBlob) continue;
-        const trimmed = await trimToWav(
-          draft.sourceBlob,
-          draft.trimStart,
-          draft.trimEnd || draft.duration,
-        );
-        const analysis = await analyzeAudio(trimmed);
-        const data = new FormData();
-        const baseName = draft.sourceName.replace(/\.[^.]+$/, "");
-        const fileName = `${baseName}-trimmed.wav`;
-        data.append("file", new File([trimmed], fileName, { type: "audio/wav" }));
-        const response = await fetch(`/api/admin/audio?slot=${slot}`, {
-          method: "POST",
-          body: data,
-        });
-        const result = (await response.json()) as { error?: string };
-        if (!response.ok) throw new Error(result.error || "音檔上傳失敗");
+        const selectedEnd = draft.trimEnd || draft.duration,
+          usesWholeTrack =
+            draft.trimStart <= 0.01 &&
+            selectedEnd >= Math.max(0, draft.duration - 0.01),
+          output = usesWholeTrack
+            ? draft.sourceBlob
+            : await trimToWav(
+                draft.sourceBlob,
+                draft.trimStart,
+                selectedEnd,
+              ),
+          analysis = await analyzeAudio(output),
+          baseName = draft.sourceName.replace(/\.[^.]+$/, ""),
+          fileName = usesWholeTrack
+            ? draft.sourceName || `${slot}.audio`
+            : `${baseName}-trimmed.wav`;
+        await uploadAudioTrack(slot, output, fileName);
         processedAudio.set(slot, {
-          blob: trimmed,
+          blob: output,
           duration: analysis.duration,
           peaks: analysis.peaks,
           fileName,
@@ -678,10 +794,10 @@ export default function AdminClient({
       </header>
 
       <section className="admin-summary">
-        <div><b>15</b><span>場景 QR Code</span></div>
+        <div><b>{content.qrCodes.length}</b><span>場景 QR Code</span></div>
         <div><b>{configuredQrCount}</b><span>已設定目的地</span></div>
         <div><b>33</b><span>角色文字項目</span></div>
-        <div><b>3</b><span>獨立音軌</span></div>
+        <div><b>{audioSlots.length}</b><span>獨立音軌</span></div>
       </section>
 
       <nav className="admin-tabs" aria-label="內容類型">
@@ -741,28 +857,35 @@ export default function AdminClient({
           <div>
             <div className="admin-section-title"><div><p>AUDIO MIXER</p><h2>上傳、音軌剪輯與混音試聽</h2></div><span>拖曳音軌上的「頭／尾」控制點即可選取範圍；儲存時會輸出剪輯後 WAV。</span></div>
             <div className="audio-mix-toolbar">
-              <button onClick={playMix}>▶ 播放音樂＋環境音</button>
-              <button onClick={() => playSlot("chime", true)}>＋ 疊加叫號音</button>
+              <button onClick={() => playMix(1)}>▶ 一樓音樂＋環境音</button>
+              <button onClick={() => playSlot("chime", true)}>＋ 一樓叫號音</button>
+              <button onClick={() => playMix(2)}>▶ 二樓音樂＋環境音</button>
+              <button onClick={() => playSlot("floor2Chime", true)}>＋ 二樓叫號音</button>
               <button className="muted" onClick={stopPreview}>■ 停止試聽</button>
             </div>
-            <div className="audio-admin-grid">
-              {audioSlots.map((slot) => {
-                const track = content.audio[slot];
-                const draft = audioDrafts[slot];
-                return (
-                  <article className="audio-card" key={slot}>
-                    <header><div><small>{slot.toUpperCase()}</small><h3>{track.name}</h3></div><span>{track.hasCustomAudio ? "已上傳" : "目前預設"}</span></header>
-                    <p className="audio-file-name">{draft.sourceName || track.fileName}</p>
-                    <label className="audio-upload">選擇新音檔<input type="file" accept="audio/*" onChange={(event) => void selectAudioFile(slot, event.target.files?.[0] ?? null)}/></label>
-                    <div className="audio-file-actions"><button className="audio-load" onClick={() => void loadExistingAudio(slot)}>↻ 重新載入音軌</button><button className="audio-download" onClick={() => void downloadSlot(slot)}>↓ 下載音檔</button></div>
-                    <div className="audio-volume"><label><b>音量</b><span>{Math.round(track.volume * 100)}%</span></label><input type="range" min="0" max="1" step="0.01" value={track.volume} onChange={(event) => setContent((current) => ({ ...current, audio: { ...current.audio, [slot]: { ...current.audio[slot], volume: Number(event.target.value) } } }))}/></div>
-                    <WaveformEditor draft={draft} onStartChange={(value) => setTrimPoint(slot, "start", value)} onEndChange={(value) => setTrimPoint(slot, "end", value)}/>
-                    {draft.duration > 0 && <div className="audio-trim"><div><b>已選取範圍</b><span>{formatTime(draft.trimStart)} — {formatTime(draft.trimEnd)}（{formatTime(draft.trimEnd - draft.trimStart)}）</span></div><label>精準起點（秒）<input type="number" min="0" max={draft.trimEnd} step="0.1" value={draft.trimStart.toFixed(1)} onChange={(event) => setTrimPoint(slot, "start", Number(event.target.value))}/></label><label>精準終點（秒）<input type="number" min={draft.trimStart} max={draft.duration} step="0.1" value={draft.trimEnd.toFixed(1)} onChange={(event) => setTrimPoint(slot, "end", Number(event.target.value))}/></label></div>}
-                    <button className="audio-preview" onClick={() => playSlot(slot)}>▶ 單獨試聽</button>
-                  </article>
-                );
-              })}
-            </div>
+            {audioFloorGroups.map((group) => (
+              <section className="audio-floor-section" key={group.floor}>
+                <div className="audio-floor-heading"><span>{group.floor}F</span><div><h3>{group.title}</h3><p>背景音樂、環境音與叫號提示音皆獨立儲存及播放。</p></div></div>
+                <div className="audio-admin-grid">
+                  {group.slots.map((slot) => {
+                    const track = content.audio[slot];
+                    const draft = audioDrafts[slot];
+                    return (
+                      <article className="audio-card" key={slot}>
+                        <header><div><small>{slot.toUpperCase()}</small><h3>{track.name}</h3></div><span>{track.hasCustomAudio ? "已上傳" : "目前預設"}</span></header>
+                        <p className="audio-file-name">{draft.sourceName || track.fileName}</p>
+                        <label className="audio-upload">選擇新音檔<input type="file" accept="audio/*" onChange={(event) => void selectAudioFile(slot, event.target.files?.[0] ?? null)}/></label>
+                        <div className="audio-file-actions"><button className="audio-load" onClick={() => void loadExistingAudio(slot)}>↻ 重新載入音軌</button><button className="audio-download" onClick={() => void downloadSlot(slot)}>↓ 下載音檔</button></div>
+                        <div className="audio-volume"><label><b>音量</b><span>{Math.round(track.volume * 100)}%</span></label><input type="range" min="0" max="1" step="0.01" value={track.volume} onChange={(event) => setContent((current) => ({ ...current, audio: { ...current.audio, [slot]: { ...current.audio[slot], volume: Number(event.target.value) } } }))}/></div>
+                        <WaveformEditor draft={draft} onStartChange={(value) => setTrimPoint(slot, "start", value)} onEndChange={(value) => setTrimPoint(slot, "end", value)}/>
+                        {draft.duration > 0 && <div className="audio-trim"><div><b>已選取範圍</b><span>{formatTime(draft.trimStart)} — {formatTime(draft.trimEnd)}（{formatTime(draft.trimEnd - draft.trimStart)}）</span></div><label>精準起點（秒）<input type="number" min="0" max={draft.trimEnd} step="0.1" value={draft.trimStart.toFixed(1)} onChange={(event) => setTrimPoint(slot, "start", Number(event.target.value))}/></label><label>精準終點（秒）<input type="number" min={draft.trimStart} max={draft.duration} step="0.1" value={draft.trimEnd.toFixed(1)} onChange={(event) => setTrimPoint(slot, "end", Number(event.target.value))}/></label></div>}
+                        <button className="audio-preview" onClick={() => playSlot(slot)}>▶ 單獨試聽</button>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
           </div>
         )}
 
