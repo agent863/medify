@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {
+  PUBLIC_AUDIO_FALLBACKS,
+  type AudioSlot,
+  type AudioTrackConfig,
+} from "./content-config";
 
 type AmbientGraph = {
   context: AudioContext;
@@ -9,10 +14,16 @@ type AmbientGraph = {
   musicGain: GainNode;
   ambient: HTMLAudioElement;
   music: HTMLAudioElement;
+  chime?: HTMLAudioElement;
 };
 
 const playClinicChime = (graph: AmbientGraph) => {
   if (graph.context.state !== "running") return;
+  if (graph.chime) {
+    graph.chime.currentTime = 0;
+    void graph.chime.play();
+    return;
+  }
   const start = graph.context.currentTime + 0.04;
   [523.25, 659.25].forEach((frequency, index) => {
     const oscillator = graph.context.createOscillator();
@@ -34,7 +45,19 @@ const playClinicChime = (graph: AmbientGraph) => {
   });
 };
 
-export default function AmbientSound() {
+const sourceFor = (
+  slot: AudioSlot,
+  track: AudioTrackConfig,
+): string | null =>
+  track.hasCustomAudio
+    ? `/api/audio/${slot}?v=${track.sourceVersion}`
+    : PUBLIC_AUDIO_FALLBACKS[slot];
+
+export default function AmbientSound({
+  audio,
+}: {
+  audio: Record<AudioSlot, AudioTrackConfig>;
+}) {
   const [enabled, setEnabled] = useState(false);
   const graphRef = useRef<AmbientGraph | null>(null);
 
@@ -49,22 +72,35 @@ export default function AmbientSound() {
     const ambientMaster = context.createGain();
     const chimeGain = context.createGain();
     const musicGain = context.createGain();
-    const ambient = new Audio("/hospital-waiting-room-ambience.mp3");
-    const music = new Audio("/medify-open-morning.mp3");
+    const ambient = new Audio(sourceFor("ambience", audio.ambience) ?? "");
+    const music = new Audio(sourceFor("music", audio.music) ?? "");
+    const chimeSrc = sourceFor("chime", audio.chime);
+    const chime = chimeSrc ? new Audio(chimeSrc) : undefined;
     const ambientSource = context.createMediaElementSource(ambient);
     const musicSource = context.createMediaElementSource(music);
+    const chimeSource = chime ? context.createMediaElementSource(chime) : null;
     ambientMaster.gain.value = 0.0001;
-    chimeGain.gain.value = 0.18;
+    chimeGain.gain.value = audio.chime.volume;
     musicGain.gain.value = 0.0001;
     ambient.loop = true;
     ambient.preload = "auto";
     music.loop = true;
     music.preload = "auto";
+    if (chime) chime.preload = "auto";
     ambientSource.connect(ambientMaster).connect(context.destination);
     chimeGain.connect(context.destination);
     musicSource.connect(musicGain).connect(context.destination);
+    chimeSource?.connect(chimeGain);
 
-    return { context, ambientMaster, chimeGain, musicGain, ambient, music };
+    return {
+      context,
+      ambientMaster,
+      chimeGain,
+      musicGain,
+      ambient,
+      music,
+      chime,
+    };
   };
 
   const toggle = async () => {
@@ -105,8 +141,14 @@ export default function AmbientSound() {
     graph.musicGain.gain.cancelScheduledValues(now);
     graph.ambientMaster.gain.setValueAtTime(0.0001, now);
     graph.musicGain.gain.setValueAtTime(0.0001, now);
-    graph.ambientMaster.gain.exponentialRampToValueAtTime(0.144, now + 0.7);
-    graph.musicGain.gain.exponentialRampToValueAtTime(0.065, now + 0.9);
+    graph.ambientMaster.gain.exponentialRampToValueAtTime(
+      Math.max(0.0001, audio.ambience.volume),
+      now + 0.7,
+    );
+    graph.musicGain.gain.exponentialRampToValueAtTime(
+      Math.max(0.0001, audio.music.volume),
+      now + 0.9,
+    );
     setEnabled(true);
     const ambientPlayback = graph.ambient.play();
     const musicPlayback = graph.music.play();
@@ -126,6 +168,40 @@ export default function AmbientSound() {
       window.removeEventListener("medify:clinic-call", handleClinicCall);
   }, [enabled]);
 
+  useEffect(() => {
+    const graph = graphRef.current;
+    if (!graph) return;
+    const ambientSrc = sourceFor("ambience", audio.ambience) ?? "";
+    const musicSrc = sourceFor("music", audio.music) ?? "";
+    if (!graph.ambient.src.endsWith(ambientSrc)) {
+      graph.ambient.src = ambientSrc;
+      graph.ambient.load();
+      if (enabled) void graph.ambient.play();
+    }
+    if (!graph.music.src.endsWith(musicSrc)) {
+      graph.music.src = musicSrc;
+      graph.music.load();
+      if (enabled) void graph.music.play();
+    }
+    const chimeSrc = sourceFor("chime", audio.chime);
+    if (chimeSrc && !graph.chime?.src.endsWith(chimeSrc)) {
+      graph.chime?.pause();
+      const chime = new Audio(chimeSrc);
+      chime.preload = "auto";
+      graph.context.createMediaElementSource(chime).connect(graph.chimeGain);
+      graph.chime = chime;
+    } else if (!chimeSrc && graph.chime) {
+      graph.chime.pause();
+      graph.chime.src = "";
+      graph.chime = undefined;
+    }
+    graph.chimeGain.gain.value = audio.chime.volume;
+    if (enabled) {
+      graph.ambientMaster.gain.value = Math.max(0.0001, audio.ambience.volume);
+      graph.musicGain.gain.value = Math.max(0.0001, audio.music.volume);
+    }
+  }, [audio, enabled]);
+
   useEffect(
     () => () => {
       const graph = graphRef.current;
@@ -134,6 +210,7 @@ export default function AmbientSound() {
       if (graph) {
         graph.ambient.src = "";
         graph.music.src = "";
+        if (graph.chime) graph.chime.src = "";
       }
       void graph?.context.close();
     },

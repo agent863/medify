@@ -1,8 +1,10 @@
 "use client";
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
+import QRCode from "qrcode";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import type { QrId, SiteContentConfig } from "./content-config";
 
 type Role = "doctor" | "nurse" | "patient" | "assistant";
 type Gender = "male" | "female";
@@ -14,6 +16,7 @@ export type CharacterInteraction = {
   eyebrow?: string;
 };
 type Props = {
+  content: SiteContentConfig;
   onTalk: (role: Role, interaction?: CharacterInteraction) => void;
   onPatientFocus: (interaction: CharacterInteraction | null) => void;
   patientFocusClearRequest: number;
@@ -369,7 +372,7 @@ function numberTexture(label: string) {
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
-function qrTexture(label: string) {
+function qrTexture(label: string, value: string) {
   const c = document.createElement("canvas");
   c.width = 256;
   c.height = 320;
@@ -380,28 +383,17 @@ function qrTexture(label: string) {
   x.textAlign = "center";
   x.font = "700 20px Arial";
   x.fillText(label, 128, 292);
-  const n = 21,
-    s = 8,
-    ox = 44,
-    oy = 30;
-  const finder = (gx: number, gy: number) => {
-    x.fillRect(ox + gx * s, oy + gy * s, 7 * s, 7 * s);
-    x.fillStyle = "#fff";
-    x.fillRect(ox + (gx + 1) * s, oy + (gy + 1) * s, 5 * s, 5 * s);
-    x.fillStyle = "#244a62";
-    x.fillRect(ox + (gx + 2) * s, oy + (gy + 2) * s, 3 * s, 3 * s);
-  };
-  finder(0, 0);
-  finder(14, 0);
-  finder(0, 14);
-  let seed = label.split("").reduce((a, v) => a + v.charCodeAt(0), 0);
+  const code = QRCode.create(value, { errorCorrectionLevel: "M" });
+  const n = code.modules.size,
+    quiet = 3,
+    available = 218,
+    s = Math.floor(available / (n + quiet * 2)),
+    size = s * (n + quiet * 2),
+    ox = Math.floor((256 - size) / 2) + quiet * s,
+    oy = 20 + quiet * s;
   for (let gy = 0; gy < n; gy++)
-    for (let gx = 0; gx < n; gx++) {
-      if ((gx < 8 && gy < 8) || (gx > 12 && gy < 8) || (gx < 8 && gy > 12))
-        continue;
-      seed = (seed * 9301 + 49297) % 233280;
-      if (seed / 233280 > 0.53) x.fillRect(ox + gx * s, oy + gy * s, s, s);
-    }
+    for (let gx = 0; gx < n; gx++)
+      if (code.modules.get(gx, gy)) x.fillRect(ox + gx * s, oy + gy * s, s, s);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
@@ -632,7 +624,13 @@ function stool(
   g.rotation.y = rot;
   scene.add(g);
 }
-function table(scene: THREE.Scene, x: number, z: number) {
+function table(
+  scene: THREE.Scene,
+  x: number,
+  z: number,
+  qrId: QrId,
+  interactive: THREE.Object3D[],
+) {
   const g = new THREE.Group();
   put(g, cyl(0.74, 0.12, 0xe8c483, 28), 0, 0.64, 0);
   put(g, cyl(0.11, 0.6, 0xbd9664, 14), 0, 0.31, 0);
@@ -644,12 +642,14 @@ function table(scene: THREE.Scene, x: number, z: number) {
     face = new THREE.Mesh(
       new THREE.PlaneGeometry(0.22, 0.29),
       new THREE.MeshBasicMaterial({
-        map: qrTexture("WAITING"),
+        map: qrTexture("WAITING", `${window.location.origin}/qr/${qrId}`),
         side: THREE.DoubleSide,
       }),
     );
   card.position.y = 0.95;
   face.position.set(0, 0.95, 0.021);
+  face.userData = { interactive: "qr", qrId };
+  interactive.push(face);
   put(stand, box(0.34, 0.035, 0.2, 0x7895a0), 0, 0.755, 0.035);
   stand.add(card, face);
   stand.position.set(-0.35, 0, 0.3);
@@ -1063,6 +1063,7 @@ function blocked(
 }
 
 export default function HospitalScene({
+  content,
   onTalk,
   onPatientFocus,
   patientFocusClearRequest,
@@ -1077,6 +1078,10 @@ export default function HospitalScene({
   const cameraTransitionRef = useRef<CameraTransition | null>(null);
   const clearPatientFocusRef = useRef<(() => void) | null>(null);
   const previousCameraViewRef = useRef<CameraView>("panorama");
+  const contentRef = useRef(content);
+  useEffect(() => {
+    contentRef.current = content;
+  }, [content]);
   useEffect(() => {
     if (!mount.current) return;
     const host = mount.current,
@@ -1459,7 +1464,10 @@ export default function HospitalScene({
       panel.castShadow = true;
       p.add(panel);
       const qrMaterial = new THREE.MeshBasicMaterial({
-        map: qrTexture(`ROOM ${room}`),
+        map: qrTexture(
+          `ROOM ${room}`,
+          `${window.location.origin}/qr/clinic-door-${room}`,
+        ),
         side: THREE.DoubleSide,
         transparent: false,
         depthTest: true,
@@ -1471,7 +1479,7 @@ export default function HospitalScene({
       qr.position.set(0, 1.22, 0.066 * lobbyFace);
       qr.rotation.y = lobbyFace < 0 ? Math.PI : 0;
       qr.renderOrder = 12;
-      qr.userData = { hitRoot: p };
+      qr.userData = { interactive: "qr", qrId: `clinic-door-${room}` };
       p.add(qr);
       p.userData = { interactive: "door", room };
       panel.userData = { hitRoot: p };
@@ -1777,7 +1785,10 @@ export default function HospitalScene({
         tabletScreen = new THREE.Mesh(
           new THREE.PlaneGeometry(0.48, 0.66),
           new THREE.MeshBasicMaterial({
-            map: qrTexture(`ROOM ${i + 1}`),
+            map: qrTexture(
+              `ROOM ${i + 1}`,
+              `${window.location.origin}/qr/clinic-tablet-${i + 1}`,
+            ),
             side: THREE.DoubleSide,
             polygonOffset: true,
             polygonOffsetFactor: -4,
@@ -1786,6 +1797,11 @@ export default function HospitalScene({
         );
       tabletScreen.rotation.x = -Math.PI / 2;
       tabletScreen.position.y = 0.027;
+      tabletScreen.userData = {
+        interactive: "qr",
+        qrId: `clinic-tablet-${i + 1}`,
+      };
+      interactive.push(tabletScreen);
       clinicTablet.add(tabletBody, tabletScreen);
       clinicTablet.position.set(
         deskPos.x - out.x * 0.08 - tan.x * 0.68,
@@ -2035,11 +2051,16 @@ export default function HospitalScene({
     const qrFace = new THREE.Mesh(
       new THREE.PlaneGeometry(0.48, 0.6),
       new THREE.MeshBasicMaterial({
-        map: qrTexture("CHECK-IN"),
+        map: qrTexture(
+          "CHECK-IN",
+          `${window.location.origin}/qr/reception-checkin`,
+        ),
         side: THREE.DoubleSide,
       }),
     );
     qrFace.position.set(0, 0.37, 0.031);
+    qrFace.userData = { interactive: "qr", qrId: "reception-checkin" };
+    interactive.push(qrFace);
     qrStand.add(qrFace);
     put(qrStand, box(0.78, 0.06, 0.38, 0x6f8791), 0, 0.03, 0.08);
     qrStand.position.set(1.9, 1.5, -4.92 + RECEPTION_SHIFT);
@@ -2416,7 +2437,13 @@ export default function HospitalScene({
       addSeat(cx - 1.65, cz + 0.38, CYAN, -Math.PI / 2, -1, 0);
       addSeat(cx + 1.65, cz + 0.38, BLUE, Math.PI / 2, 1, 0);
       const tableZ = cz + 0.42;
-      table(scene, cx, tableZ);
+      table(
+        scene,
+        cx,
+        tableZ,
+        `waiting-table-${k + 1}` as QrId,
+        interactive,
+      );
       lobbyQrStations.push({
         stand: new THREE.Vector3(cx - 0.35, 0, tableZ + 0.3),
         approach: new THREE.Vector3(cx - 0.35, 0, tableZ + 1.58),
@@ -3788,58 +3815,62 @@ export default function HospitalScene({
       `${w.group.userData.visitPhase || "unknown"}|${w.action}|${w.group.userData.consultState || "-"}|${patientGoalKind(w)}`;
     const patientStatusLabel = (w: Walker) => {
       const phase = w.group.userData.visitPhase,
-        consultState = w.group.userData.consultState;
-      if (phase === "entering") return "正從街道進入醫院";
-      if (phase === "preScan") return "正前往報到 QR Code";
+        consultState = w.group.userData.consultState,
+        labels = contentRef.current.patientStatuses;
+      if (phase === "entering") return labels.entering;
+      if (phase === "preScan") return labels.preScan;
       if (phase === "checkin") {
-        if (w.action === "counterTalk") return "正在櫃檯辦理報到";
-        if (w.action === "counterScan") return "正在掃描櫃檯 QR Code";
-        return "正在排隊等候報到";
+        if (w.action === "counterTalk") return labels.counterTalk;
+        if (w.action === "counterScan") return labels.counterScan;
+        return labels.checkinQueue;
       }
       if (phase === "queue") {
         if (w.action === "sit" && w.group.userData.hasScanned)
-          return "正在查看 QRcode 中的內容並等候叫號";
+          return labels.waitingReading;
         if (w.group.userData.qrGoal || w.group.userData.qrQueueGoal)
-          return "正前往大廳 QR Code";
-        return "正在候診大廳等候";
+          return labels.walkingLobbyQr;
+        return labels.waiting;
       }
       if (phase === "consult" || phase === "exam" || phase === "clinicScan") {
         if (consultState === "inbound")
-          return `已叫號，正前往 ${w.group.userData.consultRoom || "指定"} 號診間`;
+          return labels.calledInbound.replace(
+            "{room}",
+            String(w.group.userData.consultRoom || "指定"),
+          );
         if (w.action === "examBed" || consultState === "toExam")
-          return "正在診間接受檢查";
+          return labels.exam;
         if (w.action === "clinicScan" || consultState === "clinicScan")
-          return "正在診間掃描衛教 QR Code";
-        if (consultState === "leaving") return "已完成看診，正離開診間";
-        return "正在診間看診";
+          return labels.clinicScan;
+        if (consultState === "leaving") return labels.leavingClinic;
+        return labels.consulting;
       }
       if (phase === "postClinicWait")
         return w.action === "sit" && w.group.userData.hasScanned
-          ? "正在查看診間 QRcode 中的內容"
-          : "已完成看診，正前往候診區";
-      if (phase === "postLobbyScan") return "正前往大廳掃描 QR Code";
+          ? labels.postClinicReading
+          : labels.postClinicTransit;
+      if (phase === "postLobbyScan") return labels.postLobbyScan;
       if (phase === "postWait")
         return w.action === "sit" && w.group.userData.hasScanned
-          ? "正在查看更多衛教內容"
-          : "完成掃描後正前往候診區";
+          ? labels.postWaitReading
+          : labels.postWaitTransit;
       if (phase === "paymentQueue" || phase === "payment")
-        return "正在完成繳費流程";
+        return labels.payment;
       if (phase === "pickupQueue" || phase === "pickup")
-        return "正在櫃檯排隊領藥";
-      if (phase === "leaving") return "已領藥";
-      return "正在依照院內流程移動";
+        return labels.pickup;
+      if (phase === "leaving") return labels.leaving;
+      return labels.fallback;
     };
     const patientStatusDetail = (w: Walker) => {
       const phase = w.group.userData.visitPhase,
-        readingPhone = w.action === "sit" && w.group.userData.hasScanned;
+        readingPhone = w.action === "sit" && w.group.userData.hasScanned,
+        details = contentRef.current.patientDetails;
       if (phase === "queue" && readingPhone)
-        return "這裡有許多與我有關的資訊，非常清楚且容易閱讀，接下來看診比較不緊張了！";
+        return details.waitingReading;
       if (phase === "postClinicWait" && readingPhone)
-        return "這裡有清楚的衛教資訊與後續照護方式，很好理解呢！";
+        return details.clinicReading;
       if (phase === "postWait" && readingPhone)
-        return "這些內容可以帶回家仔細閱讀，也讓家人一起安心。";
-      if (phase === "leaving")
-        return "藥袋上的 QRcode 中有清楚的用藥方式與須知，讓人很安心。";
+        return details.postWaitReading;
+      if (phase === "leaving") return details.leaving;
       return undefined;
     };
     const patientFocusInteraction = (w: Walker): CharacterInteraction => ({
@@ -3850,35 +3881,42 @@ export default function HospitalScene({
     });
     const staffInteraction = (w: Walker): CharacterInteraction | undefined => {
       const displayName = w.group.userData.displayName as string | undefined;
+      const dialogues = contentRef.current.dialogues;
       if (!displayName) return undefined;
+      if (w.group.userData.eyeAssistant)
+        return {
+          eyebrow: "MEDIFY ASSISTANT",
+          title: displayName,
+          line: dialogues.eyeAssistant,
+        };
       if (w.role === "doctor")
         return {
           eyebrow: "MEDIFY CLINICIAN",
           title: displayName,
-          line: "Medify 的智慧醫療服務將重複性的問診過程簡化，且讓病患取得妥善審核過的衛教資訊。",
+          line: dialogues.doctor,
         };
       if (w.group.userData.pharmacyWorking)
         return {
           eyebrow: "MEDIFY CLINICIAN",
           title: displayName,
-          line: "請掃描藥袋上的 QRcode 閱讀用藥須知。",
+          line: dialogues.pharmacist,
         };
       if (w.group.userData.working)
         return {
           eyebrow: "MEDIFY CLINICIAN",
           title: displayName,
-          line: "報到後請到右手邊掃描 QRcode 閱讀相關衛教資訊。",
+          line: dialogues.counterNurse,
         };
       if (w.room)
         return {
           eyebrow: "MEDIFY CLINICIAN",
           title: displayName,
-          line: "請掃描平板上的 QRcode 閱讀與您與醫師諮詢的相關衛教資訊，包含後續的照護與注意事項。",
+          line: dialogues.clinicNurse,
         };
       return {
         eyebrow: "MEDIFY CLINICIAN",
         title: displayName,
-        line: "報到後請先在候診區稍作等候，掃描候診區桌上的 QRcode 閱讀相關衛教資訊，輪到您診間叫號機會通知您前往。",
+        line: dialogues.lobbyNurse,
       };
     };
     const attachPatientMonitor = (w: Walker) => {
@@ -4094,7 +4132,7 @@ export default function HospitalScene({
       onTalk("assistant", {
         eyebrow: "BIRD STATUS",
         title: "小鳥",
-        line: "祝你有美好的一天，啾～",
+        line: contentRef.current.dialogues.bird,
       });
     };
     const doctorIsWaitingForPatient = (w: Walker) =>
@@ -4142,23 +4180,37 @@ export default function HospitalScene({
     const clickedCharacterRecoveryPoint = (w: Walker) => {
       const origin = w.group.position.clone(),
         taskTarget = clickedCharacterTaskTarget(w),
-        phase = (w.group.id * 2.399963229728653) % (Math.PI * 2),
+        forward = taskTarget
+          ? taskTarget.clone().sub(origin).setY(0)
+          : new THREE.Vector3(
+              -Math.sin(w.group.rotation.y),
+              0,
+              -Math.cos(w.group.rotation.y),
+            ),
         nearby = navigationCrowd.filter(
           (other) => other !== w && other.group.visible,
         ),
         candidates: { point: THREE.Vector3; score: number }[] = [];
-      for (const radius of [0.52, 0.72, 0.96, 1.22, 1.48])
-        for (let index = 0; index < 24; index++) {
-          const angle = phase + (index / 24) * Math.PI * 2,
-            point = origin
+      if (forward.lengthSq() < 0.001) forward.set(0, 0, -1);
+      forward.normalize();
+      // A manual recovery is deliberately a visible side-step rather than a
+      // warp. Try 45-90 degree exits on both sides of the current task heading.
+      const recoveryAngles = [
+        Math.PI / 4,
+        -Math.PI / 4,
+        Math.PI / 3,
+        -Math.PI / 3,
+        (Math.PI * 5) / 12,
+        (-Math.PI * 5) / 12,
+        Math.PI / 2,
+        -Math.PI / 2,
+      ];
+      for (const radius of [0.62, 0.84, 1.08, 1.36, 1.62])
+        for (const angle of recoveryAngles) {
+          const direction = forward
               .clone()
-              .add(
-                new THREE.Vector3(
-                  Math.cos(angle) * radius,
-                  0,
-                  Math.sin(angle) * radius,
-                ),
-              ),
+              .applyAxisAngle(new THREE.Vector3(0, 1, 0), angle),
+            point = origin.clone().addScaledVector(direction, radius),
             firstStep = origin
               .clone()
               .lerp(point, Math.min(1, 0.12 / radius));
@@ -4166,7 +4218,8 @@ export default function HospitalScene({
             !boundaryClear(w, point) ||
             navBlocked(w, point, 0.3, seatObstacleAccess(w)) ||
             !staticSegmentClear(w, origin, point) ||
-            !peopleStepClear(firstStep, w, 0.38)
+            !manualRecoveryPeopleStepClear(firstStep, w) ||
+            !manualRecoveryPeopleSegmentClear(origin, point, w)
           )
             continue;
           const closestPerson = nearby.reduce(
@@ -4175,10 +4228,15 @@ export default function HospitalScene({
               4,
             ),
             taskDistance = taskTarget ? point.distanceTo(taskTarget) : 0,
-            crowdPenalty = Math.max(0, 1.05 - closestPerson) * 8;
+            crowdPenalty = Math.max(0, 0.72 - closestPerson) * 12,
+            turnPenalty = Math.abs(Math.abs(angle) - Math.PI / 3) * 0.08;
           candidates.push({
             point,
-            score: crowdPenalty + taskDistance * 0.12 + radius * 0.04,
+            score:
+              crowdPenalty +
+              taskDistance * 0.055 +
+              radius * 0.035 +
+              turnPenalty,
           });
         }
       return candidates.sort((a, b) => a.score - b.score)[0]?.point;
@@ -4238,10 +4296,29 @@ export default function HospitalScene({
       if (recoveryPoint) {
         w.group.userData.recoveryGoal = recoveryPoint;
         w.group.userData.manualRecoveryGoal = true;
+        const recoveryDirection = recoveryPoint
+            .clone()
+            .sub(w.group.position)
+            .setY(0)
+            .normalize(),
+          taskDirection = clickedCharacterTaskTarget(w)
+            ?.clone()
+            .sub(w.group.position)
+            .setY(0)
+            .normalize();
+        if (taskDirection)
+          w.group.userData.avoidanceSide =
+            Math.sign(
+              taskDirection.x * recoveryDirection.z -
+                taskDirection.z * recoveryDirection.x,
+            ) || 1;
+        // The short visible hesitation makes the 45-90 degree change of course
+        // readable, while remaining below the agreed 0.4 second limit.
+        w.pause = 0.14;
       }
       w.action = "walk";
       w.actionTime = 0;
-      w.pause = 0;
+      if (!recoveryPoint) w.pause = 0;
       return true;
     };
     const click = (e: PointerEvent) => {
@@ -4252,7 +4329,11 @@ export default function HospitalScene({
       const hit = pointer(e);
       if (!hit) return;
       const root = hit.object.userData.hitRoot || hit.object;
-      if (root.userData.interactive === "door") {
+      if (root.userData.interactive === "qr") {
+        const qrId = root.userData.qrId as string | undefined;
+        if (qrId)
+          window.open(`/qr/${qrId}`, "_blank", "noopener,noreferrer");
+      } else if (root.userData.interactive === "door") {
         const d = doors.find((v) => v.room === root.userData.room)!,
           closed =
             !d.auto && d.pivot.position.distanceTo(d.closedPosition) < 0.16;
@@ -4578,6 +4659,59 @@ export default function HospitalScene({
           ? nextGap <= currentGap + 0.001
           : nextGap < safeGap;
       });
+    // Manual click recovery needs to work even after several walkers have
+    // already compressed inside the normal clearance radius. Keep a hard body
+    // core, but allow a smooth step through the surrounding soft clearance as
+    // long as the move is not driving deeper into a severe overlap.
+    const manualRecoveryPeopleStepClear = (
+      candidate: THREE.Vector3,
+      self: Walker,
+    ) =>
+      !navigationCrowd.some((other) => {
+        if (
+          other === self ||
+          !other.group.visible ||
+          counterHeadPassThroughPair(self, other) ||
+          bypassGenericStreetAvoidance(self, other)
+        )
+          return false;
+        const currentGap = self.group.position.distanceTo(other.group.position),
+          nextGap = candidate.distanceTo(other.group.position);
+        if (nextGap < 0.24) return true;
+        if (currentGap < 0.34) return nextGap < currentGap - 0.002;
+        if (currentGap < 0.72) return nextGap < 0.3;
+        return nextGap < 0.42;
+      });
+    const manualRecoveryPeopleSegmentClear = (
+      from: THREE.Vector3,
+      to: THREE.Vector3,
+      self: Walker,
+    ) => {
+      const segment = to.clone().sub(from).setY(0),
+        lengthSq = segment.lengthSq();
+      if (lengthSq < 0.001) return false;
+      return !navigationCrowd.some((other) => {
+        if (
+          other === self ||
+          !other.group.visible ||
+          counterHeadPassThroughPair(self, other) ||
+          bypassGenericStreetAvoidance(self, other)
+        )
+          return false;
+        const currentGap = from.distanceTo(other.group.position),
+          offset = other.group.position.clone().sub(from).setY(0),
+          along = THREE.MathUtils.clamp(offset.dot(segment) / lengthSq, 0, 1),
+          closest = from.clone().addScaledVector(segment, along),
+          closestGap = closest.distanceTo(other.group.position),
+          endGap = to.distanceTo(other.group.position);
+        // Never cross another person's body core. If both characters already
+        // overlap, the selected route must start by opening that gap.
+        if (currentGap < 0.34)
+          return closestGap < Math.max(0.2, currentGap - 0.015) ||
+            endGap <= currentGap + 0.08;
+        return closestGap < 0.28 || endGap < 0.44;
+      });
+    };
     // Lobby-only walkers may never be steered or separated through the fan-shaped
     // perimeter. Doctors and patients on an active consultation path are allowed to
     // cross the perimeter only through the physical door opening; wall obstacles
@@ -6619,6 +6753,15 @@ export default function HospitalScene({
           p.group.userData.activePatient &&
           p.group.userData.visitPhase !== "leaving" &&
           insideLobby(p.group.position, 0.12),
+      ).length;
+    const hospitalPatientCount = () =>
+      patients.filter(
+        (p) =>
+          p.group.visible &&
+          p.group.userData.activePatient &&
+          (insideLobby(p.group.position, 0.12) ||
+            (p.group.userData.visitPhase !== "entering" &&
+              p.group.userData.visitPhase !== "leaving")),
       ).length;
     // Admission capacity counts everyone still entering or receiving care, but
     // not visitors who have begun the independent full-street departure. This
@@ -9987,6 +10130,7 @@ export default function HospitalScene({
                 pickupGoal ||
                 defaultTarget,
               clinicNurseSeatLaneLocked = !!(
+                !manualRecoveryActive &&
                 w.role === "nurse" &&
                 w.room &&
                 clinicStaffPath &&
@@ -10003,6 +10147,7 @@ export default function HospitalScene({
                     ) < 1.38))
               ),
               clinicExamLaneLocked = !!(
+                !manualRecoveryActive &&
                 w.role === "patient" &&
                 (w.group.userData.consultState === "toExam" ||
                   w.group.userData.consultState === "postExamSeat" ||
@@ -10751,11 +10896,16 @@ export default function HospitalScene({
                   ? Number(w.group.userData.avoidanceSide || 1)
                   : 0,
               portalLocked =
+                !manualRecoveryActive &&
                 !!transitRoom &&
                 inAssignedDoorPortal(w, w.group.position),
-              releaseLaneLocked = !!w.group.userData.leavingSeat,
+              releaseLaneLocked = !!(
+                !manualRecoveryActive && w.group.userData.leavingSeat
+              ),
               seatEntryLaneLocked = !!(
-                seatGoal && w.group.position.distanceTo(seatGoal) < 1.08
+                !manualRecoveryActive &&
+                seatGoal &&
+                w.group.position.distanceTo(seatGoal) < 1.08
               ),
               collisionLaneLocked =
                 portalLocked ||
@@ -10830,6 +10980,8 @@ export default function HospitalScene({
                       ),
                     )
                     .normalize()
+                : manualRecoveryActive
+                ? desired
                 : collisionLaneLocked
                 ? desired
                 : desired
@@ -10839,6 +10991,8 @@ export default function HospitalScene({
                     .normalize(),
               angles = yieldsToCalledPatient
                 ? [0, 0.3, -0.3, 0.62, -0.62, 0.94, -0.94]
+                : manualRecoveryActive
+                ? [0, 0.18, -0.18, 0.36, -0.36, 0.56, -0.56]
                 : portalLocked ||
                 revolvingDoorLaneLocked ||
                 clinicNurseSeatLaneLocked ||
@@ -10912,15 +11066,13 @@ export default function HospitalScene({
                 (boundaryClear(w, p) &&
                   !navBlocked(w, p, 0.32, seatObstacleAccess(w)) &&
                   (peopleBypassLaneLocked ||
-                    peopleStepClear(
-                      p,
-                      w,
-                      releaseLaneLocked
-                        ? 0.34
-                        : manualRecoveryActive
-                          ? 0.38
-                          : 0.53,
-                    )))
+                    (manualRecoveryActive
+                      ? manualRecoveryPeopleStepClear(p, w)
+                      : peopleStepClear(
+                          p,
+                          w,
+                          releaseLaneLocked ? 0.34 : 0.53,
+                        ))))
               ) {
                 steer = dir;
                 candidate = p;
@@ -11139,7 +11291,7 @@ export default function HospitalScene({
             lastSeatFillAt = t;
           }
         }
-        const livePatientCount = lobbyPatientCount();
+        const livePatientCount = hospitalPatientCount();
         if (livePatientCount !== lastReportedPatientCount) {
           lastReportedPatientCount = livePatientCount;
           onPatientCount(livePatientCount);
