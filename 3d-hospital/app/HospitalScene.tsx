@@ -7,8 +7,16 @@ import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeom
 type Role = "doctor" | "nurse" | "patient" | "assistant";
 type Gender = "male" | "female";
 export type CameraView = "panorama" | "clinics" | "reception" | "pharmacy";
+export type CharacterInteraction = {
+  title: string;
+  line: string;
+  detail?: string;
+  eyebrow?: string;
+};
 type Props = {
-  onTalk: (role: Role) => void;
+  onTalk: (role: Role, interaction?: CharacterInteraction) => void;
+  onPatientFocus: (interaction: CharacterInteraction | null) => void;
+  patientFocusClearRequest: number;
   onKnock: (room: number) => void;
   onPatientCount: (count: number) => void;
   cameraView: CameraView;
@@ -102,6 +110,10 @@ type PatientMonitor = {
   invalidPositionTime: number;
   seatExitTime: number;
   clinicTransitTime: number;
+  calledTaskTime: number;
+  calledTaskNoProgressTime: number;
+  calledTaskLastPosition: THREE.Vector3;
+  lastCalledTaskRecoveryAt: number;
   recoveries: number;
   lastRecoveryAt: number;
   lastHealthyAt: number;
@@ -1052,6 +1064,8 @@ function blocked(
 
 export default function HospitalScene({
   onTalk,
+  onPatientFocus,
+  patientFocusClearRequest,
   onKnock,
   onPatientCount,
   cameraView,
@@ -1061,6 +1075,7 @@ export default function HospitalScene({
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const cameraTransitionRef = useRef<CameraTransition | null>(null);
+  const clearPatientFocusRef = useRef<(() => void) | null>(null);
   const previousCameraViewRef = useRef<CameraView>("panorama");
   useEffect(() => {
     if (!mount.current) return;
@@ -1099,7 +1114,68 @@ export default function HospitalScene({
     controlsRef.current = controls;
     controls.target.set(0, 1, 0);
     controls.enableDamping = true;
-    controls.enablePan = false;
+    const touchDevice =
+      window.matchMedia("(pointer: coarse)").matches ||
+      navigator.maxTouchPoints > 0;
+    // Preserve one-finger orbiting and pinch zoom while adding a two-finger
+    // screen-space pan on phones and other touch-first devices. A lightweight
+    // twist listener below adds yaw rotation without taking pan or zoom away.
+    // Mouse panning remains disabled so desktop controls behave exactly as before.
+    controls.enablePan = touchDevice;
+    controls.screenSpacePanning = true;
+    controls.panSpeed = 0.8;
+    controls.touches.ONE = THREE.TOUCH.ROTATE;
+    controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
+    renderer.domElement.style.touchAction = "none";
+    let twoFingerAngle: number | null = null;
+    const touchAngle = (event: TouchEvent) => {
+        const first = event.touches[0],
+          second = event.touches[1];
+        return Math.atan2(
+          second.clientY - first.clientY,
+          second.clientX - first.clientX,
+        );
+      },
+      beginTwoFingerRotate = (event: TouchEvent) => {
+        twoFingerAngle = event.touches.length === 2 ? touchAngle(event) : null;
+      },
+      rotateWithTwoFingers = (event: TouchEvent) => {
+        if (event.touches.length !== 2) {
+          twoFingerAngle = null;
+          return;
+        }
+        const angle = touchAngle(event);
+        if (twoFingerAngle === null) {
+          twoFingerAngle = angle;
+          return;
+        }
+        let delta = angle - twoFingerAngle;
+        if (delta > Math.PI) delta -= Math.PI * 2;
+        if (delta < -Math.PI) delta += Math.PI * 2;
+        twoFingerAngle = angle;
+        if (Math.abs(delta) < 0.002 || Math.abs(delta) > 0.35) return;
+        const cameraOffset = camera.position.clone().sub(controls.target);
+        cameraOffset.applyAxisAngle(THREE.Object3D.DEFAULT_UP, delta * 0.9);
+        camera.position.copy(controls.target).add(cameraOffset);
+        camera.lookAt(controls.target);
+      },
+      endTwoFingerRotate = (event: TouchEvent) => {
+        twoFingerAngle = event.touches.length === 2 ? touchAngle(event) : null;
+      };
+    if (touchDevice) {
+      renderer.domElement.addEventListener("touchstart", beginTwoFingerRotate, {
+        passive: true,
+      });
+      renderer.domElement.addEventListener("touchmove", rotateWithTwoFingers, {
+        passive: true,
+      });
+      renderer.domElement.addEventListener("touchend", endTwoFingerRotate, {
+        passive: true,
+      });
+      renderer.domElement.addEventListener("touchcancel", endTwoFingerRotate, {
+        passive: true,
+      });
+    }
     const mobileView = () => host.clientWidth <= 760;
     controls.minDistance = 20;
     controls.maxDistance = mobileView() ? 74.4 : 48;
@@ -2285,6 +2361,13 @@ export default function HospitalScene({
     };
     const lobbyQrStations: { stand: THREE.Vector3; approach: THREE.Vector3 }[] =
       [];
+    const waitingSeatRowZones: {
+      island: number;
+      minX: number;
+      maxX: number;
+      minZ: number;
+      maxZ: number;
+    }[] = [];
     const islands = [
       [-4.6, 0],
       [4.6, 0],
@@ -2293,6 +2376,18 @@ export default function HospitalScene({
     ];
     islands.forEach(([cx, cz], k) => {
       makeRug(cx, cz, 5.5, 3.65, k % 2 ? 0xc7e7e4 : 0xbde2df);
+      // The three counter-side chairs form a narrow pocket between their backs,
+      // the table and the planter. General navigation must treat the whole row as
+      // one protected zone rather than trying to thread through the tiny gaps
+      // between individual chair obstacles. An owned seat entry/exit temporarily
+      // opens only the matching island later in navBlocked.
+      waitingSeatRowZones.push({
+        island: k,
+        minX: cx - 1.82,
+        maxX: cx + 1.82,
+        minZ: cz - 1.55,
+        maxZ: cz + 0.05,
+      });
       // The two inner, counter-side chairs of the front islands used to release
       // straight into the busiest strip in front of reception. Bias their owned
       // access lanes toward the outside of each island, while preserving the
@@ -2936,6 +3031,15 @@ export default function HospitalScene({
           new THREE.ConeGeometry(0.055, 0.16, 8),
           material(0xe9ad55, 0.5),
         ),
+        hitTarget = new THREE.Mesh(
+          new THREE.SphereGeometry(0.78, 12, 8),
+          new THREE.MeshBasicMaterial({
+            transparent: true,
+            opacity: 0,
+            depthWrite: false,
+            colorWrite: false,
+          }),
+        ),
         wings = [-1, 1].map((side) => {
           const wing = new THREE.Mesh(
             new THREE.SphereGeometry(0.18, 12, 8),
@@ -2951,7 +3055,14 @@ export default function HospitalScene({
       head.position.set(0.27, 0.09, 0);
       beak.position.set(0.43, 0.08, 0);
       beak.rotation.z = -Math.PI / 2;
-      g.add(body, head, beak, note);
+      hitTarget.position.set(0.08, 0.1, 0);
+      hitTarget.name = "bird-hit-target";
+      g.add(body, head, beak, note, hitTarget);
+      g.userData = { interactive: "bird" };
+      g.traverse((object) => {
+        object.userData.hitRoot = g;
+        interactive.push(object);
+      });
       g.visible = false;
       scene.add(g);
       return { group: g, wings, note, cycle: -1, tree: 0 };
@@ -3118,6 +3229,13 @@ export default function HospitalScene({
     const isSeatPoint = (p: THREE.Vector3) =>
       seatSpots.some((s) => s.pos.distanceTo(p) < 0.06);
 
+    // Every clinician has a unique surname across reception, pharmacy,
+    // clinics and the roaming lobby team.
+    const doctorSurnames = ["林", "張", "王", "李", "陳"],
+      clinicNurseSurnames = ["蔡", "楊", "許", "鄭", "謝"],
+      pharmacyNurseSurnames = ["吳", "劉"],
+      roamingNurseSurnames = ["郭", "周", "曾"];
+
     // Reception nurse (subtle station movement).
     const receptionNurseZ = -6.3 + RECEPTION_SHIFT,
       receptionNurse = person(
@@ -3138,6 +3256,7 @@ export default function HospitalScene({
       );
     receptionNurse.group.scale.setScalar(1);
     receptionNurse.group.userData.working = true;
+    receptionNurse.group.userData.displayName = "黃護理師";
     // A scene-level bag makes the handover legible above the counter instead of
     // popping directly into the patient's hand on the lobby side.
     const counterHandoffBag = new THREE.Group(),
@@ -3191,6 +3310,7 @@ export default function HospitalScene({
       bag.visible = false;
       p.group.add(medicine, bag);
       p.group.userData.pharmacyWorking = true;
+      p.group.userData.displayName = `${pharmacyNurseSurnames[i]}藥師`;
       p.group.userData.workIndex = i;
       p.group.userData.pharmacyPhaseOffset = i * 20.6;
       p.group.userData.medicinePack = medicine;
@@ -3253,6 +3373,7 @@ export default function HospitalScene({
         30 + i,
       );
       d.group.userData.clinicSeat = seat.clone();
+      d.group.userData.displayName = `${doctorSurnames[i]}醫師`;
       d.group.userData.clinicYaw = clinicDoctorYaws[i];
       d.group.userData.cycleOffset = i * 7;
       d.group.userData.clinicTask = i % 2 ? "chart" : "computer";
@@ -3280,6 +3401,7 @@ export default function HospitalScene({
       n.actionTime = Math.random() * 2;
       n.pause = 0;
       n.group.userData.clinicSeat = seat.clone();
+      n.group.userData.displayName = `${clinicNurseSurnames[i]}護理師`;
       n.group.userData.clinicYaw = clinicNurseYaws[i];
       n.group.userData.baseClinicSpeed = n.speed;
       n.group.userData.roomReady = true;
@@ -3338,6 +3460,7 @@ export default function HospitalScene({
         50 + i,
       );
       nurse.group.userData.lobbyRoamingNurse = true;
+      nurse.group.userData.displayName = `${roamingNurseSurnames[i]}護理師`;
       return nurse;
     });
     const eyeRoute = [
@@ -3367,7 +3490,9 @@ export default function HospitalScene({
       // The eye helper shares the roaming-nurse conversation scheduler and the
       // same collision-safe navigation, but remains a distinct visual role.
       nurses = [...roamingNurses, eyeHelper];
-    // Twelve patients circulate among entrance, reception, waiting zones and clinics.
+    // Twelve reusable patients circulate among entrance, reception, waiting
+    // zones and clinics. A character is recycled only after completing the
+    // visible street departure; no hidden standby models are kept.
     const patientColors = [
       0xe4a566, 0x7b92c8, 0x79bca8, 0xd58b75, 0x8b79b8, 0xd2a85f, 0x6597a8,
       0xc27d94, 0x78a9c4, 0xe19c85, 0x76ad87, 0xb78ab4,
@@ -3383,7 +3508,7 @@ export default function HospitalScene({
     let patientNumberSequence = 1;
     const nextPatientNumber = () =>
       String(((patientNumberSequence++ - 1) % 99) + 1).padStart(2, "0");
-    const patientRoutes = [
+    const corePatientRoutes = [
       [
         new THREE.Vector3(-1.45, 0, 6.8),
         new THREE.Vector3(-2.2, 0, 6.1),
@@ -3497,10 +3622,26 @@ export default function HospitalScene({
         lobbyClinicLoops[4].clone(),
       ],
     ];
-    const patients = patientRoutes.map((r, i) => {
-      const safeRoute = r.map((p) =>
-          isSeatPoint(p) ? p.clone() : nearestLobbySafe(p),
-        ),
+    const inProtectedWaitingSeatRow = (point: THREE.Vector3, margin = 0) =>
+      waitingSeatRowZones.some(
+        (zone) =>
+          point.x > zone.minX - margin &&
+          point.x < zone.maxX + margin &&
+          point.z > zone.minZ - margin &&
+          point.z < zone.maxZ + margin,
+      );
+    const patients = corePatientRoutes.map((r, i) => {
+      // Chair-derived waypoints are removed completely from ordinary circulation.
+      // Replacing them with a nearby release point still drew unrelated patients
+      // along the outside edge of every upper chair row, where crowd avoidance
+      // could push them back into the same narrow pocket.
+      const safeRoute = r
+          .filter(
+            (point) =>
+              !isSeatPoint(point) &&
+              !inProtectedWaitingSeatRow(point, 0.5),
+          )
+          .map((point) => nearestLobbySafe(point, 0.42)),
         fullRoute = [
           ...safeRoute,
           ...safeRoute
@@ -3521,7 +3662,7 @@ export default function HospitalScene({
       const p = person(
         scene,
         "patient",
-        patientColors[i],
+        patientColors[i % patientColors.length],
         fullRoute[startIndex].clone(),
         fullRoute,
         0.62 + i * 0.025,
@@ -3539,7 +3680,8 @@ export default function HospitalScene({
       p.group.userData.consultCooldown = 5 + i * 1.4;
       p.group.userData.scanCooldown = 1 + i * 0.35;
       p.group.userData.counterRescanCooldown = 14 + i * 1.8;
-      p.seatId = assignedSeatIds[i];
+      p.group.userData.patientBaseSpeed = p.speed;
+      p.seatId = assignedSeatIds[i % assignedSeatIds.length];
       p.seatPoint = seatSpots[p.seatId].pos.clone();
       p.seatYaw = seatSpots[p.seatId].yaw;
       return p;
@@ -3575,10 +3717,39 @@ export default function HospitalScene({
       ...nurses,
       ...patients,
     ];
+    // Street pedestrians participate in navigation clearance even though their
+    // simple looping animation is updated separately from hospital walkers.
+    const navigationCrowd = [...walkers, ...streetWalkers];
+    const streetDepartureSpeed = 0.76;
+    const isStreetDepartingPatient = (w: Walker) =>
+      w.role === "patient" &&
+      w.group.userData.visitPhase === "leaving" &&
+      !w.group.userData.revolvingDoorTransit &&
+      w.group.position.z > 8.45;
+    const isSameDirectionStreetTraffic = (self: Walker, other: Walker) =>
+      isStreetDepartingPatient(self) &&
+      (isStreetDepartingPatient(other) ||
+        (other.group.userData.streetWalker &&
+          Number(other.group.userData.streetDirection) < 0));
+    const isOpposingStreetTraffic = (self: Walker, other: Walker) =>
+      isStreetDepartingPatient(self) &&
+      !!other.group.userData.streetWalker &&
+      Number(other.group.userData.streetDirection) > 0;
+    // Departing patients use a simple leftward follow lane on the pavement.
+    // Same-direction traffic is handled by a longitudinal gap check, while
+    // opposing pedestrians pass through instead of triggering mutual sidesteps.
+    const bypassGenericStreetAvoidance = (self: Walker, other: Walker) =>
+      isSameDirectionStreetTraffic(self, other) ||
+      isOpposingStreetTraffic(self, other);
     walkers.forEach((w) => w.group.traverse((o) => interactive.push(o)));
     // Every hospital visit owns one monitor record. The same reusable character
     // model receives a fresh record and visit id when a new patient enters.
-    let patientVisitSequence = 0;
+    let patientVisitSequence = 0,
+      calledTransitSequence = 0;
+    const isCalledInboundPatient = (w: Walker) =>
+      w.role === "patient" &&
+      !!w.group.userData.calledTaskActive &&
+      w.group.userData.consultState === "inbound";
     const patientMonitors = new Map<string, PatientMonitor>();
     const patientFlowStep = (w: Walker) => {
       const phase = w.group.userData.visitPhase;
@@ -3612,13 +3783,104 @@ export default function HospitalScene({
                   ? "lobby-qr"
                   : w.group.userData.qrQueueGoal
                     ? "qr-queue"
-                    : w.group.userData.detourGoal
-                      ? "detour"
-                      : w.group.userData.yieldGoal
-                        ? "yield"
-                        : "roam";
+                    : "roam";
     const patientStateKey = (w: Walker) =>
       `${w.group.userData.visitPhase || "unknown"}|${w.action}|${w.group.userData.consultState || "-"}|${patientGoalKind(w)}`;
+    const patientStatusLabel = (w: Walker) => {
+      const phase = w.group.userData.visitPhase,
+        consultState = w.group.userData.consultState;
+      if (phase === "entering") return "正從街道進入醫院";
+      if (phase === "preScan") return "正前往報到 QR Code";
+      if (phase === "checkin") {
+        if (w.action === "counterTalk") return "正在櫃檯辦理報到";
+        if (w.action === "counterScan") return "正在掃描櫃檯 QR Code";
+        return "正在排隊等候報到";
+      }
+      if (phase === "queue") {
+        if (w.action === "sit" && w.group.userData.hasScanned)
+          return "正在查看 QRcode 中的內容並等候叫號";
+        if (w.group.userData.qrGoal || w.group.userData.qrQueueGoal)
+          return "正前往大廳 QR Code";
+        return "正在候診大廳等候";
+      }
+      if (phase === "consult" || phase === "exam" || phase === "clinicScan") {
+        if (consultState === "inbound")
+          return `已叫號，正前往 ${w.group.userData.consultRoom || "指定"} 號診間`;
+        if (w.action === "examBed" || consultState === "toExam")
+          return "正在診間接受檢查";
+        if (w.action === "clinicScan" || consultState === "clinicScan")
+          return "正在診間掃描衛教 QR Code";
+        if (consultState === "leaving") return "已完成看診，正離開診間";
+        return "正在診間看診";
+      }
+      if (phase === "postClinicWait")
+        return w.action === "sit" && w.group.userData.hasScanned
+          ? "正在查看診間 QRcode 中的內容"
+          : "已完成看診，正前往候診區";
+      if (phase === "postLobbyScan") return "正前往大廳掃描 QR Code";
+      if (phase === "postWait")
+        return w.action === "sit" && w.group.userData.hasScanned
+          ? "正在查看更多衛教內容"
+          : "完成掃描後正前往候診區";
+      if (phase === "paymentQueue" || phase === "payment")
+        return "正在完成繳費流程";
+      if (phase === "pickupQueue" || phase === "pickup")
+        return "正在櫃檯排隊領藥";
+      if (phase === "leaving") return "已領藥";
+      return "正在依照院內流程移動";
+    };
+    const patientStatusDetail = (w: Walker) => {
+      const phase = w.group.userData.visitPhase,
+        readingPhone = w.action === "sit" && w.group.userData.hasScanned;
+      if (phase === "queue" && readingPhone)
+        return "這裡有許多與我有關的資訊，非常清楚且容易閱讀，接下來看診比較不緊張了！";
+      if (phase === "postClinicWait" && readingPhone)
+        return "這裡有清楚的衛教資訊與後續照護方式，很好理解呢！";
+      if (phase === "postWait" && readingPhone)
+        return "這些內容可以帶回家仔細閱讀，也讓家人一起安心。";
+      if (phase === "leaving")
+        return "藥袋上的 QRcode 中有清楚的用藥方式與須知，讓人很安心。";
+      return undefined;
+    };
+    const patientFocusInteraction = (w: Walker): CharacterInteraction => ({
+      eyebrow: "PATIENT STATUS",
+      title: `病患 ${String(w.group.userData.queueNumber || "--")} 號`,
+      line: `目前狀態：${patientStatusLabel(w)}`,
+      detail: patientStatusDetail(w),
+    });
+    const staffInteraction = (w: Walker): CharacterInteraction | undefined => {
+      const displayName = w.group.userData.displayName as string | undefined;
+      if (!displayName) return undefined;
+      if (w.role === "doctor")
+        return {
+          eyebrow: "MEDIFY CLINICIAN",
+          title: displayName,
+          line: "Medify 的智慧醫療服務將重複性的問診過程簡化，且讓病患取得妥善審核過的衛教資訊。",
+        };
+      if (w.group.userData.pharmacyWorking)
+        return {
+          eyebrow: "MEDIFY CLINICIAN",
+          title: displayName,
+          line: "請掃描藥袋上的 QRcode 閱讀用藥須知。",
+        };
+      if (w.group.userData.working)
+        return {
+          eyebrow: "MEDIFY CLINICIAN",
+          title: displayName,
+          line: "報到後請到右手邊掃描 QRcode 閱讀相關衛教資訊。",
+        };
+      if (w.room)
+        return {
+          eyebrow: "MEDIFY CLINICIAN",
+          title: displayName,
+          line: "請掃描平板上的 QRcode 閱讀與您與醫師諮詢的相關衛教資訊，包含後續的照護與注意事項。",
+        };
+      return {
+        eyebrow: "MEDIFY CLINICIAN",
+        title: displayName,
+        line: "報到後請先在候診區稍作等候，掃描候診區桌上的 QRcode 閱讀相關衛教資訊，輪到您診間叫號機會通知您前往。",
+      };
+    };
     const attachPatientMonitor = (w: Walker) => {
       const visitId = ++patientVisitSequence,
         now = performance.now() / 1000;
@@ -3634,6 +3896,10 @@ export default function HospitalScene({
         invalidPositionTime: 0,
         seatExitTime: 0,
         clinicTransitTime: 0,
+        calledTaskTime: 0,
+        calledTaskNoProgressTime: 0,
+        calledTaskLastPosition: w.group.position.clone(),
+        lastCalledTaskRecoveryAt: -10,
         recoveries: 0,
         lastRecoveryAt: -10,
         lastHealthyAt: now,
@@ -3647,6 +3913,10 @@ export default function HospitalScene({
       delete w.group.userData.monitorFlowStep;
       delete w.group.userData.monitorHealth;
       delete w.group.userData.monitorLastSeatExit;
+      delete w.group.userData.recoveryGoal;
+      delete w.group.userData.manualRecoveryGoal;
+      delete w.group.userData.crowdStallReplanIssued;
+      delete w.group.userData.crowdStallEscapeIssued;
     };
     // Resolve spawn-to-spawn overlap before the first rendered frame. This is
     // intentionally deterministic so refreshing the page never briefly reveals a
@@ -3700,8 +3970,99 @@ export default function HospitalScene({
       (w) => (w.group.userData.lastSafePosition = w.group.position.clone()),
     );
 
+    // Keep the selected-patient marker at scene level so sitting or character
+    // scaling never changes its requested 25 cm height. The square pyramid is
+    // inverted, leaving its tip pointed toward the patient's head.
+    const patientFocusMarker = new THREE.Mesh(
+        new THREE.ConeGeometry(0.23, 0.45, 4),
+        new THREE.MeshStandardMaterial({
+          color: 0xe53935,
+          emissive: 0x7f0808,
+          emissiveIntensity: 0.38,
+          roughness: 0.48,
+        }),
+      ),
+      focusedHeadWorld = new THREE.Vector3(),
+      focusedPatientFollowTarget = new THREE.Vector3(),
+      focusedPatientFollowDelta = new THREE.Vector3();
+    patientFocusMarker.rotation.x = Math.PI;
+    patientFocusMarker.castShadow = true;
+    patientFocusMarker.visible = false;
+    patientFocusMarker.renderOrder = 24;
+    patientFocusMarker.raycast = () => {};
+    scene.add(patientFocusMarker);
+    let focusedPatient: Walker | null = null,
+      focusedPatientStateKey = "",
+      mobilePatientFollowInitialized = false;
+    const clearFocusedPatient = () => {
+      if (!focusedPatient) return;
+      focusedPatient = null;
+      focusedPatientStateKey = "";
+      mobilePatientFollowInitialized = false;
+      patientFocusMarker.visible = false;
+      onPatientFocus(null);
+    };
+    clearPatientFocusRef.current = clearFocusedPatient;
+    const focusPatient = (w: Walker) => {
+      focusedPatient = w;
+      focusedPatientStateKey = patientStateKey(w);
+      mobilePatientFollowInitialized = false;
+      patientFocusMarker.visible = true;
+      onPatientFocus(patientFocusInteraction(w));
+    };
+    const updateFocusedPatient = (t: number, dt: number) => {
+      if (!focusedPatient) return;
+      if (
+        !focusedPatient.group.visible ||
+        !focusedPatient.group.userData.activePatient
+      ) {
+        clearFocusedPatient();
+        return;
+      }
+      focusedPatient.headRig.getWorldPosition(focusedHeadWorld);
+      patientFocusMarker.position.copy(focusedHeadWorld);
+      patientFocusMarker.position.y += 0.54 + Math.sin(t * 2.4) * 0.025;
+      patientFocusMarker.rotation.set(Math.PI, t * 1.9, 0);
+      if (mobileView()) {
+        focusedPatient.group.getWorldPosition(focusedPatientFollowTarget);
+        focusedPatientFollowTarget.y += 0.92;
+        if (!mobilePatientFollowInitialized) {
+          focusedPatientFollowDelta
+            .copy(focusedPatientFollowTarget)
+            .sub(controls.target);
+          camera.position.add(focusedPatientFollowDelta);
+          controls.target.copy(focusedPatientFollowTarget);
+          cameraTransitionRef.current = null;
+          controls.enabled = true;
+          mobilePatientFollowInitialized = true;
+        } else {
+          const followAmount = 1 - Math.exp(-dt * 10);
+          focusedPatientFollowDelta
+            .copy(focusedPatientFollowTarget)
+            .sub(controls.target)
+            .multiplyScalar(followAmount);
+          controls.target.add(focusedPatientFollowDelta);
+          camera.position.add(focusedPatientFollowDelta);
+        }
+      } else mobilePatientFollowInitialized = false;
+      const currentStateKey = patientStateKey(focusedPatient);
+      if (currentStateKey !== focusedPatientStateKey) {
+        focusedPatientStateKey = currentStateKey;
+        onPatientFocus(patientFocusInteraction(focusedPatient));
+      }
+    };
+
     const ray = new THREE.Raycaster(),
-      mouse = new THREE.Vector2();
+      mouse = new THREE.Vector2(),
+      birdScreenPoint = new THREE.Vector3();
+    const isVisibleInteractiveObject = (object: THREE.Object3D) => {
+      let current: THREE.Object3D | null = object;
+      while (current && current !== scene) {
+        if (!current.visible) return false;
+        current = current.parent;
+      }
+      return true;
+    };
     const pointer = (e: PointerEvent) => {
       const r = renderer.domElement.getBoundingClientRect();
       mouse.set(
@@ -3709,9 +4070,185 @@ export default function HospitalScene({
         -((e.clientY - r.top) / r.height) * 2 + 1,
       );
       ray.setFromCamera(mouse, camera);
-      return ray.intersectObjects(interactive, true)[0];
+      return ray
+        .intersectObjects(interactive, true)
+        .find((hit) => isVisibleInteractiveObject(hit.object));
+    };
+    const birdAtPointer = (e: PointerEvent) => {
+      const bounds = renderer.domElement.getBoundingClientRect(),
+        radius = touchDevice ? 54 : 42;
+      return streetBirds.find((bird) => {
+        if (!bird.group.visible) return false;
+        bird.group.getWorldPosition(birdScreenPoint);
+        birdScreenPoint.project(camera);
+        if (birdScreenPoint.z < -1 || birdScreenPoint.z > 1) return false;
+        const screenX =
+            bounds.left + ((birdScreenPoint.x + 1) * bounds.width) / 2,
+          screenY =
+            bounds.top + ((1 - birdScreenPoint.y) * bounds.height) / 2;
+        return Math.hypot(e.clientX - screenX, e.clientY - screenY) <= radius;
+      });
+    };
+    const showBirdStatus = () => {
+      if (focusedPatient) clearFocusedPatient();
+      onTalk("assistant", {
+        eyebrow: "BIRD STATUS",
+        title: "小鳥",
+        line: "祝你有美好的一天，啾～",
+      });
+    };
+    const doctorIsWaitingForPatient = (w: Walker) =>
+      w.role === "doctor" &&
+      w.action === "clinicSit" &&
+      !!w.room &&
+      !w.group.userData.consultQueued &&
+      !w.group.userData.consultPatient &&
+      !w.group.userData.doctorPath &&
+      !w.group.userData.doctorPathMode &&
+      !patients.some(
+        (patient) =>
+          patient.group.visible &&
+          patient.group.userData.consultRoom === w.room &&
+          patient.group.userData.consultDoctor === w.group.uuid &&
+          (patient.group.userData.consultPath ||
+            ["consult", "exam", "clinicScan"].includes(
+              patient.group.userData.visitPhase,
+            )),
+      );
+    const clickedCharacterTaskTarget = (w: Walker) => {
+      const consultPath = w.group.userData.consultPath as
+          | THREE.Vector3[]
+          | undefined,
+        lifecyclePath = w.group.userData.lifecyclePath as
+          | THREE.Vector3[]
+          | undefined,
+        doctorPath = w.group.userData.doctorPath as
+          | THREE.Vector3[]
+          | undefined,
+        clinicStaffPath = w.group.userData.clinicStaffPath as
+          | THREE.Vector3[]
+          | undefined;
+      return (
+        consultPath?.[0] ||
+        lifecyclePath?.[0] ||
+        doctorPath?.[0] ||
+        clinicStaffPath?.[0] ||
+        (w.group.userData.seatGoal as THREE.Vector3 | undefined) ||
+        (w.group.userData.qrGoal as THREE.Vector3 | undefined) ||
+        (w.group.userData.qrQueueGoal as THREE.Vector3 | undefined) ||
+        w.route[w.waypoint]
+      );
+    };
+    const clickedCharacterRecoveryPoint = (w: Walker) => {
+      const origin = w.group.position.clone(),
+        taskTarget = clickedCharacterTaskTarget(w),
+        phase = (w.group.id * 2.399963229728653) % (Math.PI * 2),
+        nearby = navigationCrowd.filter(
+          (other) => other !== w && other.group.visible,
+        ),
+        candidates: { point: THREE.Vector3; score: number }[] = [];
+      for (const radius of [0.52, 0.72, 0.96, 1.22, 1.48])
+        for (let index = 0; index < 24; index++) {
+          const angle = phase + (index / 24) * Math.PI * 2,
+            point = origin
+              .clone()
+              .add(
+                new THREE.Vector3(
+                  Math.cos(angle) * radius,
+                  0,
+                  Math.sin(angle) * radius,
+                ),
+              ),
+            firstStep = origin
+              .clone()
+              .lerp(point, Math.min(1, 0.12 / radius));
+          if (
+            !boundaryClear(w, point) ||
+            navBlocked(w, point, 0.3, seatObstacleAccess(w)) ||
+            !staticSegmentClear(w, origin, point) ||
+            !peopleStepClear(firstStep, w, 0.38)
+          )
+            continue;
+          const closestPerson = nearby.reduce(
+              (closest, other) =>
+                Math.min(closest, point.distanceTo(other.group.position)),
+              4,
+            ),
+            taskDistance = taskTarget ? point.distanceTo(taskTarget) : 0,
+            crowdPenalty = Math.max(0, 1.05 - closestPerson) * 8;
+          candidates.push({
+            point,
+            score: crowdPenalty + taskDistance * 0.12 + radius * 0.04,
+          });
+        }
+      return candidates.sort((a, b) => a.score - b.score)[0]?.point;
+    };
+    const resumeClickedCharacterTask = (w: Walker) => {
+      // Clicking is a manual escape hatch only for a character who is supposed
+      // to be moving. Intentional sitting, scanning, treatment and conversation
+      // actions keep their current animation and timing.
+      if (!w.group.visible || w.action !== "walk") return false;
+      w.pause = 0;
+      w.stuck = 0;
+      w.group.userData.blockedTime = 0;
+      w.group.userData.idleTime = 0;
+      w.group.userData.navReplanCooldown = 0;
+      w.group.userData.escapeAttempt = 0;
+      delete w.group.userData.navPath;
+      delete w.group.userData.navTarget;
+      delete w.group.userData.detourGoal;
+      delete w.group.userData.yieldGoal;
+      delete w.group.userData.recoveryGoal;
+      delete w.group.userData.manualRecoveryGoal;
+      delete w.group.userData.navAvoidPeople;
+      delete w.group.userData.avoidanceSide;
+      delete w.group.userData.avoidanceSideUntil;
+      delete w.group.userData.blockRecoveryPause;
+      delete w.group.userData.crowdStallReplanIssued;
+      delete w.group.userData.crowdStallEscapeIssued;
+      w.group.userData.progressAnchor = w.group.position.clone();
+      w.group.userData.motionAnchor = w.group.position.clone();
+      if (w.role === "patient") {
+        const monitor = patientMonitors.get(w.group.uuid);
+        if (monitor) {
+          monitor.lastPosition.copy(w.group.position);
+          monitor.noProgressTime = 0;
+          monitor.invalidPositionTime = 0;
+          monitor.seatExitTime = 0;
+          monitor.clinicTransitTime = 0;
+          monitor.calledTaskNoProgressTime = 0;
+          monitor.calledTaskLastPosition.copy(w.group.position);
+        }
+        w.group.userData.calledNoProgress = 0;
+        w.group.userData.calledProgressAnchor = w.group.position.clone();
+        w.group.userData.clinicNoProgress = 0;
+        w.group.userData.clinicMotionAnchor = w.group.position.clone();
+        if (w.group.userData.consultState === "inbound") {
+          interruptPatientForCall(w);
+          rebuildInboundClinicPath(w);
+        } else if (
+          w.group.userData.counterScanPending &&
+          w.group.userData.visitPhase === "checkin"
+        )
+          restoreCounterScanRoute(w, true);
+      }
+      const recoveryPoint =
+        !w.group.userData.revolvingDoorTransit &&
+        clickedCharacterRecoveryPoint(w);
+      if (recoveryPoint) {
+        w.group.userData.recoveryGoal = recoveryPoint;
+        w.group.userData.manualRecoveryGoal = true;
+      }
+      w.action = "walk";
+      w.actionTime = 0;
+      w.pause = 0;
+      return true;
     };
     const click = (e: PointerEvent) => {
+      if (birdAtPointer(e)) {
+        showBirdStatus();
+        return;
+      }
       const hit = pointer(e);
       if (!hit) return;
       const root = hit.object.userData.hitRoot || hit.object;
@@ -3738,16 +4275,24 @@ export default function HospitalScene({
         if (doctor && doctorInside && !clinicHasPatient(d.room))
           doctor.group.userData.knockExit = true;
         onKnock(d.room);
+      } else if (root.userData.interactive === "bird") {
+        showBirdStatus();
       } else if (root.userData.interactive === "person") {
         const w = walkers.find((v) => v.group === root);
-        if (w?.role === "doctor" && w.action !== "wave") {
-          w.group.userData.waveResume =
-            w.action === "clinicSit" ? "clinicSit" : "walk";
+        const restarted = w ? resumeClickedCharacterTask(w) : false;
+        if (w?.role === "patient") {
+          focusPatient(w);
+          return;
+        }
+        if (focusedPatient) clearFocusedPatient();
+        if (w && !restarted && doctorIsWaitingForPatient(w)) {
+          w.group.userData.waveResume = "clinicSit";
           w.group.userData.waveResumeTime = w.actionTime;
           w.action = "wave";
           w.actionTime = 0;
           w.pause = 0;
         } else if (
+          !restarted &&
           w?.group.userData.eyeAssistant &&
           w.action !== "wave"
         ) {
@@ -3768,11 +4313,12 @@ export default function HospitalScene({
           w.actionTime = 0;
           w.pause = 0;
         }
-        onTalk(root.userData.role);
+        onTalk(root.userData.role, w ? staffInteraction(w) : undefined);
       }
     };
     const move = (e: PointerEvent) =>
-      (renderer.domElement.style.cursor = pointer(e) ? "pointer" : "grab");
+      (renderer.domElement.style.cursor =
+        birdAtPointer(e) || pointer(e) ? "pointer" : "grab");
     renderer.domElement.addEventListener("click", click);
     renderer.domElement.addEventListener("pointermove", move);
 
@@ -3996,11 +4542,12 @@ export default function HospitalScene({
             p.action === "medicinePickup"),
       );
     const peopleClear = (candidate: THREE.Vector3, self: Walker, min = 0.78) =>
-      !walkers.some((o) => {
+      !navigationCrowd.some((o) => {
         if (
           o === self ||
           !o.group.visible ||
-          counterHeadPassThroughPair(self, o)
+          counterHeadPassThroughPair(self, o) ||
+          bypassGenericStreetAvoidance(self, o)
         )
           return false;
         return candidate.distanceTo(o.group.position) < min;
@@ -4013,11 +4560,12 @@ export default function HospitalScene({
       self: Walker,
       min = 0.53,
     ) =>
-      !walkers.some((o) => {
+      !navigationCrowd.some((o) => {
         if (
           o === self ||
           !o.group.visible ||
-          counterHeadPassThroughPair(self, o)
+          counterHeadPassThroughPair(self, o) ||
+          bypassGenericStreetAvoidance(self, o)
         )
           return false;
         const currentGap = self.group.position.distanceTo(o.group.position),
@@ -4109,6 +4657,60 @@ export default function HospitalScene({
           ].includes(w.group.userData.consultState);
         return !ownPatientTransit && p.distanceTo(zone.pos) < 0.42 + r;
       });
+    const protectedWaitingSeatRowBlocked = (
+      w: Walker,
+      p: THREE.Vector3,
+      r = 0.32,
+    ) =>
+      waitingSeatRowZones.some((zone) => {
+        const ownsSeatTransit = !!(
+            w.role === "patient" &&
+            w.seatId !== undefined &&
+            Math.floor(w.seatId / 5) === zone.island &&
+            (w.group.userData.seatGoal ||
+              w.group.userData.seatApproach ||
+              w.group.userData.leavingSeat ||
+              w.group.userData.pickupSeatExit)
+          ),
+          // Navigation points represent a character's centre. Expand the row by
+          // the full body radius plus a little shoulder room; otherwise a centre
+          // can remain technically outside while the model visibly overlaps the
+          // chair backs. The extra clearance is especially important beside the
+          // planter at the left-front island, where crowd steering used to funnel
+          // walkers along the exact edge of the protected row.
+          clearance = Math.max(0.48, r + 0.18),
+          minX = zone.minX - clearance,
+          maxX = zone.maxX + clearance,
+          minZ = zone.minZ - clearance,
+          maxZ = zone.maxZ + clearance,
+          inside =
+            p.x > minX && p.x < maxX && p.z > minZ && p.z < maxZ,
+          current = w.group.position,
+          currentlyInside =
+            current.x > minX &&
+            current.x < maxX &&
+            current.z > minZ &&
+            current.z < maxZ;
+        if (!inside || ownsSeatTransit) return false;
+        if (!currentlyInside) return true;
+        // A stale workflow flag may occasionally leave a patient already inside
+        // the protected row. Keep inward and lateral motion blocked, but allow
+        // every step that reduces their depth toward the nearest edge so recovery
+        // can walk them out instead of sealing them inside the zone.
+        const currentDepth = Math.min(
+            current.x - minX,
+            maxX - current.x,
+            current.z - minZ,
+            maxZ - current.z,
+          ),
+          nextDepth = Math.min(
+            p.x - minX,
+            maxX - p.x,
+            p.z - minZ,
+            maxZ - p.z,
+          );
+        return nextDepth >= currentDepth - 0.004;
+      });
     const inReceptionNurseExclusionZone = (p: THREE.Vector3) =>
       // The three metres are measured from the lobby service position, while
       // the rear edge also covers the physical counter face. A small lateral
@@ -4127,7 +4729,8 @@ export default function HospitalScene({
         ? true
         : inAssignedDoorCore(w, p)
         ? false
-        : blocked(p, obs, r, allowedSeat, inAssignedDoorPortal(w, p)) ||
+        : protectedWaitingSeatRowBlocked(w, p, r) ||
+          blocked(p, obs, r, allowedSeat, inAssignedDoorPortal(w, p)) ||
           clinicStoolBlocked(w, p, r);
     const isActiveDoorTransit = (w: Walker) => {
       const room = assignedDoorIndex(w),
@@ -4420,7 +5023,10 @@ export default function HospitalScene({
         },
         start = nearest(toCell(w.group.position)),
         goal = nearest(toCell(target));
-      if (!start || !goal) return [target.clone()];
+      // Never fall back to a direct line when the grid cannot place either end.
+      // That fallback made a blocked walker keep facing and stepping toward the
+      // chair row even though every candidate step was rejected.
+      if (!start || !goal) return [];
       const open = [{ ...start, f: 0 }],
         came = new Map<string, string>(),
         g = new Map<string, number>([[key(start.x, start.z), 0]]),
@@ -4473,7 +5079,7 @@ export default function HospitalScene({
           }
         }
       }
-      if (!found) return [target.clone()];
+      if (!found) return [];
       const raw: THREE.Vector3[] = [];
       let cursor = goalKey;
       while (cursor !== key(start.x, start.z)) {
@@ -4504,7 +5110,7 @@ export default function HospitalScene({
         (!avoidPeople || humanSegmentClear(anchor, target))
       )
         smooth.push(target.clone());
-      return smooth.length ? smooth : [target.clone()];
+      return smooth;
     };
     const seatApproachPoint = (
       w: Walker,
@@ -5099,6 +5705,8 @@ export default function HospitalScene({
       delete w.group.userData.navTarget;
       delete w.group.userData.detourGoal;
       delete w.group.userData.yieldGoal;
+      delete w.group.userData.recoveryGoal;
+      delete w.group.userData.manualRecoveryGoal;
       w.group.userData.navAvoidPeople = true;
       w.group.userData.blockedTime = 0;
       w.group.userData.idleTime = 0;
@@ -5311,6 +5919,97 @@ export default function HospitalScene({
       w.group.userData.calledProgressAnchor = w.group.position.clone();
       if (!nearSeat) w.group.userData.navAvoidPeople = true;
     };
+    const clearCalledPatientTask = (w: Walker) => {
+      delete w.group.userData.calledTaskActive;
+      delete w.group.userData.calledTaskRoom;
+      delete w.group.userData.calledTransitPriority;
+    };
+    const reassertCalledPatientTask = (
+      w: Walker,
+      monitor: PatientMonitor,
+      t: number,
+    ) => {
+      const room = THREE.MathUtils.clamp(
+          Number(
+            w.group.userData.calledTaskRoom ||
+              w.group.userData.calledScreenRoom ||
+              w.group.userData.consultRoom ||
+              1,
+          ) - 1,
+          0,
+          4,
+        ),
+        doctor = doctors[room],
+        roomNurse = clinicNurses[room];
+      // Keep the original call assignment authoritative. A lobby animation,
+      // stale pause, or local recovery may be discarded, but the patient number,
+      // assigned room and room reservation must not change.
+      w.group.userData.visitPhase = "consult";
+      w.group.userData.consultRoom = room + 1;
+      w.group.userData.consultState = "inbound";
+      w.group.userData.calledScreenRoom = room + 1;
+      w.group.userData.calledTaskActive = true;
+      w.group.userData.calledTaskRoom = room + 1;
+      w.group.userData.calledTransitPriority ||= ++calledTransitSequence;
+      if (doctor) {
+        w.group.userData.consultDoctor = doctor.group.uuid;
+        doctor.group.userData.consultPatient = w.group.uuid;
+        doctor.group.userData.consultQueued = true;
+      }
+      interruptPatientForCall(w);
+      rebuildInboundClinicPath(w);
+      if (roomNurse) {
+        roomNurse.group.userData.roomReady = false;
+        roomNurse.group.userData.servicePatient = w.group.uuid;
+        const patientWaitingAtDoor = !!(
+          w.group.userData.waitingForClinicNurse ||
+          w.group.position.distanceTo(doorOutside[room]) < 0.62
+        );
+        if (
+          patientWaitingAtDoor &&
+          roomNurse.action === "clinicNurseDoor"
+        ) {
+          // A patient and nurse can otherwise form a permanent handshake
+          // deadlock: the patient waits for leadIn while the nurse waits for the
+          // patient to enter its one-metre trigger. Once the called-task
+          // watchdog fires at the door, make the nurse lead the already-arrived
+          // patient through the reserved corridor.
+          roomNurse.group.userData.clinicStaffPath = [
+            clinicDoorCenterPoints[room].clone(),
+            clinicDoorInsidePoints[room].clone(),
+            clinicNurseSeatExitPoints[room].clone(),
+          ];
+          roomNurse.group.userData.clinicStaffPathMode = "leadIn";
+          roomNurse.speed = 1.18;
+          roomNurse.action = "walk";
+          roomNurse.actionTime = 0;
+          roomNurse.pause = 0;
+          delete roomNurse.group.userData.navPath;
+          delete roomNurse.group.userData.navTarget;
+        } else if (
+          roomNurse.group.userData.clinicStaffPathMode !== "leadIn" &&
+          roomNurse.group.userData.clinicStaffPathMode !== "followIn"
+        ) {
+          roomNurse.group.userData.clinicStaffPath =
+            clinicNurseDoorWaitPathFromCurrent(roomNurse, room);
+          roomNurse.group.userData.clinicStaffPathMode = "doorWait";
+          roomNurse.speed = 1.34;
+          if (roomNurse.action === "clinicNurseSit") {
+            roomNurse.action = "clinicNurseRise";
+            roomNurse.actionTime = 0;
+          } else if (roomNurse.action !== "clinicNurseRise")
+            roomNurse.action = "walk";
+          roomNurse.pause = 0;
+          delete roomNurse.group.userData.navPath;
+          delete roomNurse.group.userData.navTarget;
+        }
+      }
+      monitor.calledTaskTime = 0;
+      monitor.calledTaskNoProgressTime = 0;
+      monitor.calledTaskLastPosition.copy(w.group.position);
+      monitor.lastCalledTaskRecoveryAt = t;
+      w.group.userData.monitorHealth = "called-task-reasserted";
+    };
     const recoverPatientFlow = (
       w: Walker,
       index: number,
@@ -5424,6 +6123,83 @@ export default function HospitalScene({
       }
       rerouteStalledWalker(w, index);
     };
+    const patientWorkflowTarget = (w: Walker) => {
+      const consultPath = w.group.userData.consultPath as
+          | THREE.Vector3[]
+          | undefined,
+        lifecyclePath = w.group.userData.lifecyclePath as
+          | THREE.Vector3[]
+          | undefined,
+        recoveryGoal = w.group.userData.recoveryGoal as
+          | THREE.Vector3
+          | undefined,
+        seatGoal = w.group.userData.seatGoal as THREE.Vector3 | undefined,
+        qrGoal = w.group.userData.qrGoal as THREE.Vector3 | undefined,
+        qrQueueGoal = w.group.userData.qrQueueGoal as
+          | THREE.Vector3
+          | undefined;
+      return (
+        recoveryGoal ||
+        consultPath?.[0] ||
+        lifecyclePath?.[0] ||
+        (w.group.userData.pickupFlowLocked
+          ? medicinePickupQueueGoal(w)
+          : undefined) ||
+        seatGoal ||
+        qrGoal ||
+        qrQueueGoal ||
+        w.route[w.waypoint]
+      );
+    };
+    const forcePatientGoalReplan = (w: Walker) => {
+      // Crowd separation may move the body, but it never owns or rewrites the
+      // workflow destination. Clear only transient collision state and rebuild a
+      // path toward the same consultation, scan, seat, pickup or departure goal.
+      delete w.group.userData.navPath;
+      delete w.group.userData.navTarget;
+      delete w.group.userData.blockRecoveryPause;
+      delete w.group.userData.avoidanceSide;
+      delete w.group.userData.avoidanceSideUntil;
+      w.group.userData.blockedTime = 0;
+      w.group.userData.navReplanCooldown = 0;
+      w.group.userData.navAvoidPeople = true;
+      w.pause = 0;
+      if (
+        !w.group.userData.leavingSeat &&
+        !w.group.userData.pickupSeatExit &&
+        !w.group.userData.recoveryGoal
+      ) {
+        delete w.group.userData.detourGoal;
+        delete w.group.userData.yieldGoal;
+      }
+    };
+    const assignPatientRecoveryGoal = (w: Walker) => {
+      const originalGoal = patientWorkflowTarget(w),
+        insideDedicatedDoor = inAssignedDoorPortal(w, w.group.position),
+        insideAutomaticDoor = !!(
+          w.group.userData.revolvingDoorTransit &&
+          inAutomaticDoorTransitLane(w, w.group.position)
+        );
+      if (!originalGoal || insideDedicatedDoor || insideAutomaticDoor) return false;
+      const safeGround =
+        escapeStep(w, originalGoal) || chooseReleasePoint(w);
+      if (!safeGround || w.group.position.distanceTo(safeGround) < 0.12)
+        return false;
+      // recoveryGoal has its own route precedence and is removed on arrival. The
+      // original workflow arrays and dedicated endpoints remain untouched beneath
+      // it, so the patient resumes the exact task after reaching safe open ground.
+      w.group.userData.recoveryGoal = safeGround.clone();
+      delete w.group.userData.navPath;
+      delete w.group.userData.navTarget;
+      delete w.group.userData.blockRecoveryPause;
+      delete w.group.userData.avoidanceSide;
+      delete w.group.userData.avoidanceSideUntil;
+      w.group.userData.blockedTime = 0;
+      w.group.userData.navReplanCooldown = 0;
+      w.group.userData.navAvoidPeople = true;
+      w.pause = 0;
+      return true;
+    };
     const monitorPatientFlow = (
       w: Walker,
       index: number,
@@ -5442,13 +6218,153 @@ export default function HospitalScene({
       const stateKey = patientStateKey(w),
         step = patientFlowStep(w);
       if (stateKey !== monitor.stateKey) {
+        // A real workflow transition invalidates any old temporary escape point.
+        // The transition's own dedicated target takes control immediately.
+        delete w.group.userData.recoveryGoal;
+        delete w.group.userData.manualRecoveryGoal;
+        delete w.group.userData.crowdStallReplanIssued;
+        delete w.group.userData.crowdStallEscapeIssued;
         monitor.stateKey = stateKey;
         monitor.stateAge = 0;
+        monitor.noProgressTime = 0;
+        monitor.lastPosition.copy(w.group.position);
       } else monitor.stateAge += dt;
       monitor.flowStep = step;
       monitor.patientNo = String(w.group.userData.queueNumber || "--");
       w.group.userData.monitorFlowStep = step;
       const phase = w.group.userData.visitPhase;
+      const calledTaskActive = !!w.group.userData.calledTaskActive,
+        calledTaskArrived =
+          w.action === "clinicChairSit" ||
+          w.action === "consultSit" ||
+          w.action === "postExamTalk" ||
+          w.action === "postScanTalk" ||
+          w.action === "clinicScan" ||
+          w.action === "bedSit" ||
+          w.action === "examBed" ||
+          w.action === "bedExit";
+      if (calledTaskActive && calledTaskArrived) {
+        clearCalledPatientTask(w);
+        monitor.calledTaskTime = 0;
+        monitor.calledTaskNoProgressTime = 0;
+        monitor.calledTaskLastPosition.copy(w.group.position);
+      } else if (calledTaskActive) {
+        const calledPath = w.group.userData.consultPath as
+            | THREE.Vector3[]
+            | undefined,
+          calledTaskStateLost =
+            phase !== "consult" ||
+            w.action !== "walk" ||
+            w.group.userData.consultState !== "inbound" ||
+            !calledPath?.length,
+          calledMoved = w.group.position.distanceTo(
+            monitor.calledTaskLastPosition,
+          ),
+          intentionallyWaitingAtClinicDoor = !!(
+            w.group.userData.waitingForClinicNurse &&
+            Number(w.group.userData.clinicNurseWaitTime || 0) < 2.2 &&
+            w.group.position.distanceTo(
+              doorOutside[
+                THREE.MathUtils.clamp(
+                  Number(w.group.userData.calledTaskRoom || 1) - 1,
+                  0,
+                  4,
+                )
+              ],
+            ) < 0.52
+          );
+        monitor.calledTaskTime += dt;
+        if (calledMoved > 0.055) {
+          monitor.calledTaskLastPosition.copy(w.group.position);
+          monitor.calledTaskNoProgressTime = 0;
+        } else if (!intentionallyWaitingAtClinicDoor)
+          monitor.calledTaskNoProgressTime += dt;
+        else {
+          monitor.calledTaskLastPosition.copy(w.group.position);
+          monitor.calledTaskNoProgressTime = 0;
+        }
+        if (
+          t - monitor.lastCalledTaskRecoveryAt > 0.8 &&
+          ((calledTaskStateLost && monitor.calledTaskTime > 0.45) ||
+            monitor.calledTaskNoProgressTime > 1.45)
+        ) {
+          reassertCalledPatientTask(w, monitor, t);
+          return;
+        }
+      } else {
+        monitor.calledTaskTime = 0;
+        monitor.calledTaskNoProgressTime = 0;
+        monitor.calledTaskLastPosition.copy(w.group.position);
+      }
+      // Patient poses that depend on a staff member used to be allowed to wait
+      // forever. Repair the missing staff transition while keeping the patient
+      // in place, then let the normal visible staff walk finish the workflow.
+      if (w.action === "consultSit" && monitor.stateAge > 8.5) {
+        const room = THREE.MathUtils.clamp(
+            Number(w.group.userData.consultRoom || 1) - 1,
+            0,
+            4,
+          ),
+          roomNurse = clinicNurses[room],
+          nurseReady = !!(
+            roomNurse?.action === "clinicNurseSit" &&
+            roomNurse.group.userData.servicePatient === w.group.uuid
+          );
+        if (roomNurse && !nurseReady) {
+          const nurseDepth = roomNurse.group.position
+            .clone()
+            .sub(clinicDoorPoints[room])
+            .dot(clinicOuts[room]);
+          roomNurse.group.userData.roomReady = false;
+          roomNurse.group.userData.servicePatient = w.group.uuid;
+          roomNurse.group.userData.clinicStaffPath = [
+            ...(nurseDepth < -0.18
+              ? [
+                  clinicDoorCenterPoints[room].clone(),
+                  clinicDoorInsidePoints[room].clone(),
+                ]
+              : nurseDepth < 0.7
+                ? [clinicDoorInsidePoints[room].clone()]
+                : []),
+            clinicNurseSeatExitPoints[room].clone(),
+          ];
+          roomNurse.group.userData.clinicStaffPathMode = "followIn";
+          roomNurse.speed = 1.18;
+          poseStanding(roomNurse);
+          roomNurse.action = "walk";
+          roomNurse.actionTime = 0;
+          roomNurse.pause = 0;
+          delete roomNurse.group.userData.navPath;
+          delete roomNurse.group.userData.navTarget;
+          monitor.stateAge = 0;
+          monitor.lastRecoveryAt = t;
+          w.group.userData.monitorHealth = "clinic-nurse-reasserted";
+        }
+      }
+      if (w.action === "postExamTalk" && monitor.stateAge > 6.5) {
+        const room = THREE.MathUtils.clamp(
+            Number(w.group.userData.consultRoom || 1) - 1,
+            0,
+            4,
+          ),
+          doctor = doctors[room];
+        if (doctor && doctor.action !== "clinicSit") {
+          poseStanding(doctor);
+          doctor.group.userData.doctorPath = [
+            clinicDoctorRetreatPoints[room].clone(),
+            clinicDoctorSeats[room].clone(),
+          ];
+          doctor.group.userData.doctorPathMode = "return";
+          doctor.action = "walk";
+          doctor.actionTime = 0;
+          doctor.pause = 0;
+          delete doctor.group.userData.navPath;
+          delete doctor.group.userData.navTarget;
+          monitor.stateAge = 0;
+          monitor.lastRecoveryAt = t;
+          w.group.userData.monitorHealth = "clinic-doctor-reasserted";
+        }
+      }
       const liveCounterQueuePosition = counterQueuePosition(w);
       if (
         w.group.userData.counterQueueWaiting &&
@@ -5563,12 +6479,17 @@ export default function HospitalScene({
           w.group.userData.revolvingDoorMode
         ),
         moved = w.group.position.distanceTo(monitor.lastPosition),
+        activeClinicDoorWait = !!(
+          w.group.userData.waitingForClinicNurse &&
+          Number(w.group.userData.clinicNurseWaitTime || 0) < 2.2
+        ),
         expectedMovement =
           w.action === "walk" &&
-          w.pause < 0.14 &&
-          !w.group.userData.waitingForClinicNurse &&
+          !activeClinicDoorWait &&
           !w.group.userData.counterQueueWaiting &&
-          !intentionallyWaitingForRevolvingDoor,
+          !intentionallyWaitingForRevolvingDoor &&
+          !w.group.userData.streetFollowing &&
+          !w.group.userData.revolvingDoorFollowing,
         nearbyMovingConflict = walkers.some(
           (o) =>
             o !== w &&
@@ -5581,6 +6502,8 @@ export default function HospitalScene({
         monitor.noProgressTime = 0;
         monitor.lastHealthyAt = t;
         w.group.userData.monitorHealth = "healthy";
+        delete w.group.userData.crowdStallReplanIssued;
+        delete w.group.userData.crowdStallEscapeIssued;
         if (monitor.recoveries > 0 && t - monitor.lastRecoveryAt > 2.4)
           monitor.recoveries--;
       } else if (expectedMovement) monitor.noProgressTime += dt;
@@ -5654,18 +6577,31 @@ export default function HospitalScene({
       if (
         expectedMovement &&
         !revolvingDoorTransitActive &&
-        nearbyMovingConflict &&
-        monitor.noProgressTime > 0.55
+        monitor.noProgressTime > 3 &&
+        !w.group.userData.crowdStallReplanIssued
       ) {
-        recoverPatientFlow(w, index, monitor, t);
-        return;
+        forcePatientGoalReplan(w);
+        w.group.userData.crowdStallReplanIssued = true;
+        w.group.userData.monitorHealth = nearbyMovingConflict
+          ? "crowd-stall-replanned"
+          : "stall-replanned";
       }
       if (
         expectedMovement &&
         !revolvingDoorTransitActive &&
-        monitor.noProgressTime > 1.15
+        monitor.noProgressTime > 6 &&
+        !w.group.userData.crowdStallEscapeIssued
       ) {
-        recoverPatientFlow(w, index, monitor, t);
+        if (assignPatientRecoveryGoal(w)) {
+          w.group.userData.crowdStallEscapeIssued = true;
+          w.group.userData.monitorHealth = "safe-ground-recovery";
+          monitor.lastPosition.copy(w.group.position);
+          monitor.noProgressTime = 0;
+        } else {
+          // Door corridors preserve their ordered checkpoints; if no separate
+          // ground node is legal, reassert that same workflow instead.
+          recoverPatientFlow(w, index, monitor, t);
+        }
         return;
       }
       if (w.action === "sit" && w.actionTime > 12.15) {
@@ -5683,6 +6619,16 @@ export default function HospitalScene({
           p.group.userData.activePatient &&
           p.group.userData.visitPhase !== "leaving" &&
           insideLobby(p.group.position, 0.12),
+      ).length;
+    // Admission capacity counts everyone still entering or receiving care, but
+    // not visitors who have begun the independent full-street departure. This
+    // keeps twelve care-side patients flowing while departures remain visible.
+    const admissionPatientCount = () =>
+      patients.filter(
+        (p) =>
+          p.group.visible &&
+          p.group.userData.activePatient &&
+          p.group.userData.visitPhase !== "leaving",
       ).length;
     const medicinePickupPoint = counterPublicPoint.clone();
     const removeRevolvingDoorEntryWaiter = (uuid: string) => {
@@ -5707,6 +6653,21 @@ export default function HospitalScene({
         Math.min(queueIndex, revolvingDoorExitHoldingPoints.length - 1)
       ];
     };
+    // Incoming patients begin just beyond the rendered right edge and walk the
+    // complete sidewalk before joining the right-hand entrance queue. Keeping
+    // these points on the inner side of the pavement also leaves the street trees
+    // outside their route and prevents a new visitor from appearing beside the
+    // automatic door.
+    const arrivalStreetPath = () => [
+      new THREE.Vector3(15.35, 0, 9.55),
+      new THREE.Vector3(13.35, 0, 9.55),
+      new THREE.Vector3(11.35, 0, 9.55),
+      new THREE.Vector3(9.35, 0, 9.55),
+      new THREE.Vector3(7.35, 0, 9.55),
+      new THREE.Vector3(5.35, 0, 9.55),
+      new THREE.Vector3(3.35, 0, 9.55),
+      ...revolvingDoorEntryPath.map((point) => point.clone()),
+    ];
     // After clearing the revolving door, every departing patient remains visible
     // for the complete leftward sidewalk journey. The final point sits just past
     // the rendered street edge, so the model disappears only after walking the
@@ -5719,6 +6680,10 @@ export default function HospitalScene({
       new THREE.Vector3(-13.7, 0, 9.28),
       new THREE.Vector3(-16.4, 0, 9.22),
     ];
+    // Reaching this off-screen edge is sufficient to finish departure. Waiting
+    // for the exact final waypoint let same-direction following rules form an
+    // unnecessary queue at the end of the street.
+    const streetDepartureRecycleX = -15.72;
     const remainingDeparturePath = (w: Walker, _index: number) => {
       const streetPath = departureStreetPath(),
         alreadyOnStreet = w.group.position.z >= 8.84 && w.group.position.x < -0.35,
@@ -5842,6 +6807,7 @@ export default function HospitalScene({
         w.pause = 0;
       }
       w.group.userData.visitPhase = "leaving";
+      clearCalledPatientTask(w);
       w.group.userData.departureLocked = true;
       w.group.userData.lifecyclePath = departurePath;
       w.group.userData.revolvingDoorMode = "exit";
@@ -5884,12 +6850,49 @@ export default function HospitalScene({
       delete w.group.userData.navTarget;
       delete w.group.userData.revolvingDoorWaiting;
     };
+    const completePatientDeparture = (w: Walker) => {
+      if (focusedPatient === w) clearFocusedPatient();
+      removeRevolvingDoorExitWaiter(w.group.uuid);
+      detachPatientMonitor(w);
+      resetUpperPose(w);
+      if (w.medicineBag) w.medicineBag.visible = false;
+      w.group.userData.activePatient = false;
+      w.group.userData.respawnTimer = 0.16 + Math.random() * 0.22;
+      delete w.group.userData.departureLocked;
+      delete w.group.userData.lifecyclePath;
+      delete w.group.userData.revolvingDoorBaseSpeed;
+      delete w.group.userData.revolvingDoorTransitStartedAt;
+      delete w.group.userData.revolvingDoorProgressAnchor;
+      delete w.group.userData.revolvingDoorNoProgress;
+      delete w.group.userData.revolvingDoorWaiting;
+      delete w.group.userData.revolvingDoorTransit;
+      delete w.group.userData.revolvingDoorMode;
+      delete w.group.userData.streetDepartureMode;
+      delete w.group.userData.streetFollowing;
+      delete w.group.userData.navPath;
+      delete w.group.userData.navTarget;
+      delete w.group.userData.detourGoal;
+      delete w.group.userData.yieldGoal;
+      w.group.visible = false;
+      w.action = "walk";
+      w.actionTime = 0;
+      w.pause = 0;
+    };
     const spawnNewPatient = (w: Walker, index: number) => {
       if (paymentKioskOwner === w.group.uuid) paymentKioskOwner = null;
       removeRevolvingDoorEntryWaiter(w.group.uuid);
       removeRevolvingDoorExitWaiter(w.group.uuid);
       seatExitReservations.delete(w.group.uuid);
-      const streetX = 2.8 + Math.random() * 4.2,
+      const tailArrivalCount = patients.filter(
+          (patient) =>
+            patient !== w &&
+            patient.group.visible &&
+            patient.group.userData.activePatient &&
+            patient.group.userData.visitPhase === "entering" &&
+            patient.group.position.x > 14.8,
+        ).length,
+        streetX =
+          16.4 + Math.min(tailArrivalCount, 5) * 0.92 + Math.random() * 0.18,
         freshColor =
           patientColors[
             (index +
@@ -5906,6 +6909,7 @@ export default function HospitalScene({
       w.group.visible = true;
       w.group.userData.activePatient = true;
       w.group.userData.visitPhase = "entering";
+      clearCalledPatientTask(w);
       w.group.userData.queueNumber = nextPatientNumber();
       w.group.userData.counterDone = false;
       w.group.userData.hasScanned = false;
@@ -5914,11 +6918,10 @@ export default function HospitalScene({
       w.group.userData.scanCooldown = 0.8 + Math.random() * 2;
       w.group.userData.counterRescanCooldown = 12 + Math.random() * 5;
       w.group.position.set(streetX, 0, 9.55);
-      w.group.userData.lifecyclePath = [
-        ...revolvingDoorEntryPath.map((point) => point.clone()),
-      ];
+      w.group.userData.lifecyclePath = arrivalStreetPath();
       w.group.userData.revolvingDoorMode = "entry";
       w.group.userData.revolvingDoorTransit = false;
+      w.speed = Number(w.group.userData.patientBaseSpeed || 0.72);
       revolvingDoorEntryWaiters.push(w.group.uuid);
       w.action = "walk";
       w.actionTime = 0;
@@ -5954,6 +6957,8 @@ export default function HospitalScene({
       delete w.group.userData.revolvingDoorWaiting;
       delete w.group.userData.revolvingDoorProgressAnchor;
       delete w.group.userData.revolvingDoorNoProgress;
+      delete w.group.userData.streetDepartureMode;
+      delete w.group.userData.streetFollowing;
       w.group.userData.progressAnchor = w.group.position.clone();
       w.group.userData.navAvoidPeople = true;
       attachPatientMonitor(w);
@@ -5961,6 +6966,7 @@ export default function HospitalScene({
     const initialSeatIds = [0, 1, 6, 7, 10, 15],
       initialSitterCount = 5 + Math.floor(Math.random() * 2),
       initialSitters = [...patients]
+        .filter((p) => p.group.userData.activePatient)
         .sort(() => Math.random() - 0.5)
         .slice(0, initialSitterCount);
     initialSitters.forEach((p, index) => {
@@ -5981,7 +6987,10 @@ export default function HospitalScene({
       poseSeated(p, p.seatYaw);
     });
     patients
-      .filter((p) => !initialSitters.includes(p))
+      .filter(
+        (p) =>
+          p.group.userData.activePatient && !initialSitters.includes(p),
+      )
       .slice(0, 2)
       .forEach((p, index) => spawnNewPatient(p, index + patients.indexOf(p)));
     patients
@@ -6186,8 +7195,25 @@ export default function HospitalScene({
         streetWalkers.forEach((w, i) => {
           const direction = w.group.userData.streetDirection as number,
             baseZ = w.group.userData.streetBaseZ as number,
-            speed = w.group.userData.streetSpeed as number;
-          w.group.position.x += direction * dt * speed;
+            speed = w.group.userData.streetSpeed as number,
+            proposed = w.group.position.clone();
+          proposed.x += direction * dt * speed;
+          proposed.z = baseZ + Math.sin(t * 0.55 + i) * 0.035;
+          // Only left-bound pedestrians keep a following gap behind departing
+          // patients. Right-bound pedestrians intentionally cross the departure
+          // stream without either character yielding.
+          const mustYield =
+            direction < 0 &&
+            patients.some((patient) => {
+              if (!isStreetDepartingPatient(patient)) return false;
+              const patientAhead = patient.group.position.x < w.group.position.x;
+              return (
+                patientAhead &&
+                Math.abs(patient.group.position.z - proposed.z) < 0.72 &&
+                proposed.distanceTo(patient.group.position) < 0.82
+              );
+            });
+          if (!mustYield) w.group.position.copy(proposed);
           if (w.group.position.x > 16) w.group.position.x = -16;
           if (w.group.position.x < -16) w.group.position.x = 16;
           w.group.position.z = baseZ + Math.sin(t * 0.55 + i) * 0.035;
@@ -6197,10 +7223,15 @@ export default function HospitalScene({
             0,
           );
           const gait = t * (5.1 + i * 0.37) + i;
-          w.legs[0].rotation.x = Math.sin(gait) * 0.38;
-          w.legs[1].rotation.x = -Math.sin(gait) * 0.38;
-          w.arms[0].rotation.x = -Math.sin(gait) * 0.27;
-          w.arms[1].rotation.x = Math.sin(gait) * 0.27;
+          if (mustYield) {
+            w.legs.forEach((leg) => (leg.rotation.x *= 0.58));
+            w.arms.forEach((arm) => (arm.rotation.x *= 0.58));
+          } else {
+            w.legs[0].rotation.x = Math.sin(gait) * 0.38;
+            w.legs[1].rotation.x = -Math.sin(gait) * 0.38;
+            w.arms[0].rotation.x = -Math.sin(gait) * 0.27;
+            w.arms[1].rotation.x = Math.sin(gait) * 0.27;
+          }
         });
         streetCars.forEach((car) => {
           const direction = car.userData.direction as number,
@@ -6446,6 +7477,13 @@ export default function HospitalScene({
         walkers.forEach((w, i) => {
           try {
             if (w.role === "patient" && !w.group.userData.activePatient) return;
+            if (
+              isStreetDepartingPatient(w) &&
+              w.group.position.x <= streetDepartureRecycleX
+            ) {
+              completePatientDeparture(w);
+              return;
+            }
             w.sitCooldown = Math.max(0, w.sitCooldown - dt);
             w.group.userData.consultCooldown = Math.max(
               0,
@@ -7409,6 +8447,7 @@ export default function HospitalScene({
               if (!available) {
                 const room = (w.group.userData.consultRoom || 1) - 1;
                 setCallScreen(room + 1);
+                clearCalledPatientTask(w);
                 w.group.userData.visitPhase = "queue";
                 w.group.userData.consultPath = [doorOutside[room].clone()];
                 w.group.userData.consultState = "leaving";
@@ -7798,6 +8837,16 @@ export default function HospitalScene({
                       calledRoom,
                       String(p.group.userData.queueNumber || "00"),
                     );
+                    window.dispatchEvent(
+                      new CustomEvent("medify:clinic-call", {
+                        detail: {
+                          room: calledRoom,
+                          queueNumber: String(
+                            p.group.userData.queueNumber || "00",
+                          ),
+                        },
+                      }),
+                    );
                     p.group.userData.baseCalledSpeed = p.speed;
                     p.speed = Math.max(1.24, p.speed * 1.65);
                     // Establish call priority before interrupting a sitting or
@@ -7807,6 +8856,10 @@ export default function HospitalScene({
                     p.group.userData.consultState = "inbound";
                     interruptPatientForCall(p);
                     p.group.userData.calledScreenRoom = calledRoom;
+                    p.group.userData.calledTaskActive = true;
+                    p.group.userData.calledTaskRoom = calledRoom;
+                    p.group.userData.calledTransitPriority =
+                      ++calledTransitSequence;
                     p.group.userData.consultPath =
                       inboundClinicPathFromCurrent(p, room);
                     p.group.userData.consultTransitTime = 0;
@@ -8152,6 +9205,7 @@ export default function HospitalScene({
                   delete w.group.userData.navTarget;
                 }
               } else if (w.action === "clinicChairSit") {
+                clearCalledPatientTask(w);
                 delete w.group.userData.calledProgressAnchor;
                 delete w.group.userData.calledNoProgress;
                 delete w.group.userData.calledElapsed;
@@ -8833,6 +9887,25 @@ export default function HospitalScene({
                 return;
               }
             }
+            const streetDepartureMode = isStreetDepartingPatient(w);
+            if (streetDepartureMode) {
+              if (!w.group.userData.streetDepartureMode) {
+                w.group.userData.streetDepartureMode = true;
+                delete w.group.userData.detourGoal;
+                delete w.group.userData.yieldGoal;
+                delete w.group.userData.navPath;
+                delete w.group.userData.navTarget;
+                delete w.group.userData.navAvoidPeople;
+                delete w.group.userData.avoidanceSide;
+                delete w.group.userData.avoidanceSideUntil;
+                w.group.userData.blockedTime = 0;
+                w.pause = 0;
+              }
+              const speedDifference = streetDepartureSpeed - w.speed;
+              w.speed +=
+                Math.sign(speedDifference) *
+                Math.min(Math.abs(speedDifference), dt * 0.62);
+            }
             const consultPath = w.group.userData.consultPath as
                 | THREE.Vector3[]
                 | undefined,
@@ -8854,6 +9927,12 @@ export default function HospitalScene({
               qrQueueGoal = w.group.userData.qrQueueGoal as
                 | THREE.Vector3
                 | undefined,
+              recoveryGoal = w.group.userData.recoveryGoal as
+                | THREE.Vector3
+                | undefined,
+              manualRecoveryActive = !!(
+                recoveryGoal && w.group.userData.manualRecoveryGoal
+              ),
               yieldGoal = w.group.userData.yieldGoal as
                 | THREE.Vector3
                 | undefined,
@@ -8866,6 +9945,7 @@ export default function HospitalScene({
                 !w.group.userData.counterClaimed
                   ? medicinePickupQueueGoal(w)
                   : undefined,
+              calledInboundPriority = isCalledInboundPatient(w),
               exclusiveTransit = hasExclusivePatientTransit(w),
               departurePath =
                 w.role === "patient" &&
@@ -8891,6 +9971,7 @@ export default function HospitalScene({
                   ? clinicDoctorSeats[w.room - 1]
                   : w.route[w.waypoint],
               routeTarget =
+                recoveryGoal ||
                 entryDoorHoldingTarget ||
                 exitDoorHoldingTarget ||
                 departurePath?.[0] ||
@@ -9096,6 +10177,35 @@ export default function HospitalScene({
                 return;
               }
             }
+            if (streetDepartureMode) {
+              const leader = navigationCrowd
+                .filter(
+                  (other) =>
+                    other !== w &&
+                    other.group.visible &&
+                    isSameDirectionStreetTraffic(w, other) &&
+                    other.group.position.x < w.group.position.x - 0.015 &&
+                    Math.abs(other.group.position.z - w.group.position.z) < 0.72,
+                )
+                .sort(
+                  (a, b) =>
+                    b.group.position.x - a.group.position.x,
+                )[0];
+              if (
+                leader &&
+                w.group.position.distanceTo(leader.group.position) < 0.82
+              ) {
+                // Controlled same-speed following never enters blocked recovery,
+                // path replanning, or lateral avoidance.
+                w.group.userData.streetFollowing = true;
+                w.group.userData.blockedTime = 0;
+                w.legs.forEach((leg) => (leg.rotation.x *= 0.52));
+                w.arms.forEach((arm) => (arm.rotation.x *= 0.52));
+                w.pause = 0.018;
+                return;
+              }
+              delete w.group.userData.streetFollowing;
+            }
             w.group.userData.allowSeatAccess = !!(
               w.group.userData.leavingSeat || seatGoal
             );
@@ -9113,11 +10223,33 @@ export default function HospitalScene({
                     w,
                     routeTarget,
                     !w.group.userData.leavingSeat &&
-                      !!w.group.userData.navAvoidPeople,
+                      !!w.group.userData.navAvoidPeople &&
+                      !calledInboundPriority,
                   );
               w.group.userData.navPath = navPath;
               w.group.userData.navTarget = targetKey;
               delete w.group.userData.navAvoidPeople;
+            }
+            if (!navPath?.length) {
+              // Hold safely and request a fresh route instead of reverting to the
+              // raw destination, which may sit behind a protected chair row.
+              delete w.group.userData.navPath;
+              delete w.group.userData.navTarget;
+              // A called patient's clinic route is authoritative. Transient people
+              // remain protected by per-step collision checks, but must not keep
+              // removing the exact checkpoint from every rebuilt path forever.
+              if (calledInboundPriority)
+                delete w.group.userData.navAvoidPeople;
+              else w.group.userData.navAvoidPeople = true;
+              w.group.userData.blockedTime =
+                (w.group.userData.blockedTime || 0) + dt;
+              w.group.userData.navReplanCooldown = Math.max(
+                0.18,
+                w.group.userData.navReplanCooldown || 0,
+              );
+              w.legs.forEach((leg) => (leg.rotation.x *= 0.56));
+              w.pause = Math.max(w.pause, 0.06);
+              return;
             }
             const target = navPath?.[0] || routeTarget,
               delta = target.clone().sub(w.group.position);
@@ -9135,6 +10267,19 @@ export default function HospitalScene({
                 }
                 delete w.group.userData.navPath;
                 delete w.group.userData.navTarget;
+              }
+              if (recoveryGoal) {
+                delete w.group.userData.recoveryGoal;
+                delete w.group.userData.manualRecoveryGoal;
+                delete w.group.userData.navPath;
+                delete w.group.userData.navTarget;
+                delete w.group.userData.crowdStallReplanIssued;
+                delete w.group.userData.crowdStallEscapeIssued;
+                w.group.userData.blockedTime = 0;
+                w.group.userData.navAvoidPeople = true;
+                w.group.userData.progressAnchor = w.group.position.clone();
+                w.pause = 0.015;
+                return;
               }
               if (detourGoal) {
                 delete w.group.userData.detourGoal;
@@ -9318,6 +10463,12 @@ export default function HospitalScene({
                   if (w.group.userData.revolvingDoorBaseSpeed !== undefined)
                     w.speed = w.group.userData.revolvingDoorBaseSpeed;
                   delete w.group.userData.revolvingDoorBaseSpeed;
+                  w.group.userData.streetDepartureMode = true;
+                  delete w.group.userData.navPath;
+                  delete w.group.userData.navTarget;
+                  delete w.group.userData.navAvoidPeople;
+                  delete w.group.userData.detourGoal;
+                  delete w.group.userData.yieldGoal;
                   delete w.group.userData.revolvingDoorTransitStartedAt;
                   delete w.group.userData.revolvingDoorProgressAnchor;
                   delete w.group.userData.revolvingDoorNoProgress;
@@ -9344,16 +10495,7 @@ export default function HospitalScene({
                 delete w.group.userData.revolvingDoorTransit;
                 delete w.group.userData.revolvingDoorMode;
                 if (w.group.userData.visitPhase === "leaving") {
-                  removeRevolvingDoorExitWaiter(w.group.uuid);
-                  resetUpperPose(w);
-                  if (w.medicineBag) w.medicineBag.visible = false;
-                  w.group.userData.activePatient = false;
-                  w.group.userData.respawnTimer = 0.35 + Math.random() * 0.55;
-                  delete w.group.userData.departureLocked;
-                  w.group.visible = false;
-                  w.action = "walk";
-                  w.actionTime = 0;
-                  w.pause = 0;
+                  completePatientDeparture(w);
                   return;
                 }
                 if (w.group.userData.visitPhase === "entering") {
@@ -9548,6 +10690,62 @@ export default function HospitalScene({
             }
             delta.normalize();
             const desired = delta.clone(),
+              calledPairBlocker = calledInboundPriority
+                ? navigationCrowd
+                    .filter(
+                      (other) =>
+                        other !== w &&
+                        isCalledInboundPatient(other) &&
+                        other.group.position.distanceTo(w.group.position) < 1.08,
+                    )
+                    .sort(
+                      (a, b) =>
+                        a.group.position.distanceTo(w.group.position) -
+                        b.group.position.distanceTo(w.group.position),
+                    )[0]
+                : undefined,
+              calledPairGap = calledPairBlocker
+                ? w.group.position.distanceTo(calledPairBlocker.group.position)
+                : Infinity,
+              calledPairToward = calledPairBlocker
+                ? calledPairBlocker.group.position
+                    .clone()
+                    .sub(w.group.position)
+                    .setY(0)
+                    .normalize()
+                : new THREE.Vector3(),
+              calledPairOtherForward = calledPairBlocker
+                ? new THREE.Vector3(
+                    -Math.sin(calledPairBlocker.group.rotation.y),
+                    0,
+                    -Math.cos(calledPairBlocker.group.rotation.y),
+                  )
+                : new THREE.Vector3(),
+              calledPairHeadOn = !!(
+                calledPairBlocker &&
+                desired.dot(calledPairToward) > 0.18 &&
+                calledPairOtherForward.dot(desired) < -0.12
+              ),
+              selfCalledPriority = Number(
+                w.group.userData.calledTransitPriority || Number.MAX_SAFE_INTEGER,
+              ),
+              otherCalledPriority = Number(
+                calledPairBlocker?.group.userData.calledTransitPriority ||
+                  Number.MAX_SAFE_INTEGER,
+              ),
+              yieldsToCalledPatient = !!(
+                calledPairBlocker &&
+                (calledPairGap < 0.62 || calledPairHeadOn) &&
+                (selfCalledPriority > otherCalledPriority ||
+                  (selfCalledPriority === otherCalledPriority &&
+                    w.group.id > calledPairBlocker.group.id))
+              ),
+              calledYieldPrimary = yieldsToCalledPatient
+                ? w.group.position
+                    .clone()
+                    .sub(calledPairBlocker!.group.position)
+                    .setY(0)
+                : undefined,
               avoidanceSide =
                 (w.group.userData.avoidanceSideUntil || 0) > t
                   ? Number(w.group.userData.avoidanceSide || 1)
@@ -9573,8 +10771,14 @@ export default function HospitalScene({
                 clinicExamLaneLocked,
               repel = new THREE.Vector3();
             if (!collisionLaneLocked)
-              walkers.forEach((o) => {
-                if (o === w || counterHeadPassThroughPair(w, o)) return;
+              navigationCrowd.forEach((o) => {
+                if (
+                  o === w ||
+                  !o.group.visible ||
+                  counterHeadPassThroughPair(w, o) ||
+                  bypassGenericStreetAvoidance(w, o)
+                )
+                  return;
                 const away = w.group.position.clone().sub(o.group.position);
                 away.y = 0;
                 const d = away.length();
@@ -9587,11 +10791,12 @@ export default function HospitalScene({
               });
             const headOnWalker = collisionLaneLocked
                 ? undefined
-                : walkers.find((o) => {
+                : navigationCrowd.find((o) => {
                     if (
                       o === w ||
                       !o.group.visible ||
                       counterHeadPassThroughPair(w, o) ||
+                      bypassGenericStreetAvoidance(w, o) ||
                       o.action !== "walk" ||
                       o.pause > 0
                     )
@@ -9616,15 +10821,25 @@ export default function HospitalScene({
                     0.92 * (avoidanceSide || 1),
                   )
                 : new THREE.Vector3(),
-              primary = collisionLaneLocked
+              primary = calledYieldPrimary
+                ? calledYieldPrimary
+                    .normalize()
+                    .add(
+                      new THREE.Vector3(-desired.z, 0, desired.x).multiplyScalar(
+                        w.group.id % 2 === 0 ? 0.42 : -0.42,
+                      ),
+                    )
+                    .normalize()
+                : collisionLaneLocked
                 ? desired
                 : desired
                     .clone()
                     .addScaledVector(repel, headOnWalker ? 0.38 : 0.72)
                     .add(passRight)
                     .normalize(),
-              angles =
-                portalLocked ||
+              angles = yieldsToCalledPatient
+                ? [0, 0.3, -0.3, 0.62, -0.62, 0.94, -0.94]
+                : portalLocked ||
                 revolvingDoorLaneLocked ||
                 clinicNurseSeatLaneLocked ||
                 clinicExamLaneLocked
@@ -9697,7 +10912,15 @@ export default function HospitalScene({
                 (boundaryClear(w, p) &&
                   !navBlocked(w, p, 0.32, seatObstacleAccess(w)) &&
                   (peopleBypassLaneLocked ||
-                    peopleStepClear(p, w, releaseLaneLocked ? 0.34 : 0.53)))
+                    peopleStepClear(
+                      p,
+                      w,
+                      releaseLaneLocked
+                        ? 0.34
+                        : manualRecoveryActive
+                          ? 0.38
+                          : 0.53,
+                    )))
               ) {
                 steer = dir;
                 candidate = p;
@@ -9774,7 +10997,9 @@ export default function HospitalScene({
               ) {
                 delete w.group.userData.navPath;
                 delete w.group.userData.navTarget;
-                w.group.userData.navAvoidPeople = true;
+                if (calledInboundPriority)
+                  delete w.group.userData.navAvoidPeople;
+                else w.group.userData.navAvoidPeople = true;
                 w.group.userData.navReplanCooldown = 0.38;
               }
               return;
@@ -9868,7 +11093,10 @@ export default function HospitalScene({
             0,
             (p.group.userData.respawnTimer || 0) - dt,
           );
-          if (p.group.userData.respawnTimer <= 0 && lobbyPatientCount() < 12)
+          if (
+            p.group.userData.respawnTimer <= 0 &&
+            admissionPatientCount() < 12
+          )
             spawnNewPatient(p, index);
         });
         // Maintain the requested five-to-seven *actually seated* patients.
@@ -9929,6 +11157,8 @@ export default function HospitalScene({
               !wa.group.visible ||
               !wb.group.visible ||
               counterHeadPassThroughPair(wa, wb) ||
+              (isStreetDepartingPatient(wa) &&
+                isStreetDepartingPatient(wb)) ||
               hasExclusivePatientTransit(wa) ||
               hasExclusivePatientTransit(wb) ||
               !!wa.group.userData.doctorPath ||
@@ -9977,13 +11207,29 @@ export default function HospitalScene({
               if (
                 boundaryClear(wa, pa) &&
                 !navBlocked(wa, pa, 0.28, seatObstacleAccess(wa))
-              )
+              ) {
                 wa.group.position.copy(pa);
+                wa.group.userData.lastSafePosition = pa.clone();
+                if (wa.action === "walk") {
+                  delete wa.group.userData.navPath;
+                  delete wa.group.userData.navTarget;
+                  wa.group.userData.navAvoidPeople = true;
+                  wa.group.userData.blockedTime = 0;
+                }
+              }
               if (
                 boundaryClear(wb, pb) &&
                 !navBlocked(wb, pb, 0.28, seatObstacleAccess(wb))
-              )
+              ) {
                 wb.group.position.copy(pb);
+                wb.group.userData.lastSafePosition = pb.clone();
+                if (wb.action === "walk") {
+                  delete wb.group.userData.navPath;
+                  delete wb.group.userData.navTarget;
+                  wb.group.userData.navAvoidPeople = true;
+                  wb.group.userData.blockedTime = 0;
+                }
+              }
             }
           }
         // Guard the rendered patient track against any remaining workflow or
@@ -10172,6 +11418,7 @@ export default function HospitalScene({
             controls.enabled = true;
           }
         }
+        updateFocusedPatient(t, dt);
         controls.update();
         renderer.render(scene, camera);
       } catch (error) {
@@ -10196,11 +11443,27 @@ export default function HospitalScene({
       window.removeEventListener("resize", resize);
       renderer.domElement.removeEventListener("click", click);
       renderer.domElement.removeEventListener("pointermove", move);
+      if (touchDevice) {
+        renderer.domElement.removeEventListener(
+          "touchstart",
+          beginTwoFingerRotate,
+        );
+        renderer.domElement.removeEventListener(
+          "touchmove",
+          rotateWithTwoFingers,
+        );
+        renderer.domElement.removeEventListener("touchend", endTwoFingerRotate);
+        renderer.domElement.removeEventListener(
+          "touchcancel",
+          endTwoFingerRotate,
+        );
+      }
       controls.dispose();
       renderer.dispose();
       cameraRef.current = null;
       controlsRef.current = null;
       cameraTransitionRef.current = null;
+      clearPatientFocusRef.current = null;
       scene.traverse((o) => {
         if (o instanceof THREE.Mesh) {
           o.geometry.dispose();
@@ -10210,7 +11473,10 @@ export default function HospitalScene({
       });
       host.replaceChildren();
     };
-  }, [onTalk, onKnock, onPatientCount]);
+  }, [onTalk, onPatientFocus, onKnock, onPatientCount]);
+  useEffect(() => {
+    if (patientFocusClearRequest > 0) clearPatientFocusRef.current?.();
+  }, [patientFocusClearRequest]);
   useEffect(() => {
     const camera = cameraRef.current,
       controls = controlsRef.current,
