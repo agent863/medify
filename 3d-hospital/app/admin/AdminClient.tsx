@@ -9,6 +9,27 @@ import {
 } from "../content-config";
 import { roleRuleGroups } from "./role-rules";
 
+const roleRuleSections = [
+  {
+    floor: "共通" as const,
+    eyebrow: "SHARED RULES",
+    title: "跨樓層共通規則",
+    description: "所有人物都必須遵守的移動、碰撞與互動底線。",
+  },
+  {
+    floor: "二樓" as const,
+    eyebrow: "SECOND FLOOR",
+    title: "二樓角色規則",
+    description: "手術室、檢查室及家屬等候區目前已確認的完整角色配置與行為。",
+  },
+  {
+    floor: "一樓" as const,
+    eyebrow: "FIRST FLOOR",
+    title: "一樓與院外角色規則",
+    description: "一樓門診、藥局、大廳與院外街景角色的行為規範。",
+  },
+];
+
 type Props = {
   initialContent: SiteContentConfig;
   displayName: string;
@@ -892,17 +913,28 @@ export default function AdminClient({
         {activeSection === "rules" && (
           <div>
             <div className="admin-section-title"><div><p>CHARACTER RULEBOOK</p><h2>角色規則細節</h2></div><span>此處彙整目前場景已確認的角色行為、流程與限制，供檢查規則是否正確落實。</span></div>
-            <div className="role-rule-grid">
-              {roleRuleGroups.map((group) => (
-                <article className="role-rule-card" key={group.role}>
-                  <header><div><small>{group.meta}</small><h3>{group.role}</h3></div><span>{group.rules.length} 項</span></header>
-                  <p>{group.summary}</p>
-                  <ol>
-                    {group.rules.map((rule) => <li key={rule}>{rule}</li>)}
-                  </ol>
-                </article>
-              ))}
-            </div>
+            {roleRuleSections.map((section) => {
+              const groups = roleRuleGroups.filter((group) => group.floor === section.floor);
+              return (
+                <section className="role-rule-section" key={section.floor}>
+                  <div className="role-rule-heading">
+                    <div><small>{section.eyebrow}</small><h3>{section.title}</h3></div>
+                    <p>{section.description}</p>
+                  </div>
+                  <div className="role-rule-grid">
+                    {groups.map((group) => (
+                      <article className="role-rule-card" key={group.role}>
+                        <header><div><small>{group.meta}</small><h3>{group.role}</h3></div><span>{group.rules.length} 項</span></header>
+                        <p>{group.summary}</p>
+                        <ol>
+                          {group.rules.map((rule) => <li key={rule}>{rule}</li>)}
+                        </ol>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
           </div>
         )}
       </section>
