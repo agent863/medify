@@ -635,6 +635,61 @@ function stool(
   g.rotation.y = rot;
   scene.add(g);
 }
+function curvedFaceMask() {
+  const geometry = new THREE.BufferGeometry(),
+    vertices: number[] = [],
+    indices: number[] = [],
+    horizontalSegments = 10,
+    verticalSegments = 5,
+    halfWidth = 0.18,
+    halfHeight = 0.12,
+    centreY = -0.095,
+    headRadius = 0.247,
+    surfaceOffset = 0.009;
+  // Build the mask directly on the same spherical radius as the head.  The
+  // side columns recede around the cheeks and the rows follow the chin/nose
+  // curve, removing the flat plate that previously intersected the face.
+  for (let row = 0; row <= verticalSegments; row++) {
+    const v = row / verticalSegments,
+      localY = THREE.MathUtils.lerp(halfHeight, -halfHeight, v),
+      faceY = centreY + localY,
+      rowHalfWidth =
+        halfWidth *
+        (1 - Math.max(0, (v - 0.4) / 0.6) * 0.38);
+    for (let column = 0; column <= horizontalSegments; column++) {
+      const u = column / horizontalSegments,
+        x = THREE.MathUtils.lerp(-rowHalfWidth, rowHalfWidth, u),
+        sphereDepth = Math.sqrt(
+          Math.max(0.001, headRadius * headRadius - x * x - faceY * faceY),
+        );
+      vertices.push(x, faceY, -sphereDepth - surfaceOffset);
+    }
+  }
+  for (let row = 0; row < verticalSegments; row++)
+    for (let column = 0; column < horizontalSegments; column++) {
+      const a = row * (horizontalSegments + 1) + column,
+        b = a + 1,
+        c = a + horizontalSegments + 1,
+        d = c + 1;
+      indices.push(a, c, b, b, c, d);
+    }
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(vertices, 3),
+  );
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  const mask = new THREE.Mesh(
+    geometry,
+    new THREE.MeshStandardMaterial({
+      color: 0xb8e1dc,
+      roughness: 0.72,
+      side: THREE.DoubleSide,
+    }),
+  );
+  mask.castShadow = true;
+  return mask;
+}
 function table(
   scene: THREE.Scene,
   x: number,
@@ -2177,6 +2232,17 @@ export default function HospitalScene({
     ]);
 
     type UpperRoomKind = "operating" | "exam";
+    type UpperOperatingDoor = {
+      room: 1 | 2;
+      centre: THREE.Vector3;
+      out: THREE.Vector3;
+      tan: THREE.Vector3;
+      leaves: { mesh: THREE.Mesh; closed: THREE.Vector3; side: number }[];
+      openAmount: number;
+      openRequested: boolean;
+      opening: number;
+    };
+    const upperOperatingDoors: UpperOperatingDoor[] = [];
     const addUpperRoom = (
       title: string,
       subtitle: string,
@@ -2188,6 +2254,7 @@ export default function HospitalScene({
       depth: number,
       kind: UpperRoomKind,
       accent: number,
+      operatingRoom?: 1 | 2,
     ) => {
       const roomFloor = box(depth, 0.1, width, kind === "exam" ? 0xe7f3f1 : 0xe6eef4),
         backWall = box(0.3, 2.75, width, CREAM),
@@ -2221,6 +2288,8 @@ export default function HospitalScene({
         post.position.copy(doorCentre.clone().addScaledVector(tan, side * framePostOffset));
         post.position.y = 1.54;
         post.rotation.y = wallAngle;
+        post.castShadow = true;
+        post.receiveShadow = true;
         secondFloor.add(post);
       });
       const lintel = new THREE.Mesh(
@@ -2230,7 +2299,10 @@ export default function HospitalScene({
       lintel.position.copy(doorCentre);
       lintel.position.y = 2.92;
       lintel.rotation.y = wallAngle;
+      lintel.castShadow = true;
+      lintel.receiveShadow = true;
       secondFloor.add(lintel);
+      const roomDoorLeaves: UpperOperatingDoor["leaves"] = [];
       [-1, 1].forEach((side) => {
         const leaf = new THREE.Mesh(
           new RoundedBoxGeometry(
@@ -2247,8 +2319,31 @@ export default function HospitalScene({
         );
         leaf.position.y = 1.36;
         leaf.rotation.y = wallAngle;
+        // Upper-room doors are built as independent rounded meshes rather
+        // than through the shared box() helper, so opt them into the shadow
+        // pipeline explicitly.  This keeps the moving OR leaves grounded and
+        // lets their shadows slide naturally across the floor and doorway.
+        leaf.castShadow = true;
+        leaf.receiveShadow = true;
         secondFloor.add(leaf);
+        if (kind === "operating")
+          roomDoorLeaves.push({
+            mesh: leaf,
+            closed: leaf.position.clone(),
+            side,
+          });
       });
+      if (kind === "operating" && operatingRoom)
+        upperOperatingDoors.push({
+          room: operatingRoom,
+          centre: doorCentre.clone(),
+          out: out.clone(),
+          tan: tan.clone(),
+          leaves: roomDoorLeaves,
+          openAmount: 0,
+          openRequested: false,
+          opening: doorOpening,
+        });
       const roomSign = new THREE.Mesh(
         new THREE.PlaneGeometry(kind === "operating" ? 2.5 : 2.1, 0.72),
         new THREE.MeshBasicMaterial({
@@ -2261,6 +2356,10 @@ export default function HospitalScene({
       roomSign.position.y = 3.48;
       roomSign.rotation.y =
         wallAngle + Math.PI / 2 + (doorCentre.x > 0 ? Math.PI : 0);
+      // The sign sits slightly proud of the wall, so its cast shadow adds the
+      // missing depth cue above the framed automatic doorway.
+      roomSign.castShadow = true;
+      roomSign.receiveShadow = true;
       secondFloor.add(roomSign);
 
       const bedCentre = doorCentre.clone().addScaledVector(out, depth * 0.58),
@@ -2756,6 +2855,7 @@ export default function HospitalScene({
       7.35,
       "operating",
       BLUE,
+      1,
     );
     addUpperRoom(
       "手術室 2",
@@ -2768,6 +2868,7 @@ export default function HospitalScene({
       7.35,
       "operating",
       BLUE,
+      2,
     );
     addUpperRoom(
       "檢查室",
@@ -2855,13 +2956,9 @@ export default function HospitalScene({
             ),
             material(role === "patient" ? 0x75bdb2 : uniformColor, 0.62),
           ),
-          mask = new THREE.Mesh(
-            new RoundedBoxGeometry(0.34, 0.15, 0.07, 5, 0.035),
-            material(0xb8e1dc, 0.72),
-          );
+          mask = curvedFaceMask();
         cap.position.y = 0.04;
         cap.scale.set(1.04, 0.94, 1.04);
-        mask.position.set(0, -0.05, -0.225);
         walker.headRig.add(cap, mask);
       }
       if (role === "patient") {
@@ -3201,7 +3298,12 @@ export default function HospitalScene({
     // Four compact waiting islands echo the first-floor furniture language,
     // while sitting closer to the centre aisle. Unlike the two front islands
     // downstairs, both upper corner seats are present here.
-    const upperWaitingSeats: { position: THREE.Vector3; yaw: number }[] = [];
+    const upperWaitingSeats: { position: THREE.Vector3; yaw: number }[] = [],
+      upperFamilyFurnitureObstacles: {
+        centre: THREE.Vector3;
+        radius: number;
+        kind: "seat" | "table" | "fixture";
+      }[] = [];
     const upperWaitingIslands = [
       [-3.35, -1.0],
       [3.35, -1.0],
@@ -3269,6 +3371,7 @@ export default function HospitalScene({
           position: new THREE.Vector3(cx + dx, 0, cz + dz),
           yaw,
         });
+        const chairPosition = new THREE.Vector3(cx + dx, 0, cz + dz);
         chair(
           secondFloor,
           cx + dx,
@@ -3276,6 +3379,11 @@ export default function HospitalScene({
           (islandIndex + seatIndex) % 2 ? 0x6eb4c0 : 0x5e91bd,
           yaw,
         );
+        upperFamilyFurnitureObstacles.push({
+          centre: chairPosition,
+          radius: 0.7,
+          kind: "seat",
+        });
       });
       const table = new THREE.Group();
       put(table, cyl(0.52, 0.12, 0xf2d79a, 22), 0, 0.58, 0);
@@ -3283,6 +3391,11 @@ export default function HospitalScene({
       put(table, cyl(0.38, 0.07, 0x75929d, 18), 0, 0.04, 0);
       table.position.set(cx, 0, cz + 0.42);
       secondFloor.add(table);
+      upperFamilyFurnitureObstacles.push({
+        centre: table.position.clone().setY(0),
+        radius: 0.82,
+        kind: "table",
+      });
 
       const waitingQrStand = new THREE.Group();
       put(waitingQrStand, box(0.46, 0.56, 0.045, 0xffffff), 0, 0.28, 0);
@@ -3335,6 +3448,11 @@ export default function HospitalScene({
       );
       planter.position.set(x, 0, 6.9);
       secondFloor.add(planter);
+      upperFamilyFurnitureObstacles.push({
+        centre: planter.position.clone().setY(0),
+        radius: 1.18,
+        kind: "fixture",
+      });
     };
     makeUpperPlanter(-11.65);
     makeUpperPlanter(11.65);
@@ -3387,6 +3505,11 @@ export default function HospitalScene({
     );
     hydrationStation.rotation.y = -FAN_ANGLE;
     secondFloor.add(hydrationStation);
+    upperFamilyFurnitureObstacles.push({
+      centre: hydrationStation.position.clone().setY(0),
+      radius: 0.68,
+      kind: "fixture",
+    });
     const recyclingBin = new THREE.Group();
     put(
       recyclingBin,
@@ -3404,6 +3527,11 @@ export default function HospitalScene({
     );
     recyclingBin.rotation.y = -FAN_ANGLE;
     secondFloor.add(recyclingBin);
+    upperFamilyFurnitureObstacles.push({
+      centre: recyclingBin.position.clone().setY(0),
+      radius: 0.68,
+      kind: "fixture",
+    });
 
     const brochureStand = new THREE.Group();
     put(brochureStand, box(0.08, 1.45, 0.08, 0x7c9197), 0, 0.74, 0);
@@ -3420,6 +3548,11 @@ export default function HospitalScene({
     brochureStand.position.set(10.25, 0, 5.65);
     brochureStand.rotation.y = 0.18;
     secondFloor.add(brochureStand);
+    upperFamilyFurnitureObstacles.push({
+      centre: brochureStand.position.clone().setY(0),
+      radius: 0.76,
+      kind: "fixture",
+    });
 
     const waitingClock = new THREE.Group(),
       waitingClockFace = cyl(0.46, 0.08, 0xf7f5ef, 28);
@@ -3567,7 +3700,11 @@ export default function HospitalScene({
       waterStart = waterEnd
         .clone()
         .addScaledVector(waterDirection, 1.55)
-        .setY(0);
+        .setY(0),
+      // A clear cross-aisle between the front and rear waiting islands keeps
+      // the upper waiting group away from chair rows and seated companions on
+      // the way to the water station.
+      upperWaterSideAisle = new THREE.Vector3(-7.15, 0, 1.05);
     const shuffledFamilyOrder = (lastFamily?: 1 | 2 | 3) => {
       const actorIndexes = upperFamilyActors.map((_, index) => index),
         isValid = (order: number[]) =>
@@ -3689,15 +3826,67 @@ export default function HospitalScene({
           points.push(screenEnd);
           return smoothUpperFamilyPath(points);
         }
-        // The upper-left waiting group can turn toward the nearby water wall as
-        // soon as it clears the chair.  Its direct diagonal is both shorter and
-        // closer to how a visitor would naturally choose the open passage.
+        // The upper waiting group must not take the old long diagonal through
+        // the seating islands. After stepping out in front of the owned chair,
+        // cross through the open gap between the front and rear islands, then
+        // follow the wall-side approach to the water station.
+        if (task.kind === "water" && actor.basePosition.z > 2.2) {
+          const seatDepartureDirection = actor.seatExit
+              .clone()
+              .sub(actor.basePosition)
+              .normalize(),
+            seatClearPoint = actor.seatExit
+              .clone()
+              .addScaledVector(seatDepartureDirection, 0.68),
+            rearCrossAisle = new THREE.Vector3(
+              screenStart.x,
+              0,
+              seatClearPoint.z,
+            );
+          // Continue straight beyond the normal chair-front point before any
+          // lateral turn. This is especially important for the rightmost seat:
+          // rounding now begins only after the character has fully cleared the
+          // complete chair row, eliminating the old chair-hugging slide.
+          points.push(
+            seatClearPoint,
+            rearCrossAisle,
+            upperWaterSideAisle,
+            waterStart,
+            waterEnd,
+          );
+          return smoothUpperFamilyPath(points);
+        }
+        // The left-front group may still use its shorter exterior approach
+        // once it has fully cleared the chair row.
         if (
           task.kind === "water" &&
-          (actor.basePosition.z > 2.2 ||
-            (actor.basePosition.x < 0 && actor.basePosition.z < 1.5))
+          actor.basePosition.x < 0 &&
+          actor.basePosition.z < 1.5
         ) {
-          points.push(waterStart, waterEnd);
+          const seatDepartureDirection = actor.seatExit
+              .clone()
+              .sub(actor.basePosition)
+              .normalize(),
+            seatClearPoint = actor.seatExit
+              .clone()
+              .addScaledVector(seatDepartureDirection, 0.74),
+            frontLeftOuterAisle = new THREE.Vector3(
+              -6.65,
+              0,
+              seatClearPoint.z,
+            ),
+            frontLeftWallTurn = new THREE.Vector3(-7.45, 0, 0.05);
+          // The camera's upper-left island is this world-space front-left
+          // group.  Its rightmost companion must walk straight beyond the
+          // whole chair row before turning into the exterior aisle; otherwise
+          // curve smoothing clips the chair's side and looks like a slide.
+          points.push(
+            seatClearPoint,
+            frontLeftOuterAisle,
+            frontLeftWallTurn,
+            waterStart,
+            waterEnd,
+          );
           return smoothUpperFamilyPath(points);
         }
         points.push(centreAisle);
@@ -3747,6 +3936,7 @@ export default function HospitalScene({
         points: THREE.Vector3[],
         distance: number,
         frameDelta: number,
+        extraClearance = 0,
       ) => {
         const { position: nominalPosition, lookAt } = upperFamilyPathPoint(
             points,
@@ -3773,7 +3963,7 @@ export default function HospitalScene({
               .sub(other.walker.group.position)
               .setY(0),
             distanceToPerson = gap.length(),
-            awarenessRadius = 1.08;
+            awarenessRadius = 1.08 + extraClearance;
           if (distanceToPerson >= awarenessRadius) return;
           const urgency = 1 - distanceToPerson / awarenessRadius,
             cross = travelDirection.x * gap.z - travelDirection.z * gap.x,
@@ -3784,25 +3974,279 @@ export default function HospitalScene({
                 ? 1
                 : -1;
           desiredOffset.addScaledVector(lateral, side * urgency * 0.52);
-          if (distanceToPerson < 0.62) {
+          const minimumDistance = 0.62 + extraClearance;
+          if (distanceToPerson < minimumDistance) {
             if (gap.lengthSq() < 0.0001)
               gap.copy(lateral).multiplyScalar(side);
             else gap.normalize();
-            desiredOffset.addScaledVector(gap, (0.64 - distanceToPerson) * 0.72);
+            desiredOffset.addScaledVector(
+              gap,
+              (minimumDistance + 0.02 - distanceToPerson) * 0.72,
+            );
           }
         });
-        if (desiredOffset.length() > 0.55) desiredOffset.setLength(0.55);
+        const maximumOffset = 0.55 + extraClearance * 0.5;
+        if (desiredOffset.length() > maximumOffset)
+          desiredOffset.setLength(maximumOffset);
         actor.avoidanceOffset.lerp(
           desiredOffset,
           Math.min(1, frameDelta * (desiredOffset.lengthSq() ? 4.6 : 3.1)),
         );
-        actor.walker.group.position.copy(nominalPosition).add(actor.avoidanceOffset);
+        const resolvedPosition = nominalPosition
+          .clone()
+          .add(actor.avoidanceOffset);
+        // Furniture remains solid even while a companion side-steps another
+        // person.  Resolve against every waiting-room prop after applying the
+        // people-avoidance offset so that a detour can never push the actor
+        // through a chair, table, planter or wall-side fixture.  The person's
+        // own chair is the sole exception, allowing a natural return to their
+        // assigned seat.
+        for (let pass = 0; pass < 3; pass++)
+          upperFamilyFurnitureObstacles.forEach((obstacle) => {
+            if (
+              obstacle.kind === "seat" &&
+              obstacle.centre.distanceToSquared(actor.basePosition) < 0.02
+            )
+              return;
+            const separation = resolvedPosition
+                .clone()
+                .sub(obstacle.centre)
+                .setY(0),
+              distanceToProp = separation.length();
+            if (distanceToProp >= obstacle.radius + extraClearance) return;
+            if (distanceToProp < 0.001) {
+              separation.set(-travelDirection.z, 0, travelDirection.x);
+              if (separation.lengthSq() < 0.001) separation.set(1, 0, 0);
+            } else separation.divideScalar(distanceToProp);
+            resolvedPosition
+              .copy(obstacle.centre)
+              .addScaledVector(
+                separation,
+                obstacle.radius + extraClearance + 0.015,
+              );
+          });
+        actor.avoidanceOffset.copy(resolvedPosition).sub(nominalPosition);
+        actor.walker.group.position.copy(resolvedPosition);
         if (lookAt.distanceToSquared(nominalPosition) > 0.0001)
           actor.walker.group.rotation.y = facingYaw(
             actor.walker.group.position,
             lookAt.clone().add(actor.avoidanceOffset),
           );
       };
+
+    type UpperReportPhase =
+      | "idle"
+      | "approaching"
+      | "doorPause"
+      | "opening"
+      | "outbound"
+      | "gathering"
+      | "briefing"
+      | "returnPause"
+      | "returnOpening"
+      | "returning"
+      | "returnInterior"
+      | "closing";
+    type UpperReportParticipant = {
+      actorIndex: number;
+      resumePosition: THREE.Vector3;
+      resumeYaw: number;
+      resumeAvoidanceOffset: THREE.Vector3;
+      resumeTaskKind?: UpperFamilyTaskKind;
+      resumeTaskPhase?: UpperFamilyTask["phase"];
+      resumeTaskElapsed?: number;
+      returnComplete: boolean;
+      gatherPosition: THREE.Vector3;
+      gatherPath: THREE.Vector3[];
+      gatherLength: number;
+      returnPath: THREE.Vector3[];
+      returnLength: number;
+    };
+    type UpperORReportState = {
+      room: 1 | 2;
+      familyGroup: 1 | 2;
+      nurse: (typeof upperClinicalActors)[number];
+      door: UpperOperatingDoor;
+      nurseBasePosition: THREE.Vector3;
+      doorWaitPoint: THREE.Vector3;
+      reportPoint: THREE.Vector3;
+      nurseApproachPath: THREE.Vector3[];
+      nurseApproachLength: number;
+      nurseExitPath: THREE.Vector3[];
+      nurseExitLength: number;
+      nurseReturnPath: THREE.Vector3[];
+      nurseReturnLength: number;
+      nurseInteriorPath: THREE.Vector3[];
+      nurseInteriorLength: number;
+      phase: UpperReportPhase;
+      phaseStart: number;
+      nextStartAt: number;
+      briefingDuration: number;
+      familyGatherStart: number;
+      familyTravelDuration: number;
+      familyReturnStart: number;
+      nurseTravelDuration: number;
+      participants: UpperReportParticipant[];
+    };
+    const upperReportingFamilyGroups = new Set<1 | 2>(),
+      upperORReportStates: UpperORReportState[] = upperOperatingDoors.map(
+        (door) => {
+          const nurse = upperClinicalActors.find(
+            (actor) =>
+              actor.room === door.room && actor.job === "circulatingNurse",
+          )!;
+          const nurseBasePosition = nurse.walker.group.position.clone(),
+            doorWaitPoint = door.centre
+              .clone()
+              .addScaledVector(door.out, 0.78),
+            sideAisleFar = door.centre
+              .clone()
+              .addScaledVector(door.out, 3.55)
+              .addScaledVector(door.tan, 4.28),
+            sideAisleNear = door.centre
+              .clone()
+              .addScaledVector(door.out, 1.55)
+              .addScaledVector(door.tan, 3.55),
+            doorwayTurn = door.centre
+              .clone()
+              .addScaledVector(door.out, 0.92)
+              .addScaledVector(door.tan, 2.15),
+            reportPoint = door.centre
+              .clone()
+              .addScaledVector(door.out, -1.55),
+            nurseApproachPath = smoothUpperFamilyPath([
+              nurseBasePosition,
+              sideAisleFar,
+              sideAisleNear,
+              doorwayTurn,
+              doorWaitPoint,
+            ]),
+            nurseExitPath = smoothUpperFamilyPath([
+              doorWaitPoint,
+              door.centre.clone(),
+              reportPoint,
+            ]),
+            nurseReturnPath = smoothUpperFamilyPath([
+              reportPoint,
+              door.centre.clone(),
+              doorWaitPoint,
+            ]),
+            nurseInteriorPath = smoothUpperFamilyPath([
+              doorWaitPoint,
+              doorwayTurn,
+              sideAisleNear,
+              sideAisleFar,
+              nurseBasePosition,
+            ]);
+          return {
+            room: door.room,
+            familyGroup: door.room,
+            nurse,
+            door,
+            nurseBasePosition,
+            doorWaitPoint,
+            reportPoint,
+            nurseApproachPath,
+            nurseApproachLength: upperFamilyPathLength(nurseApproachPath),
+            nurseExitPath,
+            nurseExitLength: upperFamilyPathLength(nurseExitPath),
+            nurseReturnPath,
+            nurseReturnLength: upperFamilyPathLength(nurseReturnPath),
+            nurseInteriorPath,
+            nurseInteriorLength: upperFamilyPathLength(nurseInteriorPath),
+            phase: "idle",
+            phaseStart: 0,
+            nextStartAt: door.room === 1 ? 18 : 42,
+            briefingDuration: 8,
+            familyGatherStart: 0,
+            familyTravelDuration: 0,
+            familyReturnStart: 0,
+            nurseTravelDuration: 0,
+            participants: [],
+          };
+        },
+      );
+
+    const beginUpperReportFamilyGather = (
+      report: UpperORReportState,
+      startTime: number,
+    ) => {
+      const { door } = report,
+        familyIndexes = upperFamilyActors
+          .map((actor, index) => ({ actor, index }))
+          .filter(({ actor }) => actor.familyGroup === report.familyGroup),
+        offsets =
+          familyIndexes.length === 3 ? [-1.12, 0, 1.12] : [-0.58, 0.58],
+        // Rebuild the lineup from everyone's live location for every
+        // briefing. Matching the same lateral order to the available slots
+        // prevents crossing paths without permanently assigning one relative
+        // to the left, centre or right position.
+        orderedFamilyIndexes = familyIndexes.slice().sort((a, b) => {
+          const lateralDifference =
+            a.actor.walker.group.position.dot(door.tan) -
+            b.actor.walker.group.position.dot(door.tan);
+          if (Math.abs(lateralDifference) > 0.04) return lateralDifference;
+          return (
+            a.actor.walker.group.position.distanceTo(report.reportPoint) -
+            b.actor.walker.group.position.distanceTo(report.reportPoint)
+          );
+        });
+      report.participants = orderedFamilyIndexes.map(
+        ({ actor, index }, participantIndex) => {
+          const resumePosition = actor.walker.group.position.clone().setY(0),
+            resumeAvoidanceOffset = actor.avoidanceOffset.clone(),
+            interruptedTask = actor.activeTask
+              ? upperFamilyTasks.find(
+                  (task) =>
+                    task.kind === actor.activeTask && task.activeActor === index,
+                )
+              : undefined;
+          // The current world position already includes any prior
+          // people-avoidance offset. Clear the old offset before the report
+          // path starts so it cannot create a sideways jump.
+          actor.avoidanceOffset.set(0, 0, 0);
+          const gatherPosition = report.reportPoint
+              .clone()
+              .addScaledVector(door.out, -1.28)
+              .addScaledVector(door.tan, offsets[participantIndex] || 0),
+            // A seated companion must first step into the clear space
+            // directly in front of their own chair. Only then may they turn
+            // toward the nurse. Returning reverses the same safe route.
+            isAtAssignedSeat =
+              resumePosition.distanceToSquared(actor.basePosition) < 0.2,
+            departurePoints = isAtAssignedSeat
+              ? [resumePosition, actor.seatExit]
+              : [resumePosition],
+            gatherPath = smoothUpperFamilyPath([
+              ...departurePoints,
+              gatherPosition,
+            ]);
+          return {
+            actorIndex: index,
+            resumePosition,
+            resumeYaw: actor.walker.group.rotation.y,
+            resumeAvoidanceOffset,
+            resumeTaskKind: interruptedTask?.kind,
+            resumeTaskPhase: interruptedTask?.phase,
+            resumeTaskElapsed: interruptedTask
+              ? Math.max(0, startTime - interruptedTask.phaseStart)
+              : undefined,
+            returnComplete: false,
+            gatherPosition,
+            gatherPath,
+            gatherLength: upperFamilyPathLength(gatherPath),
+            returnPath: [],
+            returnLength: 0,
+          };
+        },
+      );
+      report.familyGatherStart = startTime;
+      report.familyTravelDuration =
+        Math.max(
+          ...report.participants.map((participant) => participant.gatherLength),
+        ) / UPPER_FAMILY_WALK_SPEED;
+      upperReportingFamilyGroups.add(report.familyGroup);
+    };
 
     // Move the full reception ensemble toward the entrance. The narrower arch
     // leaves a walkable passage on each side into the pharmacy behind it.
@@ -6236,36 +6680,43 @@ export default function HospitalScene({
         showBirdStatus();
       } else if (root.userData.interactive === "person") {
         const w = walkers.find((v) => v.group === root);
-        const restarted = w ? resumeClickedCharacterTask(w) : false;
         if (w?.role === "patient") {
           focusPatient(w);
           return;
         }
         if (focusedPatient) clearFocusedPatient();
-        if (w && !restarted && doctorIsWaitingForPatient(w)) {
-          w.group.userData.waveResume = "clinicSit";
-          w.group.userData.waveResumeTime = w.actionTime;
+        // The eye helper always greets when clicked. If the click interrupts
+        // walking, save that intent and rebuild its collision-safe route only
+        // after the greeting finishes; manual stuck recovery must never consume
+        // the click before the wave can begin.
+        if (w?.group.userData.eyeAssistant) {
+          if (w.action !== "wave") {
+            const wasTalking = w.action === "socialTalk",
+              wasWalking = w.action === "walk",
+              partner = wasTalking
+                ? walkers.find(
+                    (candidate) =>
+                      candidate.group.uuid === w.group.userData.talkPartner,
+                  )
+                : undefined;
+            w.group.userData.waveResume = wasTalking ? "socialTalk" : "walk";
+            w.group.userData.waveResumeTime = w.actionTime;
+            w.group.userData.waveNeedsRepath = wasWalking;
+            if (partner) {
+              w.group.userData.waveTalkPartner = partner.group.uuid;
+              partner.group.userData.talkPausedByEye = w.group.uuid;
+            }
+          }
           w.action = "wave";
           w.actionTime = 0;
           w.pause = 0;
-        } else if (
-          !restarted &&
-          w?.group.userData.eyeAssistant &&
-          w.action !== "wave"
-        ) {
-          const wasTalking = w.action === "socialTalk",
-            partner = wasTalking
-              ? walkers.find(
-                  (candidate) =>
-                    candidate.group.uuid === w.group.userData.talkPartner,
-                )
-              : undefined;
-          w.group.userData.waveResume = wasTalking ? "socialTalk" : "walk";
+          onTalk(root.userData.role, staffInteraction(w));
+          return;
+        }
+        const restarted = w ? resumeClickedCharacterTask(w) : false;
+        if (w && !restarted && doctorIsWaitingForPatient(w)) {
+          w.group.userData.waveResume = "clinicSit";
           w.group.userData.waveResumeTime = w.actionTime;
-          if (partner) {
-            w.group.userData.waveTalkPartner = partner.group.uuid;
-            partner.group.userData.talkPausedByEye = w.group.uuid;
-          }
           w.action = "wave";
           w.actionTime = 0;
           w.pause = 0;
@@ -9063,8 +9514,302 @@ export default function HospitalScene({
         const dt = Math.min(clock.getDelta(), 0.04),
           t = clock.elapsedTime;
         if (activeFloorRef.current === 2) {
+          upperOperatingDoors.forEach((door) => {
+            const target = door.openRequested ? 1 : 0,
+              step = dt * (target > door.openAmount ? 1.35 : 1.7);
+            door.openAmount = THREE.MathUtils.clamp(
+              door.openAmount +
+                Math.sign(target - door.openAmount) *
+                  Math.min(step, Math.abs(target - door.openAmount)),
+              0,
+              1,
+            );
+            door.leaves.forEach(({ mesh, closed, side }) => {
+              mesh.position
+                .copy(closed)
+                .addScaledVector(
+                  door.tan,
+                  side * (door.opening / 2 + 0.12) * door.openAmount,
+                );
+            });
+          });
+
+          upperORReportStates.forEach((report) => {
+            const { door, nurse } = report,
+              walker = nurse.walker,
+              nurseSpeed = 0.82,
+              familySpeed = UPPER_FAMILY_WALK_SPEED;
+            if (
+              report.phase === "idle" &&
+              t >= report.nextStartAt &&
+              upperORReportStates.every(
+                (other) => other === report || other.phase === "idle",
+              )
+            ) {
+              report.phase = "approaching";
+              report.phaseStart = t;
+              report.briefingDuration = 6 + Math.random() * 4;
+              report.nurseTravelDuration =
+                report.nurseApproachLength / nurseSpeed;
+            }
+            door.openRequested =
+              report.phase === "opening" ||
+              report.phase === "outbound" ||
+              report.phase === "returnOpening" ||
+              report.phase === "returning";
+
+            if (
+              report.phase === "approaching" &&
+              t - report.phaseStart >= report.nurseTravelDuration
+            ) {
+              report.phase = "doorPause";
+              report.phaseStart = t;
+            } else if (
+              report.phase === "doorPause" &&
+              t - report.phaseStart >= 0.5
+            ) {
+              report.phase = "opening";
+              report.phaseStart = t;
+              // Family members react as soon as the automatic door starts to
+              // open, walking toward the live-position lineup while the nurse
+              // is still completing the doorway sequence.
+              beginUpperReportFamilyGather(report, t);
+            } else if (
+              report.phase === "opening" &&
+              door.openAmount >= 0.96
+            ) {
+              report.phase = "outbound";
+              report.phaseStart = t;
+              report.nurseTravelDuration = report.nurseExitLength / nurseSpeed;
+            } else if (
+              report.phase === "outbound" &&
+              t - report.phaseStart >= report.nurseTravelDuration
+            ) {
+              report.phase =
+                t - report.familyGatherStart >= report.familyTravelDuration
+                  ? "briefing"
+                  : "gathering";
+              report.phaseStart = t;
+            } else if (
+              report.phase === "gathering" &&
+              t - report.familyGatherStart >= report.familyTravelDuration
+            ) {
+              report.phase = "briefing";
+              report.phaseStart = t;
+            } else if (
+              report.phase === "briefing" &&
+              t - report.phaseStart >= report.briefingDuration
+            ) {
+              report.participants.forEach((participant) => {
+                const actor = upperFamilyActors[participant.actorIndex],
+                  isReturningToAssignedSeat =
+                    participant.resumePosition.distanceToSquared(
+                      actor.basePosition,
+                    ) < 0.2;
+                participant.returnPath = smoothUpperFamilyPath([
+                  participant.gatherPosition,
+                  ...(isReturningToAssignedSeat ? [actor.seatExit] : []),
+                  participant.resumePosition,
+                ]);
+                participant.returnLength = upperFamilyPathLength(
+                  participant.returnPath,
+                );
+                participant.returnComplete = false;
+              });
+              report.familyTravelDuration =
+                Math.max(
+                  ...report.participants.map(
+                    (participant) => participant.returnLength,
+                  ),
+                ) / familySpeed;
+              report.nurseTravelDuration =
+                report.nurseReturnLength / nurseSpeed;
+              report.familyReturnStart = t;
+              report.phase = "returnPause";
+              report.phaseStart = t;
+            } else if (
+              report.phase === "returnPause" &&
+              t - report.phaseStart >= 0.5
+            ) {
+              report.phase = "returnOpening";
+              report.phaseStart = t;
+            } else if (
+              report.phase === "returnOpening" &&
+              door.openAmount >= 0.96
+            ) {
+              report.phase = "returning";
+              report.phaseStart = t;
+            } else if (
+              report.phase === "returning" &&
+              t - report.phaseStart >= report.nurseTravelDuration
+            ) {
+              // Close the automatic door as soon as the nurse has crossed the
+              // threshold into the room.  The rest of the walk to the work
+              // position continues along the protected side aisle while the
+              // leaves are already closing behind them.
+              report.phase = "returnInterior";
+              report.phaseStart = t;
+              report.nurseTravelDuration =
+                report.nurseInteriorLength / nurseSpeed;
+            } else if (
+              report.phase === "returnInterior" &&
+              t - report.phaseStart >= report.nurseTravelDuration &&
+              t - report.familyReturnStart >= report.familyTravelDuration
+            ) {
+              report.participants.forEach((participant) => {
+                const actor = upperFamilyActors[participant.actorIndex];
+                if (!participant.returnComplete) {
+                  actor.walker.group.position.copy(participant.resumePosition);
+                  actor.walker.group.rotation.y = participant.resumeYaw;
+                  actor.avoidanceOffset.copy(
+                    participant.resumeAvoidanceOffset,
+                  );
+                  const interruptedTask = participant.resumeTaskKind
+                    ? upperFamilyTasks.find(
+                        (task) =>
+                          task.kind === participant.resumeTaskKind &&
+                          task.activeActor === participant.actorIndex &&
+                          task.phase === participant.resumeTaskPhase,
+                      )
+                    : undefined;
+                  if (
+                    interruptedTask &&
+                    participant.resumeTaskElapsed !== undefined
+                  )
+                    interruptedTask.phaseStart =
+                      t - participant.resumeTaskElapsed;
+                  participant.returnComplete = true;
+                }
+              });
+              upperReportingFamilyGroups.delete(report.familyGroup);
+              walker.group.position.copy(report.nurseBasePosition);
+              report.phase = "closing";
+              report.phaseStart = t;
+            } else if (
+              report.phase === "closing" &&
+              door.openAmount <= 0.02
+            ) {
+              report.phase = "idle";
+              report.phaseStart = t;
+              report.nextStartAt = t + 58 + Math.random() * 24;
+              report.participants = [];
+            }
+
+            if (report.phase !== "idle") {
+              resetUpperPose(walker);
+              poseStanding(walker);
+              if (walker.chart) walker.chart.visible = true;
+              const elapsed = t - report.phaseStart,
+                travelling =
+                  report.phase === "approaching" ||
+                  report.phase === "outbound" ||
+                  report.phase === "returning" ||
+                  report.phase === "returnInterior";
+              if (report.phase === "approaching") {
+                const point = upperFamilyPathPoint(
+                  report.nurseApproachPath,
+                  elapsed * nurseSpeed,
+                );
+                walker.group.position.copy(point.position);
+                walker.group.rotation.y = facingYaw(
+                  walker.group.position,
+                  point.lookAt,
+                );
+              } else if (
+                report.phase === "doorPause" ||
+                report.phase === "opening"
+              ) {
+                walker.group.position.copy(report.doorWaitPoint);
+                walker.group.rotation.y = facingYaw(
+                  walker.group.position,
+                  door.centre,
+                );
+              } else if (report.phase === "outbound") {
+                const point = upperFamilyPathPoint(
+                  report.nurseExitPath,
+                  elapsed * nurseSpeed,
+                );
+                walker.group.position.copy(point.position);
+                walker.group.rotation.y = facingYaw(
+                  walker.group.position,
+                  point.lookAt,
+                );
+              } else if (report.phase === "returning") {
+                const point = upperFamilyPathPoint(
+                  report.nurseReturnPath,
+                  elapsed * nurseSpeed,
+                );
+                walker.group.position.copy(point.position);
+                walker.group.rotation.y = facingYaw(
+                  walker.group.position,
+                  point.lookAt,
+                );
+              } else if (report.phase === "returnInterior") {
+                const point = upperFamilyPathPoint(
+                  report.nurseInteriorPath,
+                  elapsed * nurseSpeed,
+                );
+                walker.group.position.copy(point.position);
+                walker.group.rotation.y = facingYaw(
+                  walker.group.position,
+                  point.lookAt,
+                );
+              } else if (
+                report.phase === "returnPause" ||
+                report.phase === "returnOpening"
+              ) {
+                walker.group.position.copy(report.reportPoint);
+                walker.group.rotation.y = facingYaw(
+                  walker.group.position,
+                  door.centre,
+                );
+              } else if (
+                report.phase === "gathering" ||
+                report.phase === "briefing"
+              ) {
+                walker.group.position.copy(report.reportPoint);
+                walker.group.rotation.y = facingYaw(
+                  walker.group.position,
+                  report.reportPoint.clone().addScaledVector(door.out, -1.3),
+                );
+              } else walker.group.position.copy(report.nurseBasePosition);
+
+              if (travelling) {
+                const gait = Math.sin(t * 6.5 + report.room);
+                walker.legs[0].rotation.x = gait * 0.34;
+                walker.legs[1].rotation.x = -gait * 0.34;
+                // Keep the left hand supporting the chart throughout every
+                // walking segment; only the free arm follows the gait.
+                walker.arms[0].rotation.x = 0.91;
+                walker.arms[0].rotation.z = 0.34;
+                walker.arms[1].rotation.x = gait * 0.16;
+                walker.arms[1].rotation.z = -0.06;
+              } else if (report.phase === "briefing") {
+                walker.arms[0].rotation.x =
+                  0.64 + Math.sin(t * 2.6) * 0.13;
+                walker.arms[0].rotation.z = 0.24;
+                walker.arms[1].rotation.x = 0.92;
+                walker.arms[1].rotation.z = -0.28;
+                walker.headRig.rotation.y = Math.sin(t * 1.8) * 0.08;
+              } else {
+                walker.arms[0].rotation.x = 0.91;
+                walker.arms[0].rotation.z = 0.34;
+                walker.arms[1].rotation.x = 0.24;
+              }
+            }
+          });
+
           upperClinicalActors.forEach(
             ({ walker, job, phase, baseY, baseYaw, room }) => {
+              const report = upperORReportStates.find(
+                (candidate) => candidate.room === room,
+              );
+              if (
+                job === "circulatingNurse" &&
+                report &&
+                report.phase !== "idle"
+              )
+                return;
               const pulse = Math.sin(t * 2.85 + phase),
                 fasterPulse = Math.sin(t * 5.8 + phase),
                 slowerPulse = Math.sin(t * 1.55 + phase),
@@ -9186,7 +9931,12 @@ export default function HospitalScene({
               // Keep the shuffled order intact. If this person is currently at
               // the other activity, wait for them instead of silently skipping
               // their turn.
-              if (!nextActor.activeTask) {
+              if (
+                !nextActor.activeTask &&
+                !upperReportingFamilyGroups.has(
+                  nextActor.familyGroup as 1 | 2,
+                )
+              ) {
                 nextActor.activeTask = task.kind;
                 nextActor.phoneRaised = false;
                 task.activeActor = nextActorIndex;
@@ -9199,9 +9949,28 @@ export default function HospitalScene({
               walker = actor.walker,
               outboundPath = upperFamilyPath(actor, task),
               pathLength = upperFamilyPathLength(outboundPath),
-              elapsedDistance = (t - task.phaseStart) * UPPER_FAMILY_WALK_SPEED;
+              elapsedDistance = (t - task.phaseStart) * UPPER_FAMILY_WALK_SPEED,
+              reportParticipant = upperORReportStates
+                .flatMap((report) => report.participants)
+                .find(
+                  (participant) => participant.actorIndex === task.activeActor,
+                );
+            if (reportParticipant && !reportParticipant.returnComplete) {
+              // The interrupted phase is frozen from the exact elapsed-time
+              // snapshot captured when the door opened.  It is deliberately
+              // not advanced with per-frame dt: browser throttling can make t
+              // jump farther than dt and previously let the hidden task finish
+              // in the background before the companion returned.
+              return;
+            }
             if (task.phase === "outbound") {
-              placeAlongUpperFamilyPath(actor, outboundPath, elapsedDistance, dt);
+              placeAlongUpperFamilyPath(
+                actor,
+                outboundPath,
+                elapsedDistance,
+                dt,
+                task.kind === "water" ? 0.16 : 0,
+              );
               if (elapsedDistance >= pathLength) {
                 walker.group.position.copy(task.routeEnd);
                 actor.avoidanceOffset.set(0, 0, 0);
@@ -9244,7 +10013,13 @@ export default function HospitalScene({
                       ]
                     : outboundPath.slice().reverse(),
                 returnLength = upperFamilyPathLength(returnPath);
-              placeAlongUpperFamilyPath(actor, returnPath, elapsedDistance, dt);
+              placeAlongUpperFamilyPath(
+                actor,
+                returnPath,
+                elapsedDistance,
+                dt,
+                task.kind === "water" ? 0.16 : 0,
+              );
               if (elapsedDistance >= returnLength) {
                 walker.group.position.copy(actor.basePosition);
                 actor.avoidanceOffset.set(0, 0, 0);
@@ -9274,8 +10049,145 @@ export default function HospitalScene({
               } = actor,
               task = activeTask
                 ? upperFamilyTasks.find((candidate) => candidate.kind === activeTask)
-                : undefined;
+                : undefined,
+              report = upperORReportStates.find(
+                (candidate) =>
+                  (candidate.phase === "opening" ||
+                    candidate.phase === "outbound" ||
+                    candidate.phase === "gathering" ||
+                    candidate.phase === "briefing" ||
+                    candidate.phase === "returnPause" ||
+                    candidate.phase === "returnOpening" ||
+                    candidate.phase === "returning" ||
+                    candidate.phase === "returnInterior") &&
+                  candidate.participants.some(
+                    (participant) =>
+                      !participant.returnComplete &&
+                      upperFamilyActors[participant.actorIndex] === actor,
+                  ),
+              ),
+              reportParticipant = report?.participants.find(
+                (participant) =>
+                  !participant.returnComplete &&
+                  upperFamilyActors[participant.actorIndex] === actor,
+              );
             resetUpperPose(walker);
+            if (report && reportParticipant) {
+              if (walker.scanBadge) walker.scanBadge.visible = false;
+              actor.cup.visible = false;
+              actor.cupWater.visible = false;
+              actor.phoneChangeAt += dt;
+              poseStanding(walker);
+              const isFamilyGathering =
+                  report.phase === "opening" ||
+                  report.phase === "outbound" ||
+                  report.phase === "gathering",
+                isFamilyReturning =
+                  report.phase === "returnPause" ||
+                  report.phase === "returnOpening" ||
+                  report.phase === "returning" ||
+                  report.phase === "returnInterior",
+                elapsedDistance =
+                  (t -
+                    (isFamilyReturning
+                      ? report.familyReturnStart
+                      : isFamilyGathering
+                        ? report.familyGatherStart
+                      : report.phaseStart)) *
+                  UPPER_FAMILY_WALK_SPEED,
+                movementPath =
+                  isFamilyGathering
+                    ? reportParticipant.gatherPath
+                    : isFamilyReturning
+                      ? reportParticipant.returnPath
+                      : undefined,
+                movementLength =
+                  isFamilyGathering
+                    ? reportParticipant.gatherLength
+                    : isFamilyReturning
+                      ? reportParticipant.returnLength
+                      : 0,
+                reachedDestination = Boolean(
+                  movementPath && elapsedDistance >= movementLength,
+                ),
+                travelling = Boolean(movementPath && !reachedDestination);
+              if (travelling && movementPath) {
+                placeAlongUpperFamilyPath(
+                  actor,
+                  movementPath,
+                  elapsedDistance,
+                  dt,
+                );
+              } else if (isFamilyGathering || report.phase === "briefing") {
+                actor.avoidanceOffset.set(0, 0, 0);
+                walker.group.position.copy(reportParticipant.gatherPosition);
+                walker.group.rotation.y = facingYaw(
+                  walker.group.position,
+                  report.reportPoint,
+                );
+              } else if (isFamilyReturning) {
+                actor.avoidanceOffset.copy(
+                  reportParticipant.resumeAvoidanceOffset,
+                );
+                walker.group.position.copy(reportParticipant.resumePosition);
+                walker.group.rotation.y = reportParticipant.resumeYaw;
+                const interruptedTask = reportParticipant.resumeTaskKind
+                  ? upperFamilyTasks.find(
+                      (candidate) =>
+                        candidate.kind === reportParticipant.resumeTaskKind &&
+                        candidate.activeActor ===
+                          reportParticipant.actorIndex &&
+                        candidate.phase === reportParticipant.resumeTaskPhase,
+                    )
+                  : undefined;
+                if (
+                  interruptedTask &&
+                  reportParticipant.resumeTaskElapsed !== undefined
+                )
+                  interruptedTask.phaseStart =
+                    t - reportParticipant.resumeTaskElapsed;
+                reportParticipant.returnComplete = true;
+                if (
+                  reportParticipant.resumePosition.distanceToSquared(
+                    actor.basePosition,
+                  ) < 0.2
+                )
+                  poseSeated(walker, actor.baseYaw);
+              }
+              if (travelling) {
+                const gait = Math.sin(
+                  t * Number(walker.group.userData.gaitRate || 6.4) + phase,
+                );
+                walker.legs[0].rotation.x = gait * 0.34;
+                walker.legs[1].rotation.x = -gait * 0.34;
+                walker.arms[0].rotation.x = -gait * 0.2;
+                walker.arms[1].rotation.x = gait * 0.2;
+                walker.group.position.y = Math.abs(gait) * 0.012;
+              } else {
+                walker.arms[0].rotation.x = 0.26;
+                walker.arms[1].rotation.x = 0.34;
+                if (report.phase === "briefing") {
+                  // Each relative acknowledges the explanation with a short,
+                  // slightly offset nod instead of remaining motionless.
+                  const nodCycle = (t * 1.18 + phase * 0.31) % 3.1,
+                    nod =
+                      nodCycle < 1.15
+                        ? Math.sin((nodCycle / 1.15) * Math.PI * 2) * 0.11
+                        : 0;
+                  walker.headRig.rotation.x = 0.06 + nod;
+                  walker.headRig.rotation.y =
+                    Math.sin(t * 0.82 + phase) * 0.025;
+                } else {
+                  walker.headRig.rotation.x =
+                    0.04 + Math.sin(t * 1.7 + phase) * 0.035;
+                }
+              }
+              return;
+            }
+            if (walker.scanBadge)
+              walker.scanBadge.visible = Boolean(
+                task?.kind === "screen" && task.phase === "activity",
+              );
             actor.cup.visible = false;
             actor.cupWater.visible = false;
             actor.cup.position.set(0, -0.52, -0.08);
@@ -11015,11 +11927,18 @@ export default function HospitalScene({
                           ? w.group.userData.waveResumeTime || 0
                         : 0;
                   }
+                  if (
+                    w.group.userData.eyeAssistant &&
+                    w.group.userData.waveNeedsRepath &&
+                    w.action === "walk"
+                  )
+                    resumeClickedCharacterTask(w);
                   if (pausedTalkPartner)
                     delete pausedTalkPartner.group.userData.talkPausedByEye;
                   delete w.group.userData.waveResume;
                   delete w.group.userData.waveResumeTime;
                   delete w.group.userData.waveTalkPartner;
+                  delete w.group.userData.waveNeedsRepath;
                   delete w.group.userData.doorGreeting;
                   w.pause = 0.15;
                 }
