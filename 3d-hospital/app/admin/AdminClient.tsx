@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  AUDIO_INHERITANCE,
   AUDIO_SLOTS,
   PUBLIC_AUDIO_FALLBACKS,
   type AudioSlot,
@@ -15,6 +16,12 @@ const roleRuleSections = [
     eyebrow: "SHARED RULES",
     title: "跨樓層共通規則",
     description: "所有人物都必須遵守的移動、碰撞與互動底線。",
+  },
+  {
+    floor: "三樓" as const,
+    eyebrow: "THIRD FLOOR",
+    title: "三樓病房規則",
+    description: "三間住院病房、護理師工作站與日照植栽中庭的空間及動線配置。",
   },
   {
     floor: "二樓" as const,
@@ -52,7 +59,7 @@ type AudioDraft = {
 
 const audioSlots: AudioSlot[] = [...AUDIO_SLOTS];
 const audioFloorGroups: Array<{
-  floor: 1 | 2;
+  floor: 1 | 2 | 3;
   title: string;
   slots: AudioSlot[];
 }> = [
@@ -62,9 +69,14 @@ const audioFloorGroups: Array<{
     title: "二樓場景聲音",
     slots: ["floor2Music", "floor2Ambience", "floor2Chime"],
   },
+  {
+    floor: 3,
+    title: "三樓場景聲音",
+    slots: ["floor3Music", "floor3Ambience", "floor3Chime"],
+  },
 ];
 const isChimeSlot = (slot: AudioSlot) =>
-  slot === "chime" || slot === "floor2Chime";
+  slot === "chime" || slot === "floor2Chime" || slot === "floor3Chime";
 const dialogueLabels: Record<keyof SiteContentConfig["dialogues"], string> = {
   doctor: "醫師",
   counterNurse: "櫃檯護理師",
@@ -107,9 +119,12 @@ const detailLabels: Record<keyof SiteContentConfig["patientDetails"], string> = 
 
 function sourceForTrack(content: SiteContentConfig, slot: AudioSlot) {
   const track = content.audio[slot];
-  return track.hasCustomAudio
-    ? `/api/audio/${slot}?v=${track.sourceVersion}`
-    : PUBLIC_AUDIO_FALLBACKS[slot];
+  if (track.hasCustomAudio)
+    return `/api/audio/${slot}?v=${track.sourceVersion}`;
+  const inheritedSlot = AUDIO_INHERITANCE[slot];
+  if (inheritedSlot && content.audio[inheritedSlot].hasCustomAudio)
+    return `/api/audio/${inheritedSlot}?v=${content.audio[inheritedSlot].sourceVersion}`;
+  return PUBLIC_AUDIO_FALLBACKS[slot];
 }
 
 type AudioUploadResult = {
@@ -557,14 +572,17 @@ export default function AdminClient({
     void audio.play();
   };
 
-  const playMix = (floor: 1 | 2) => {
+  const playMix = (floor: 1 | 2 | 3) => {
     stopPreview();
     if (floor === 1) {
       playSlot("music", true);
       playSlot("ambience", true);
-    } else {
+    } else if (floor === 2) {
       playSlot("floor2Music", true);
       playSlot("floor2Ambience", true);
+    } else {
+      playSlot("floor3Music", true);
+      playSlot("floor3Ambience", true);
     }
   };
 
@@ -882,11 +900,13 @@ export default function AdminClient({
               <button onClick={() => playSlot("chime", true)}>＋ 一樓叫號音</button>
               <button onClick={() => playMix(2)}>▶ 二樓音樂＋環境音</button>
               <button onClick={() => playSlot("floor2Chime", true)}>＋ 二樓叫號音</button>
+              <button onClick={() => playMix(3)}>▶ 三樓音樂＋環境音</button>
+              <button onClick={() => playSlot("floor3Chime", true)}>＋ 三樓叫號音</button>
               <button className="muted" onClick={stopPreview}>■ 停止試聽</button>
             </div>
             {audioFloorGroups.map((group) => (
               <section className="audio-floor-section" key={group.floor}>
-                <div className="audio-floor-heading"><span>{group.floor}F</span><div><h3>{group.title}</h3><p>背景音樂、環境音與叫號提示音皆獨立儲存及播放。</p></div></div>
+                <div className="audio-floor-heading"><span>{group.floor}F</span><div><h3>{group.title}</h3><p>{group.floor === 3 ? "預設沿用二樓音源，也可在此分別上傳、剪輯與調整。" : "背景音樂、環境音與叫號提示音皆獨立儲存及播放。"}</p></div></div>
                 <div className="audio-admin-grid">
                   {group.slots.map((slot) => {
                     const track = content.audio[slot];

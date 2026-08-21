@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  AUDIO_INHERITANCE,
   PUBLIC_AUDIO_FALLBACKS,
   type AudioSlot,
   type AudioTrackConfig,
@@ -48,18 +49,27 @@ const playClinicChime = (graph: AmbientGraph) => {
 const sourceFor = (
   slot: AudioSlot,
   track: AudioTrackConfig,
+  audio: Record<AudioSlot, AudioTrackConfig>,
 ): string | null =>
   track.hasCustomAudio
     ? `/api/audio/${slot}?v=${track.sourceVersion}`
-    : PUBLIC_AUDIO_FALLBACKS[slot];
+    : AUDIO_INHERITANCE[slot] && audio[AUDIO_INHERITANCE[slot]!].hasCustomAudio
+      ? `/api/audio/${AUDIO_INHERITANCE[slot]}?v=${audio[AUDIO_INHERITANCE[slot]!].sourceVersion}`
+      : PUBLIC_AUDIO_FALLBACKS[slot];
 
-const slotsForFloor = (floor: 1 | 2) =>
+const slotsForFloor = (floor: 1 | 2 | 3) =>
   floor === 1
     ? ({ music: "music", ambience: "ambience", chime: "chime" } as const)
-    : ({
+    : floor === 2
+      ? ({
         music: "floor2Music",
         ambience: "floor2Ambience",
         chime: "floor2Chime",
+      } as const)
+      : ({
+        music: "floor3Music",
+        ambience: "floor3Ambience",
+        chime: "floor3Chime",
       } as const);
 
 export default function AmbientSound({
@@ -67,7 +77,7 @@ export default function AmbientSound({
   activeFloor,
 }: {
   audio: Record<AudioSlot, AudioTrackConfig>;
-  activeFloor: 1 | 2;
+  activeFloor: 1 | 2 | 3;
 }) {
   const [enabled, setEnabled] = useState(false);
   const graphRef = useRef<AmbientGraph | null>(null);
@@ -85,10 +95,12 @@ export default function AmbientSound({
     const chimeGain = context.createGain();
     const musicGain = context.createGain();
     const ambient = new Audio(
-      sourceFor(slots.ambience, audio[slots.ambience]) ?? "",
+      sourceFor(slots.ambience, audio[slots.ambience], audio) ?? "",
     );
-    const music = new Audio(sourceFor(slots.music, audio[slots.music]) ?? "");
-    const chimeSrc = sourceFor(slots.chime, audio[slots.chime]);
+    const music = new Audio(
+      sourceFor(slots.music, audio[slots.music], audio) ?? "",
+    );
+    const chimeSrc = sourceFor(slots.chime, audio[slots.chime], audio);
     const chime = chimeSrc ? new Audio(chimeSrc) : undefined;
     const ambientSource = context.createMediaElementSource(ambient);
     const musicSource = context.createMediaElementSource(music);
@@ -187,8 +199,8 @@ export default function AmbientSound({
     const graph = graphRef.current;
     if (!graph) return;
     const slots = slotsForFloor(activeFloor),
-      ambientSrc = sourceFor(slots.ambience, audio[slots.ambience]) ?? "",
-      musicSrc = sourceFor(slots.music, audio[slots.music]) ?? "";
+      ambientSrc = sourceFor(slots.ambience, audio[slots.ambience], audio) ?? "",
+      musicSrc = sourceFor(slots.music, audio[slots.music], audio) ?? "";
     if (!graph.ambient.src.endsWith(ambientSrc)) {
       graph.ambient.src = ambientSrc;
       graph.ambient.load();
@@ -199,7 +211,7 @@ export default function AmbientSound({
       graph.music.load();
       if (enabled) void graph.music.play();
     }
-    const chimeSrc = sourceFor(slots.chime, audio[slots.chime]);
+    const chimeSrc = sourceFor(slots.chime, audio[slots.chime], audio);
     if (chimeSrc && !graph.chime?.src.endsWith(chimeSrc)) {
       graph.chime?.pause();
       const chime = new Audio(chimeSrc);

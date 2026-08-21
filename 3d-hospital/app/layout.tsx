@@ -32,6 +32,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-Hant">
+      <head>
+        <link rel="preload" href="/logo-v.png" as="image" type="image/png" />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

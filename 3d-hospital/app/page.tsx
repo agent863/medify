@@ -9,7 +9,7 @@ import { cloneDefaultContent, type SiteContentConfig } from "./content-config";
 const HospitalScene = dynamic(() => import("./HospitalScene"), { ssr: false });
 
 type Role = "doctor" | "nurse" | "patient" | "assistant";
-type Floor = 1 | 2;
+type Floor = 1 | 2 | 3;
 type DialogContent = CharacterInteraction & { role: Role };
 type ViewOption = { key: CameraView; label: string; description: string };
 
@@ -27,7 +27,17 @@ const floorTwoViews: ViewOption[] = [
   { key: "waiting", label: "候診區", description: "前往二樓候診資訊區" },
 ];
 
+const floorThreeViews: ViewOption[] = [
+  { key: "panorama", label: "全景", description: "瀏覽三樓住院病房" },
+  { key: "ward1", label: "病房 1", description: "聚焦瀏覽三樓病房 1" },
+  { key: "ward2", label: "病房 2", description: "聚焦瀏覽三樓病房 2" },
+  { key: "ward3", label: "病房 3", description: "聚焦瀏覽三樓病房 3" },
+  { key: "nurseStation", label: "護理站", description: "前往三樓護理師工作站" },
+  { key: "courtyard", label: "中庭", description: "前往三樓日照植栽中庭" },
+];
+
 export default function Home() {
+  const [sceneReady, setSceneReady] = useState(false);
   const [dialog, setDialog] = useState<DialogContent | null>(null);
   const [toast, setToast] = useState("");
   const [patientCount, setPatientCount] = useState(0);
@@ -36,9 +46,11 @@ export default function Home() {
   const [patientFocusClearRequest, setPatientFocusClearRequest] = useState(0);
   const [activeFloor, setActiveFloor] = useState<Floor>(1);
   const [elevatorPanelOpen, setElevatorPanelOpen] = useState(false);
+  const [elevatorPanelClosing, setElevatorPanelClosing] = useState(false);
   const [elevatorOpen, setElevatorOpen] = useState(false);
   const [elevatorTraveling, setElevatorTraveling] = useState(false);
   const [elevatorDisplayArrived, setElevatorDisplayArrived] = useState(false);
+  const [elevatorDisplayFloor, setElevatorDisplayFloor] = useState<Floor>(1);
   const [selectedFloor, setSelectedFloor] = useState<Floor | null>(null);
   const [floorFade, setFloorFade] = useState(false);
   const [content, setContent] = useState<SiteContentConfig>(() =>
@@ -49,7 +61,12 @@ export default function Home() {
   const elevatorTravelingRef = useRef(elevatorTraveling);
 
   const cameraViews = useMemo(
-    () => (activeFloor === 1 ? floorOneViews : floorTwoViews),
+    () =>
+      activeFloor === 1
+        ? floorOneViews
+        : activeFloor === 2
+          ? floorTwoViews
+          : floorThreeViews,
     [activeFloor],
   );
 
@@ -119,6 +136,7 @@ export default function Home() {
     window.setTimeout(() => setToast(""), 2200);
   }, []);
   const onPatientCount = useCallback((count: number) => setPatientCount(count), []);
+  const onSceneReady = useCallback(() => setSceneReady(true), []);
   const closeDialog = useCallback(() => {
     if (dialog?.role === "patient")
       setPatientFocusClearRequest((request) => request + 1);
@@ -131,23 +149,29 @@ export default function Home() {
     setPatientFocusClearRequest((request) => request + 1);
     setSelectedFloor(null);
     setElevatorDisplayArrived(false);
+    setElevatorDisplayFloor(activeFloor);
+    setElevatorPanelClosing(false);
     setElevatorOpen(true);
     setElevatorPanelOpen(true);
-  }, []);
+  }, [activeFloor]);
 
   const closeElevator = useCallback(() => {
     if (elevatorTraveling) return;
     setElevatorPanelOpen(false);
+    setElevatorPanelClosing(false);
     setSelectedFloor(null);
     setElevatorDisplayArrived(false);
+    setElevatorDisplayFloor(activeFloor);
     setElevatorOpen(false);
-  }, [elevatorTraveling]);
+  }, [activeFloor, elevatorTraveling]);
 
   const chooseFloor = useCallback(
     (floor: Floor) => {
       if (elevatorTraveling) return;
       setSelectedFloor(floor);
       setElevatorDisplayArrived(false);
+      setElevatorDisplayFloor(activeFloor);
+      setElevatorPanelClosing(false);
       if (floor === activeFloor) {
         addElevatorTimer(() => setSelectedFloor(null), 520);
         return;
@@ -155,8 +179,24 @@ export default function Home() {
 
       setElevatorTraveling(true);
       setElevatorOpen(false);
-      addElevatorTimer(() => setFloorFade(true), 1200);
+      const direction = floor > activeFloor ? 1 : -1,
+        floorDistance = Math.abs(floor - activeFloor),
+        departureDelay = 1100,
+        // Travel to 3F at 1.4× the previous speed while keeping the door-close
+        // phase and all intermediate floor indicators intact.
+        travelSpeedMultiplier = floor === 3 ? 1.4 : 1,
+        perFloorDuration = 1350 / travelSpeedMultiplier,
+        arrivalAt = departureDelay + floorDistance * perFloorDuration;
+      addElevatorTimer(() => setFloorFade(true), 1350);
+      for (let step = 1; step < floorDistance; step++) {
+        const passingFloor = (activeFloor + direction * step) as Floor;
+        addElevatorTimer(
+          () => setElevatorDisplayFloor(passingFloor),
+          departureDelay + step * perFloorDuration,
+        );
+      }
       addElevatorTimer(() => {
+        setElevatorDisplayFloor(floor);
         setActiveFloor(floor);
         // Keep the visitor's current viewing direction when the elevator
         // reaches the next floor. HospitalScene lifts the existing camera and
@@ -167,17 +207,23 @@ export default function Home() {
         setDialog(null);
         setElevatorDisplayArrived(true);
         setElevatorOpen(true);
-      }, 1420);
-      addElevatorTimer(() => setFloorFade(false), 1740);
+      }, arrivalAt);
+      addElevatorTimer(() => setFloorFade(false), arrivalAt + 360);
+      // Keep the current-floor display present through arrival, then fade the
+      // complete elevator interface as one unit instead of hiding its screen
+      // before the surrounding panel.
+      addElevatorTimer(() => setElevatorPanelClosing(true), arrivalAt + 600);
       addElevatorTimer(() => {
         setElevatorPanelOpen(false);
+        setElevatorPanelClosing(false);
         setElevatorTraveling(false);
-      }, 2220);
+      }, arrivalAt + 980);
       addElevatorTimer(() => {
         setElevatorOpen(false);
         setSelectedFloor(null);
         setElevatorDisplayArrived(false);
-      }, 3000);
+        setElevatorDisplayFloor(floor);
+      }, arrivalAt + 1760);
     },
     [activeFloor, addElevatorTimer, elevatorTraveling],
   );
@@ -186,6 +232,7 @@ export default function Home() {
     <main className={`experience dollhouse floor-${activeFloor}`}>
       <HospitalScene
         content={content}
+        onReady={onSceneReady}
         onTalk={onTalk}
         onPatientFocus={onPatientFocus}
         patientFocusClearRequest={patientFocusClearRequest}
@@ -197,6 +244,33 @@ export default function Home() {
         cameraView={cameraView}
         cameraViewRequest={cameraViewRequest}
       />
+      <div
+        className={`site-loading${sceneReady ? " ready" : ""}`}
+        role="status"
+        aria-live="polite"
+        aria-label={sceneReady ? "Medify 3D Hospital 載入完成" : "Medify 3D Hospital 載入中"}
+      >
+        <div className="site-loading-content">
+          <div className="site-loading-logo-wrap">
+            <img src="/logo-v.png" alt="Medify" />
+            <span className="site-loading-bird" aria-hidden="true">
+              <span className="site-loading-bird-body">
+                <i className="site-loading-bird-wing" />
+                <i className="site-loading-bird-eye" />
+                <i className="site-loading-bird-beak" />
+                <i className="site-loading-bird-leg leg-a" />
+                <i className="site-loading-bird-leg leg-b" />
+              </span>
+              <i className="site-loading-note note-a">♪</i>
+              <i className="site-loading-note note-b">♫</i>
+            </span>
+          </div>
+          <p>3D HOSPITAL</p>
+          <div className="site-loading-track" aria-hidden="true">
+            <span />
+          </div>
+        </div>
+      </div>
       <header className="topbar">
         <a className="brand" href="#">
           <img src="/logo-h.png" alt="Medify" />
@@ -212,10 +286,15 @@ export default function Home() {
             <h1>Medify醫院<br /><em>互動候診大廳</em></h1>
             <span>對話報到 · 手機掃描 QR Code · 診間互動</span>
           </>
-        ) : (
+        ) : activeFloor === 2 ? (
           <>
             <h1>Medify醫院<br /><em>手術與檢查中心</em></h1>
             <span>手術室 · 檢查室 · 術前衛教候診區</span>
+          </>
+        ) : (
+          <>
+            <h1>Medify醫院<br /><em>住院病房樓層</em></h1>
+            <span>住院病房 · 護理師工作站 · 日照植栽中庭</span>
           </>
         )}
       </aside>
@@ -250,7 +329,7 @@ export default function Home() {
 
       {elevatorPanelOpen && (
         <div
-          className="elevator-overlay"
+          className={`elevator-overlay${elevatorPanelClosing ? " closing" : ""}`}
           role="presentation"
           onPointerDown={(event) => {
             if (event.target === event.currentTarget) closeElevator();
@@ -276,15 +355,17 @@ export default function Home() {
               {elevatorTraveling ? (
                 <>
                   <small>CURRENT FLOOR</small>
-                  <span>{selectedFloor === 2 ? "▲" : "▼"}</span>
-                  <b>{activeFloor}</b>
+                  {!elevatorDisplayArrived && (
+                    <span>{selectedFloor !== null && selectedFloor > elevatorDisplayFloor ? "▲" : "▼"}</span>
+                  )}
+                  <b>{elevatorDisplayFloor}</b>
                 </>
               ) : (
                 <><small>CURRENT FLOOR</small><b>{activeFloor}</b></>
               )}
             </div>
             <div className="elevator-buttons" aria-label="樓層按鈕">
-              {([2, 1] as Floor[]).map((floor) => (
+              {([3, 2, 1] as Floor[]).map((floor) => (
                 <button
                   key={floor}
                   type="button"

@@ -29,8 +29,16 @@ export const AUDIO_SLOTS = [
   "floor2Music",
   "floor2Ambience",
   "floor2Chime",
+  "floor3Music",
+  "floor3Ambience",
+  "floor3Chime",
 ] as const;
 export type AudioSlot = (typeof AUDIO_SLOTS)[number];
+export const AUDIO_INHERITANCE: Partial<Record<AudioSlot, AudioSlot>> = {
+  floor3Music: "floor2Music",
+  floor3Ambience: "floor2Ambience",
+  floor3Chime: "floor2Chime",
+};
 
 export type QrEntry = {
   id: QrId;
@@ -228,6 +236,30 @@ export const DEFAULT_CONTENT: SiteContentConfig = {
       volume: 0.18,
       hasCustomAudio: false,
     },
+    floor3Music: {
+      name: "三樓背景音樂",
+      fileName: "沿用二樓背景音樂",
+      objectKey: "",
+      sourceVersion: 0,
+      volume: 0.065,
+      hasCustomAudio: false,
+    },
+    floor3Ambience: {
+      name: "三樓醫院環境音",
+      fileName: "沿用二樓醫院環境音",
+      objectKey: "",
+      sourceVersion: 0,
+      volume: 0.144,
+      hasCustomAudio: false,
+    },
+    floor3Chime: {
+      name: "三樓叫號提示音",
+      fileName: "沿用二樓叫號提示音",
+      objectKey: "",
+      sourceVersion: 0,
+      volume: 0.18,
+      hasCustomAudio: false,
+    },
   },
   updatedAt: "",
 };
@@ -239,6 +271,9 @@ export const PUBLIC_AUDIO_FALLBACKS: Record<AudioSlot, string | null> = {
   floor2Music: "/medify-open-morning.mp3",
   floor2Ambience: "/hospital-waiting-room-ambience.mp3",
   floor2Chime: null,
+  floor3Music: "/medify-open-morning.mp3",
+  floor3Ambience: "/hospital-waiting-room-ambience.mp3",
+  floor3Chime: null,
 };
 
 export function cloneDefaultContent(): SiteContentConfig {
@@ -267,6 +302,17 @@ export function mergeContentConfig(
   };
   for (const slot of AUDIO_SLOTS)
     base.audio[slot] = { ...base.audio[slot], ...(stored.audio?.[slot] ?? {}) };
+  // Existing installations predate the 3F mixer. On first load, seed its
+  // independent volume controls from 2F while source resolution continues to
+  // inherit the corresponding 2F audio until a dedicated 3F file is uploaded.
+  for (const [floor3Slot, floor2Slot] of Object.entries(AUDIO_INHERITANCE) as Array<
+    [AudioSlot, AudioSlot]
+  >)
+    if (!stored.audio?.[floor3Slot])
+      base.audio[floor3Slot] = {
+        ...base.audio[floor3Slot],
+        volume: base.audio[floor2Slot].volume,
+      };
   base.updatedAt = stored.updatedAt ?? "";
   return base;
 }
