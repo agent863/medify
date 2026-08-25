@@ -4,9 +4,10 @@
 
 - `VERSION_HISTORY_v198-v208.md`：v198–v208
 - `VERSION_HISTORY_v171-v264.md`：v171–v268（檔名沿用既有備份名稱）
-- `VERSION_HISTORY_v269-v299.md`：v269–v299
+- `VERSION_HISTORY_v269-v299.md`：v269–v328（檔名沿用既有備份名稱）
+- `VERSION_HISTORY_v300-v328.md`：v300–v328（本次新增的獨立文字紀錄）
 
-上述後兩份文件連續記錄 v209 至目前公開的 v299。
+上述文件連續記錄 v209 至目前公開的 v328；另提供 v300 起的獨立分段紀錄，方便查閱近期版本。
 
 A clean full-stack starter running on
 [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and

@@ -3553,11 +3553,14 @@ export default function HospitalScene({
             new RoundedBoxGeometry(0.14, 0.42, bedCount === 3 ? 2.35 : 2.15, 6, 0.07),
             material(0xdce9e8, 0.58),
           );
+        // Keep the complete outlet assembly together: the long horizontal
+        // backboard follows the sockets and gas ports 20 cm downward.
+        panel.position.y = -0.2;
         headwall.add(panel);
         [-0.76, -0.38].forEach((z) => {
           const port = cyl(0.105, 0.075, z < -0.5 ? 0x74b7c7 : 0x72a36d, 18);
           port.rotation.z = Math.PI / 2;
-          put(headwall, port, headwallFace * 0.11, 0, z);
+          put(headwall, port, headwallFace * 0.11, -0.2, z);
         });
         [-0.02, 0.34, 0.7].forEach((z, portIndex) =>
           put(
@@ -3569,7 +3572,7 @@ export default function HospitalScene({
               portIndex === 0 ? 0xf1c85d : 0xffffff,
             ),
             headwallFace * 0.11,
-            0,
+            -0.2,
             z,
           ),
         );
@@ -3599,6 +3602,42 @@ export default function HospitalScene({
         );
         lamp.position.set(headwallFace * 0.1, 0.94, 0);
         headwall.add(lamp);
+        // Electronic bedside identification card, vertically centred between
+        // the lower outlets and the bed-head lamp. The shallow screen faces
+        // into the room on both mirrored ward walls.
+        const bedsideCard = new THREE.Mesh(
+          new RoundedBoxGeometry(0.15, 0.54, 0.74, 6, 0.07),
+          material(0x315f7c, 0.34),
+        );
+        bedsideCard.position.set(headwallFace * 0.13, 0.46, 0.02);
+        headwall.add(bedsideCard);
+        put(
+          headwall,
+          box(0.025, 0.435, 0.6, 0xe7f5f5),
+          headwallFace * 0.22,
+          0.46,
+          0.02,
+        );
+        [-0.13, -0.04, 0.05, 0.13].forEach((z, row) =>
+          put(
+            headwall,
+            box(
+              0.018,
+              row === 0 ? 0.035 : 0.024,
+              row === 0 ? 0.3 : 0.38,
+              row === 0
+                ? 0x44bddb
+                : row === 1
+                  ? 0x5177ba
+                  : row === 2
+                    ? 0x79b8a9
+                    : 0xe2b66e,
+            ),
+            headwallFace * 0.24,
+            0.62 - row * 0.11,
+            0.02 + z,
+          ),
+        );
         headwall.position.copy(
           doorCentre
             .clone()
@@ -3963,8 +4002,27 @@ export default function HospitalScene({
         }),
       );
       put(cart, box(0.06, 0.08, 0.96, 0x71868e), 0, 1.27, 0);
-      put(cart, cyl(0.08, 0.28, 0xcbe9e8, 14), -0.2, 1.32, -0.18);
-      put(cart, cyl(0.07, 0.22, 0xf0d9b3, 14), 0.15, 1.29, 0.18);
+      put(cart, cyl(0.08, 0.28, 0xcbe9e8, 14), -0.28, 1.32, 0.2);
+      put(cart, cyl(0.07, 0.22, 0xf0d9b3, 14), 0.28, 1.29, 0.2);
+      const tablet = new THREE.Group(),
+        tabletShell = new THREE.Mesh(
+          new RoundedBoxGeometry(0.62, 0.42, 0.06, 6, 0.055),
+          material(0x53666f, 0.38),
+        ),
+        tabletScreen = new THREE.Mesh(
+          new RoundedBoxGeometry(0.54, 0.34, 0.025, 5, 0.04),
+          material(0xdff4f3, 0.28),
+        );
+      tabletShell.position.y = 0.26;
+      tabletScreen.position.set(0, 0.26, 0.043);
+      tablet.add(tabletShell, tabletScreen);
+      put(tablet, box(0.4, 0.035, 0.018, 0x44bddb), 0, 0.32, 0.06);
+      put(tablet, box(0.26, 0.025, 0.018, 0x5177ba), -0.07, 0.24, 0.06);
+      put(tablet, box(0.32, 0.025, 0.018, 0x79b8a9), -0.04, 0.17, 0.06);
+      put(tablet, cyl(0.035, 0.18, 0x71868e, 10), 0, 0, 0);
+      tablet.position.set(0, 1.26, -0.2);
+      tablet.rotation.x = -0.12;
+      cart.add(tablet);
       cart.position.set(-4.45, 0, z);
       cart.rotation.y = Math.PI / 2;
       shrinkThirdFloorContent(cart);
