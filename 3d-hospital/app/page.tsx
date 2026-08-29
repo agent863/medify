@@ -53,12 +53,15 @@ export default function Home() {
   const [elevatorDisplayFloor, setElevatorDisplayFloor] = useState<Floor>(1);
   const [selectedFloor, setSelectedFloor] = useState<Floor | null>(null);
   const [floorFade, setFloorFade] = useState(false);
+  const [characterSpeedMultiplier, setCharacterSpeedMultiplier] = useState<1 | 2>(1);
   const [content, setContent] = useState<SiteContentConfig>(() =>
     cloneDefaultContent(),
   );
   const contentRef = useRef(content);
   const elevatorTimers = useRef<number[]>([]);
   const elevatorTravelingRef = useRef(elevatorTraveling);
+  const logoGestureArmedRef = useRef(false);
+  const musicGestureArmedRef = useRef(false);
 
   const cameraViews = useMemo(
     () =>
@@ -137,6 +140,30 @@ export default function Home() {
   }, []);
   const onPatientCount = useCallback((count: number) => setPatientCount(count), []);
   const onSceneReady = useCallback(() => setSceneReady(true), []);
+  const handleLogoGesture = useCallback(() => {
+    // The logo is the first step of the deliberate three-click gesture. A
+    // second logo click restarts the sequence instead of carrying an earlier
+    // music click forward.
+    logoGestureArmedRef.current = true;
+    musicGestureArmedRef.current = false;
+  }, []);
+  const handleMusicStateChange = useCallback(
+    (enabled: boolean) => {
+      if (!logoGestureArmedRef.current) return;
+      // Enabling music completes the second step when entering 2× mode. When
+      // leaving 2× mode, accept the same music-button click even though it
+      // naturally turns the already-enabled music off.
+      if (enabled || characterSpeedMultiplier === 2)
+        musicGestureArmedRef.current = true;
+    },
+    [characterSpeedMultiplier],
+  );
+  const handleHospitalTitleClick = useCallback(() => {
+    if (!logoGestureArmedRef.current || !musicGestureArmedRef.current) return;
+    setCharacterSpeedMultiplier((current) => (current === 1 ? 2 : 1));
+    logoGestureArmedRef.current = false;
+    musicGestureArmedRef.current = false;
+  }, []);
   const closeDialog = useCallback(() => {
     if (dialog?.role === "patient")
       setPatientFocusClearRequest((request) => request + 1);
@@ -243,6 +270,7 @@ export default function Home() {
         elevatorOpen={elevatorOpen}
         cameraView={cameraView}
         cameraViewRequest={cameraViewRequest}
+        characterSpeedMultiplier={characterSpeedMultiplier}
       />
       <div
         className={`site-loading${sceneReady ? " ready" : ""}`}
@@ -272,28 +300,42 @@ export default function Home() {
         </div>
       </div>
       <header className="topbar">
-        <a className="brand" href="#">
-          <img src="/logo-h.png" alt="Medify" />
-          <span>3D HOSPITAL<br /><small>INTERACTIVE CLINIC</small></span>
-        </a>
+        <div className="brand">
+          <button
+            type="button"
+            className="brand-logo-button"
+            aria-label="啟動人物加速操作"
+            onClick={handleLogoGesture}
+          >
+            <img src="/logo-h.png" alt="Medify" />
+          </button>
+          {characterSpeedMultiplier === 2 && (
+            <span className="speed-indicator" aria-label="人物二倍速">2×</span>
+          )}
+          <span className="brand-copy">3D HOSPITAL<br /><small>INTERACTIVE CLINIC</small></span>
+        </div>
       </header>
-      <AmbientSound audio={content.audio} activeFloor={activeFloor} />
+      <AmbientSound
+        audio={content.audio}
+        activeFloor={activeFloor}
+        onMusicStateChange={handleMusicStateChange}
+      />
 
       <aside className="scene-intro">
         <p><i />MEDIFY PATIENT EXPERIENCE · {activeFloor}F</p>
         {activeFloor === 1 ? (
           <>
-            <h1>Medify醫院<br /><em>互動候診大廳</em></h1>
+            <h1><button type="button" className="hospital-title-gesture" onClick={handleHospitalTitleClick}>Medify醫院</button><br /><em>互動候診大廳</em></h1>
             <span>對話報到 · 手機掃描 QR Code · 診間互動</span>
           </>
         ) : activeFloor === 2 ? (
           <>
-            <h1>Medify醫院<br /><em>手術與檢查中心</em></h1>
+            <h1><button type="button" className="hospital-title-gesture" onClick={handleHospitalTitleClick}>Medify醫院</button><br /><em>手術與檢查中心</em></h1>
             <span>手術室 · 檢查室 · 術前衛教候診區</span>
           </>
         ) : (
           <>
-            <h1>Medify醫院<br /><em>住院病房樓層</em></h1>
+            <h1><button type="button" className="hospital-title-gesture" onClick={handleHospitalTitleClick}>Medify醫院</button><br /><em>住院病房樓層</em></h1>
             <span>住院病房 · 護理師工作站 · 日照植栽中庭</span>
           </>
         )}

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AUDIO_INHERITANCE,
@@ -828,6 +829,7 @@ export default function AdminClient({
         <div className="admin-account">
           <b>{displayName}</b>
           <small>{email}</small>
+          <Link href="/admin/qa">三樓交通驗收</Link>
           <a href={signOutPath}>登出</a>
         </div>
       </header>
