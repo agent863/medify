@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Medify 文件上傳與 Doctor Y 0526 文章生成｜操作說明</title>
+<title>Medify AI：文件上傳與文章生成｜操作教學</title>
 <style>
   :root{
     /* CI Guideline - Sky Blue */
@@ -53,8 +53,11 @@
     color:#fff;
     padding:52px 0 54px;
   }
-  .hero h1{margin:0 0 14px;font-size:31px;line-height:1.4;font-weight:800;letter-spacing:.01em}
-  .hero p{margin:0;font-size:16px;color:rgba(255,255,255,.94);max-width:62ch;font-weight:400}
+  .hero h1{margin:0 0 10px;font-size:31px;line-height:1.4;font-weight:800;letter-spacing:.01em}
+  .hero h1+p.sub{
+    margin:0;font-size:15px;font-weight:500;letter-spacing:.22em;
+    color:rgba(255,255,255,.82);
+  }
   .hero .entries{margin-top:24px;display:flex;flex-wrap:wrap;gap:10px}
   .hero .entries a{
     display:inline-block;background:#fff;color:var(--teal-1);
@@ -147,11 +150,11 @@
 
 <header class="hero">
   <div class="wrap">
-    <h1>文件上傳與 Doctor Y 0526 文章生成　操作說明</h1>
-    <p>從登入、上傳眼科文獻，到在 Doctor Y 0526 生成文章，共四個步驟。</p>
+    <h1>Medify AI：文件上傳與文章生成</h1>
+    <p class="sub">操作教學</p>
     <div class="entries">
       <a href="https://docs.medifyai.net/upload" target="_blank" rel="noopener">文件上傳頁　docs.medifyai.net/upload</a>
-      <a href="https://chat.medifyai.net/" target="_blank" rel="noopener">Doctor Y 0526　chat.medifyai.net</a>
+      <a href="https://chat.medifyai.net/" target="_blank" rel="noopener">Medify AI　chat.medifyai.net</a>
     </div>
   </div>
 </header>
@@ -161,7 +164,7 @@
     <a href="#s1">1　登入</a>
     <a href="#s2">2　拖曳上傳</a>
     <a href="#s3">3　選擇資料夾並送出</a>
-    <a href="#s4">4　Doctor Y 0526 生成文章</a>
+    <a href="#s4">4　Medify AI 生成文章</a>
   </div>
 </nav>
 
@@ -230,14 +233,15 @@
     <section class="step" id="s4">
       <div class="step-head">
         <div class="num">4</div>
-        <h2>到 Doctor Y 0526 生成文章</h2>
+        <h2>到 Medify AI 生成文章</h2>
       </div>
-      <p class="lead">前往 <a href="https://chat.medifyai.net/" target="_blank" rel="noopener">Doctor Y 0526（chat.medifyai.net）</a>。</p>
+      <p class="lead">前往 <a href="https://chat.medifyai.net/" target="_blank" rel="noopener">Medify AI（chat.medifyai.net）</a>。本教學使用的模型是 <b>Medify - Doctor Y 0526</b>。</p>
 
       <h3 class="substep">4-1　切換模型到 Doctor Y 0526</h3>
       <ul>
         <li>點左上角模型名稱旁的 <b>下拉箭頭</b>。</li>
         <li>選 <b>Medify - Doctor Y 0526</b>。</li>
+        <li>清單中有 Doctor X、Doctor Y、Doctor X 0526 等相近名稱，請認明 <b>結尾是 0526 的 Doctor Y</b>。</li>
         <li>可點模型名稱下方的 <b>Set as default</b>，之後開啟就是它。</li>
       </ul>
       <figure>
@@ -272,7 +276,7 @@
 
 <footer>
   <div class="wrap">
-    <span>Medify　文件上傳與 Doctor Y 0526 文章生成操作說明</span>
+    <span>Medify AI：文件上傳與文章生成　操作教學</span>
     <span>供合作醫師與診所窗口使用</span>
   </div>
 </footer>
