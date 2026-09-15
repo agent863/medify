@@ -261,7 +261,7 @@
     if (scene() !== s || onCard) return;                 // already moved on
     if (document.getElementById('__preload') || document.getElementById('__tutorial')) return;
     if (visibleGifCount() > 0){                          // element exists — fine
-      if (s === 0){ try { sessionStorage.removeItem('__gifReload0'); } catch(e){} }
+      try { sessionStorage.removeItem('__gifReload0'); } catch(e){}  // gifs are alive again
       return;
     }
     if (gifNudging){ console.log('[gif] nudge already ran, still no gif at #' + s); return; }
@@ -274,7 +274,11 @@
     if (s === 0){
       var used = false;
       try { used = sessionStorage.getItem('__gifReload0') === '1'; } catch(e){}
-      if (used){ console.log('[gif] no gif at #0, reload already used this session'); return; }
+      if (used){
+        console.log('[gif] no gif at #0, reload already used this session');
+        setTimeout(function(){ gifNudging = false; }, 2000);   // never leave the latch stuck
+        return;
+      }
       try { sessionStorage.setItem('__gifReload0', '1'); } catch(e){}
       console.log('[gif] no gif element at #0 -> reloading to re-enter forward');
       location.replace(location.pathname + location.search);
@@ -443,9 +447,9 @@
       var inImg = x >= cr.left && x <= cr.right && y >= cr.top && y <= cr.bottom;
       if (inImg && y > cr.bottom - cr.height * 0.055){
         var fx = (x - cr.left) / cr.width;
-        if (fx > 0.26 && fx < 0.345){ tapNav(goPrev); return; }  // ◀ back to #7
-        if (fx >= 0.345 && fx < 0.41){ tapNav(goNext); return; } // 🏠 restart from #0
-        if (fx > 0.60 && fx < 0.70){ tapNav(goNext); return; }   // ▶ loop to #0
+        if (fx > 0.28 && fx < 0.335){ tapNav(goPrev); return; }  // ◀ back to the last slide
+        if (fx >= 0.335 && fx < 0.40){ tapNav(goNext); return; } // 🏠 restart from the first slide
+        if (fx > 0.62 && fx < 0.70){ tapNav(goNext); return; }   // ▶ loop to the first slide
         return;
       }
       if (inLeft || inRight){
@@ -481,7 +485,7 @@
         var sr = st.getBoundingClientRect();
         if (y > sr.bottom - sr.height * 0.06 && y <= sr.bottom + 4){
           var fxBar = (x - sr.left) / sr.width;
-          if (fxBar > 0.58 && fxBar < 0.72){
+          if (fxBar > 0.94){
             console.log('[nav] last-page bar ▶ -> closing card');
             tapNav(goNext); // goNext on LAST_SCENE shows the card
             return;
