@@ -816,8 +816,32 @@
       // progress screen hands off directly to the tutorial / the deck.
       oPct.textContent = '準備中…';
       var t0 = Date.now();
+      // The gate must NEVER open onto an unrendered stage. On a cold load
+      // (incognito / first visit) the player still has to download its own
+      // 1.2MB main.js and slide 1's PDF, which can take much longer than
+      // the gifs — an earlier build gave up waiting after 10s and handed
+      // the user a blank screen behind the tutorial. So: wait for the
+      // canvas for as long as it takes, say so after 8s, and only offer a
+      // reload if it is clearly not coming (60s).
       (function waitFirstSlide(){
-        if (!document.querySelector('#stage canvas') && Date.now() - t0 < 10000){
+        if (!document.querySelector('#stage canvas')){
+          var waited = Date.now() - t0;
+          if (waited > 60000){
+            oPct.textContent = '投影片載入異常，請重新整理';
+            if (!document.getElementById('__reloadBtn')){
+              var btn = document.createElement('div');
+              btn.id = '__reloadBtn';
+              btn.textContent = '重新整理';
+              applyStyles(btn, {
+                marginTop:'18px', fontSize:'15px', padding:'10px 26px', borderRadius:'999px',
+                border:'1px solid rgba(58,95,125,0.45)', color:'#3a5f7d', cursor:'pointer'
+              });
+              btn.addEventListener('click', function(){ location.reload(); });
+              overlay.appendChild(btn);
+            }
+          } else if (waited > 8000){
+            oPct.textContent = '首次載入投影片，請稍候…';
+          }
           setTimeout(waitFirstSlide, 150);
           return;
         }
