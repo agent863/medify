@@ -1,4 +1,4 @@
-<!doctype html><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Keynote</title><meta name="viewport" content="initial-scale=1,minimum-scale=1,width=device-width"/><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/><link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons"/></head><body id="body"><div id="stageArea"><div id="stage" class="stage"></div><div id="hyperlinkPlane" class="stage"></div></div><div id="slideshowNavigator"></div><div id="slideNumberControl"></div><div id="slideNumberDisplay"></div><div id="helpPlacard"></div><div id="waitingIndicator"><div id="waitingSpinner"></div></div><script src="assets/player/main.js"></script>
+<!doctype html><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Keynote</title><meta name="viewport" content="initial-scale=1,minimum-scale=1,width=device-width"/><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/></head><body id="body"><div id="stageArea"><div id="stage" class="stage"></div><div id="hyperlinkPlane" class="stage"></div></div><div id="slideshowNavigator"></div><div id="slideNumberControl"></div><div id="slideNumberDisplay"></div><div id="helpPlacard"></div><div id="waitingIndicator"><div id="waitingSpinner"></div></div><script src="assets/player/main.js"></script>
 <!--
   Design principle (per user, 2026-07-23): DO NOT interfere with ANY of the
   deck's original functionality. Every baked-in hyperlink keeps working
@@ -631,7 +631,7 @@
   //  every navigation path passes through. No other gif code exists.)
 
   // ---- first-run tutorial (once per device, localStorage) ---------------
-  var TUTORIAL_KEY = 'mfy_eyebag_tutorial_seen';
+  var TUTORIAL_KEY = 'mfy_laser_tutorial_seen';   // per deck: localStorage is shared across the whole github.io origin
   function maybeShowTutorial(){
     try { if (localStorage.getItem(TUTORIAL_KEY)) return; } catch(e){}
     var tut = document.createElement('div');
@@ -643,13 +643,21 @@
       fontFamily:'-apple-system, "PingFang TC", "Helvetica Neue", Helvetica, Arial, sans-serif',
       textAlign:'center'
     });
-    function item(iconName, title, sub){
+    // Icons are inline SVG on purpose: the Google Material Icons webfont used
+    // to be linked from <head>, and when fonts.googleapis.com was slow or
+    // blocked the ligature names ("chevron_left", "touch_app") rendered as
+    // literal text. Nothing here is fetched from the network.
+    var ICONS = {
+      left:  '<svg viewBox="0 0 24 24" width="52" height="52" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L8 12 L15 19"/></svg>',
+      right: '<svg viewBox="0 0 24 24" width="52" height="52" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5 L16 12 L9 19"/></svg>',
+      tap:   '<svg viewBox="0 0 24 24" width="52" height="52" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3.4" fill="currentColor" stroke="none"/><path d="M6.6 6.6a7.6 7.6 0 0 0 0 10.8"/><path d="M17.4 6.6a7.6 7.6 0 0 1 0 10.8"/><path d="M3.6 3.6a11.9 11.9 0 0 0 0 16.8" opacity=".5"/><path d="M20.4 3.6a11.9 11.9 0 0 1 0 16.8" opacity=".5"/></svg>'
+    };
+    function item(iconKey, title, sub){
       var d = document.createElement('div');
       applyStyles(d, { margin:'0 34px', display:'flex', flexDirection:'column', alignItems:'center' });
       var i = document.createElement('span');
-      i.className = 'material-icons'; // Google Material Icons (loaded in <head>)
-      i.textContent = iconName;
-      applyStyles(i, { fontSize:'52px', lineHeight:'1', marginBottom:'14px' });
+      i.innerHTML = ICONS[iconKey] || '';
+      applyStyles(i, { display:'block', lineHeight:'0', marginBottom:'14px' });
       var t = document.createElement('div');
       t.textContent = title;
       applyStyles(t, { fontSize:'20px', fontWeight:'700', marginBottom:'6px' });
@@ -661,9 +669,9 @@
     }
     var row = document.createElement('div');
     applyStyles(row, { display:'flex', flexDirection:'row', alignItems:'flex-start', marginBottom:'44px' });
-    row.appendChild(item('chevron_left', '點左側', '上一頁'));
-    row.appendChild(item('touch_app', '雙擊中間', '開啟目錄'));
-    row.appendChild(item('chevron_right', '點右側', '下一頁'));
+    row.appendChild(item('left',  '點左側', '上一頁'));
+    row.appendChild(item('tap',   '雙擊中間', '開啟目錄'));
+    row.appendChild(item('right', '點右側', '下一頁'));
     var hint = document.createElement('div');
     hint.textContent = '點任意處開始';
     applyStyles(hint, {
