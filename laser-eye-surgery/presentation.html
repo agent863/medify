@@ -33,7 +33,7 @@
   All styling is via JS inline styles: a static <style> tag at this point
   in the document parses to 0 CSS rules (verified on the live page).
 -->
-<div id="__closingCard"><img src="slides/slide6_bar.jpg" alt="想了解更多資訊請掃描 QR Code" draggable="false"></div>
+<div id="__closingCard"><img data-src="slides/slide6_bar.jpg" alt="想了解更多資訊請掃描 QR Code" draggable="false"></div>
 <script>
 (function(){
   var TOTAL_CONTENT_SCENES = 8;              // #0..#7
@@ -176,7 +176,16 @@
   var onCard = false;
   var pendingCardJump = false; // set when the sidebar's 6th thumbnail is tapped
   var pendingShowCard = false; // 150ms guard against flash when going backward past closing card
-  function showCard(){ onCard = true; closingCard.style.display = 'flex'; }
+  // The card image carries data-src instead of src so that it does not
+  // download alongside the first page's gifs; it is fetched as soon as the
+  // gate opens (warmRestInBackground), and on demand if the user somehow
+  // gets here first.
+  function ensureCardImg(){
+    if (!closingImg.getAttribute('src')){
+      closingImg.src = closingImg.getAttribute('data-src') || 'slides/slide6_bar.jpg';
+    }
+  }
+  function showCard(){ ensureCardImg(); onCard = true; closingCard.style.display = 'flex'; }
   function hideCard(){ onCard = false; closingCard.style.display = 'none'; }
 
   function goNext(){
@@ -262,6 +271,19 @@
     if (document.getElementById('__preload') || document.getElementById('__tutorial')) return;
     if (visibleGifCount() > 0){                          // element exists — fine
       try { sessionStorage.removeItem('__gifReload0'); } catch(e){}  // gifs are alive again
+      return;
+    }
+    // A gif that is in the DOM but still downloading has offsetWidth 0 and
+    // would look "missing" — since later pages' gifs now load in the
+    // background, wait for it instead of re-entering the page.
+    var loading = false, all0 = document.querySelectorAll('img');
+    for (var q = 0; q < all0.length; q++){
+      var i0 = all0[q];
+      if (i0.src && i0.src.indexOf('.gif') > -1 && !i0.complete){ loading = true; break; }
+    }
+    if (loading){
+      console.log('[gif] still downloading at #' + s + ' — waiting instead of nudging');
+      setTimeout(function(){ maybeNudgeForGif(s); }, 1200);
       return;
     }
     if (gifNudging){ console.log('[gif] nudge already ran, still no gif at #' + s); return; }
@@ -709,7 +731,7 @@
     sb.style.touchAction = 'pan-y';
     // swap thumbnail image + slide number label
     var img = clone.querySelector('img');
-    if (img){ img.removeAttribute('id'); img.src = 'slides/slide6_bar.jpg'; }
+    if (img){ img.removeAttribute('id'); img.removeAttribute('data-src'); img.src = 'slides/slide6_bar.jpg'; }
     clone.querySelectorAll('*').forEach(function(el){
       if (el.children.length === 0 && el.textContent.trim() === String(items.length)){
         el.textContent = String(items.length + 1);
@@ -726,23 +748,26 @@
   // Poll continuously — sidebar may be rebuilt on open/close; never stop
   setInterval(addCardThumb, 800);
 
-  // ---- mandatory loading screen: ALL gifs must finish before entry ------
-  // Per spec: the user may not start flipping pages until every gif (and
-  // the closing card image) is fully downloaded and decoded. The overlay
-  // shows on EVERY load (repeat visits complete near-instantly from
-  // cache), never times out into the deck, and auto-retries failed
-  // downloads. handleTap() above refuses all taps while #__preload exists.
-  // The big per-slide PDFs do NOT block entry — they warm in the
-  // background after the gate opens.
-  var GIF_URLS = [
+  // ---- loading screen: the FIRST PAGE's gifs must finish before entry ---
+  // Measured 2026-09-23: blocking on all six gifs + the closing card was
+  // ~5.3MB before the deck would open. Only slide 1's three gifs are on
+  // screen at entry, so only those block (~3.3MB); everything else starts
+  // downloading the moment the gate opens and is almost always there long
+  // before the user reaches it (each later page has at most one or two
+  // gifs, 0.3–0.7MB each). The gate still NEVER times out into the deck —
+  // it only waits for less. The big per-slide PDFs never blocked.
+  var GIF_URLS_FIRST = [
     'assets/22CB59BC-9A28-4AEC-948E-FE2BBE837FCB/assets/P2-PRK.gif-0.0000-16.8600.gif',
     'assets/22CB59BC-9A28-4AEC-948E-FE2BBE837FCB/assets/P3-LASIK.gif-0.0000-17.9400.gif',
-    'assets/22CB59BC-9A28-4AEC-948E-FE2BBE837FCB/assets/P4-SMILE.gif-0.0000-15.0900.gif',
+    'assets/22CB59BC-9A28-4AEC-948E-FE2BBE837FCB/assets/P4-SMILE.gif-0.0000-15.0900.gif'
+  ];
+  var GIF_URLS_REST = [
     'assets/6F80DFBD-9A36-44E4-92EE-B3EA7E1CA1E2/assets/P3-眼球吸附.gif-0.0000-17.5800.gif',
     'assets/A020B5BA-42E6-4B54-90AC-B5DF2E7A1D61/assets/P4-近視雷射手術第二階段 穩定恢復期 .gif-0.0000-7.2000.gif',
     'assets/A020B5BA-42E6-4B54-90AC-B5DF2E7A1D61/assets/P5-近視雷射手術第二階段 不穩定恢復期.gif-0.0000-4.5000.gif'
   ];
-  var CRITICAL_ASSETS = GIF_URLS.concat(['slides/slide6_bar.jpg']);
+  var GIF_URLS = GIF_URLS_FIRST.concat(GIF_URLS_REST);  // ?r=1 warming still covers all six
+  var CRITICAL_ASSETS = GIF_URLS_FIRST.slice();
   window.__gifWarm = []; // live refs so the decoded gifs can't be evicted
 
   var overlay = document.createElement('div');
@@ -824,6 +849,15 @@
   // fetches on demand as a fallback).
   // Also warm the ?r=1 alternate GIF URLs used by the ping-pong restart.
   function warmRestInBackground(){
+    // First the assets that were taken off the gate, in the order the user
+    // will meet them: slide 2's gif, slide 5's two, then the closing card.
+    ensureCardImg();                       // the card element starts loading now
+    GIF_URLS_REST.forEach(function(u){
+      var im = new Image();
+      im.src = encodeURI(u);
+      window.__gifWarm.push(im); // decoded + pinned
+    });
+    // Then the ?r=1 alternates used by the ping-pong restart.
     GIF_URLS.forEach(function(u){
       var im = new Image();
       im.src = encodeURI(u) + '?r=1';
