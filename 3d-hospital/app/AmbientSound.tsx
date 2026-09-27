@@ -75,11 +75,9 @@ const slotsForFloor = (floor: 1 | 2 | 3) =>
 export default function AmbientSound({
   audio,
   activeFloor,
-  onMusicStateChange,
 }: {
   audio: Record<AudioSlot, AudioTrackConfig>;
   activeFloor: 1 | 2 | 3;
-  onMusicStateChange?: (enabled: boolean) => void;
 }) {
   const [enabled, setEnabled] = useState(false);
   const graphRef = useRef<AmbientGraph | null>(null);
@@ -158,7 +156,6 @@ export default function AmbientSound({
         void graph?.context.suspend();
       }, 300);
       setEnabled(false);
-      onMusicStateChange?.(false);
       return;
     }
     // Reflect the user's choice immediately. Some embedded browsers keep the
@@ -180,12 +177,10 @@ export default function AmbientSound({
       now + 0.9,
     );
     setEnabled(true);
-    onMusicStateChange?.(true);
     const ambientPlayback = graph.ambient.play();
     const musicPlayback = graph.music.play();
     const handlePlaybackFailure = () => {
       setEnabled(false);
-      onMusicStateChange?.(false);
     };
     void resume.catch(handlePlaybackFailure);
     void ambientPlayback.catch(handlePlaybackFailure);

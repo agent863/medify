@@ -5,7 +5,10 @@ import QRCode from "qrcode";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import type { QrId, SiteContentConfig } from "./content-config";
-import { createThirdFloorCare } from "./scene/third-floor-care";
+import {
+  createThirdFloorCare,
+  type ThirdFloorTrafficSnapshot,
+} from "./scene/third-floor-care";
 import {
   createThirdFloorCourtyardLife,
   type BirdActor,
@@ -34,6 +37,7 @@ export type CharacterInteraction = {
   detail?: string;
   eyebrow?: string;
 };
+export type CharacterSpeedMultiplier = 1 | 2 | 3 | 4;
 type Props = {
   content: SiteContentConfig;
   onReady: () => void;
@@ -43,10 +47,12 @@ type Props = {
   onKnock: (room: number) => void;
   onPatientCount: (count: number) => void;
   onElevatorOpen: () => void;
+  onThirdFloorTrafficSnapshot?: (snapshot: ThirdFloorTrafficSnapshot) => void;
   activeFloor: 1 | 2 | 3;
   elevatorOpen: boolean;
   cameraView: CameraView;
   cameraViewRequest: number;
+  characterSpeedMultiplier: CharacterSpeedMultiplier;
 };
 type CameraTransition = {
   fromPosition: THREE.Vector3;
@@ -1161,10 +1167,12 @@ export default function HospitalScene({
   onKnock,
   onPatientCount,
   onElevatorOpen,
+  onThirdFloorTrafficSnapshot,
   activeFloor,
   elevatorOpen,
   cameraView,
   cameraViewRequest,
+  characterSpeedMultiplier,
 }: Props) {
   const mount = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -1177,6 +1185,9 @@ export default function HospitalScene({
   const previousCameraViewRef = useRef<CameraView>("panorama");
   const previousActiveFloorRef = useRef<1 | 2 | 3>(activeFloor);
   const contentRef = useRef(content);
+  const characterSpeedMultiplierRef = useRef<CharacterSpeedMultiplier>(
+    characterSpeedMultiplier,
+  );
   useEffect(() => {
     contentRef.current = content;
   }, [content]);
@@ -1187,6 +1198,9 @@ export default function HospitalScene({
   useEffect(() => {
     elevatorOpenRef.current = elevatorOpen;
   }, [elevatorOpen]);
+  useEffect(() => {
+    characterSpeedMultiplierRef.current = characterSpeedMultiplier;
+  }, [characterSpeedMultiplier]);
   useEffect(() => {
     if (!mount.current) return;
     const host = mount.current,
@@ -3296,6 +3310,7 @@ export default function HospitalScene({
       pivots: Array<{ pivot: THREE.Group; side: number; closedYaw: number }>;
       openAmount: number;
       openTarget: 0 | 1;
+      closeAt: number;
     };
     const wardSwingDoors: WardSwingDoor[] = [];
 
@@ -3417,6 +3432,7 @@ export default function HospitalScene({
         pivots: [],
         openAmount: 0,
         openTarget: 0,
+        closeAt: 0,
       };
       const wardDoorIndex = wardSwingDoors.length,
         // Ward 1 uses a left-side hinge from the corridor view so its handle
@@ -4024,7 +4040,10 @@ export default function HospitalScene({
       tablet.rotation.x = -0.12;
       cart.add(tablet);
       cart.position.set(-4.45, 0, z);
-      cart.rotation.y = Math.PI / 2;
+      // Park the carts facing the opposite direction beside the nursing
+      // station, matching the requested 180-degree display turn. A nurse
+      // still sets the live heading when attaching and pushing a cart.
+      cart.rotation.y = -Math.PI / 2;
       shrinkThirdFloorContent(cart);
       thirdFloor.add(cart);
       thirdFloorMedicalCarts.push(cart);
@@ -4723,11 +4742,11 @@ export default function HospitalScene({
         depthWrite: false,
       }),
       // Transparent glass should not create an opaque slab on the floor. The
-      // moving automatic-door leaves use alpha-hashed depth at 10%, while the
+      // moving automatic-door leaves use alpha-hashed depth at 5%, while the
       // fixed windows cast no shadow and leave that job to their white frames.
       courtyardDoorShadowMaterial = new THREE.MeshDepthMaterial({
         depthPacking: THREE.RGBADepthPacking,
-        opacity: 0.1,
+        opacity: 0.05,
         alphaHash: true,
         side: THREE.DoubleSide,
       }),
@@ -4897,6 +4916,7 @@ export default function HospitalScene({
       person,
       material,
       cyl,
+      onTrafficDebugSnapshot: onThirdFloorTrafficSnapshot,
     });
     type UpperClinicalJob =
       | "surgeon"
@@ -8696,8 +8716,11 @@ export default function HospitalScene({
       } else if (root.userData.interactive === "wardDoor") {
         const wardDoor =
           wardSwingDoors[Number(root.userData.wardDoorIndex)];
-        if (wardDoor)
+        if (wardDoor) {
           wardDoor.openTarget = wardDoor.openTarget === 1 ? 0 : 1;
+          if (wardDoor.openTarget === 1)
+            wardDoor.closeAt = performance.now() + 2000;
+        }
       } else if (root.userData.interactive === "courtyardDoor") {
         const courtyardDoor =
           courtyardAutoDoors[Number(root.userData.courtyardDoorIndex)];
@@ -11602,15 +11625,34 @@ export default function HospitalScene({
       lowMotionTime = 0,
       lastRenderErrorAt = 0,
       lastReportedPatientCount = -1,
-      lastSeatFillAt = -1;
+      lastSeatFillAt = -1,
+      characterTime = 0;
     const render = () => {
       raf = requestAnimationFrame(render);
       try {
-        const dt = Math.min(clock.getDelta(), 0.04),
-          t = clock.elapsedTime;
+        const frameDt = Math.min(clock.getDelta(), 0.04),
+          frameTime = clock.elapsedTime,
+          scaledCharacterDt =
+            frameDt * characterSpeedMultiplierRef.current;
+        let remainingCharacterDt = scaledCharacterDt;
+        while (remainingCharacterDt > 0.000001) {
+          // Advance the simulation through the same small steps used at normal
+          // speed.  A faster mode therefore processes more valid path/collision
+          // steps instead of moving an actor farther in a single frame.
+          const characterDt = Math.min(remainingCharacterDt, 1 / 30),
+            dt = characterDt,
+            t = characterTime + characterDt;
+          characterTime = t;
+          remainingCharacterDt -= characterDt;
         if (activeFloorRef.current === 3) {
-          updateThirdFloorCare(dt, t);
+          {
+            const dt = characterDt,
+              t = characterTime;
+            updateThirdFloorCare(dt, t);
+          }
           wardSwingDoors.forEach((door) => {
+            if (door.openTarget === 1 && performance.now() >= door.closeAt)
+              door.openTarget = 0;
             const step = dt * 1.85;
             door.openAmount = THREE.MathUtils.lerp(
               door.openAmount,
@@ -11642,6 +11684,8 @@ export default function HospitalScene({
           });
         }
         if (activeFloorRef.current === 2) {
+          // Keep the upper-floor automatic doors on the normal clock, while
+          // all people and their task timers use the character clock below.
           upperOperatingDoors.forEach((door) => {
             const target = door.openRequested ? 1 : 0,
               step = dt * (target > door.openAmount ? 1.35 : 1.7);
@@ -11662,6 +11706,9 @@ export default function HospitalScene({
             });
           });
 
+          {
+          const dt = characterDt,
+            t = characterTime;
           upperORReportStates.forEach((report) => {
             const { door, nurse } = report,
               walker = nurse.walker,
@@ -12452,6 +12499,7 @@ export default function HospitalScene({
               walker.headRig.rotation.y = Math.sin(t * 0.75 + phase) * 0.07;
             }
           });
+          }
         }
         const showPaymentSuccess = t < paymentSuccessUntil;
         if (showPaymentSuccess !== paymentScreenShowingSuccess) {
@@ -12718,6 +12766,8 @@ export default function HospitalScene({
           leaves.seam.visible = leaves.openAmount < 0.08;
         });
         if (activeFloorRef.current === 1) {
+        const dt = characterDt,
+          t = characterTime;
         // The sensor keeps both leaves open while anybody is approaching or
         // crossing either one-way lane. Only after 1.8 seconds with no traffic
         // may the door close. Each leaf first retracts toward the lobby interior,
@@ -16882,6 +16932,7 @@ export default function HospitalScene({
           lowMotionTime = 0;
         }
         }
+        }
         const cameraTransition = cameraTransitionRef.current;
         if (cameraTransition) {
           const progress = THREE.MathUtils.clamp(
@@ -16909,7 +16960,7 @@ export default function HospitalScene({
             controls.enabled = true;
           }
         }
-        updateFocusedPatient(t, dt);
+        updateFocusedPatient(frameTime, frameDt);
         controls.update();
         renderer.render(scene, camera);
         if (!firstFrameReported) {
@@ -16972,7 +17023,15 @@ export default function HospitalScene({
       });
       host.replaceChildren();
     };
-  }, [onReady, onTalk, onPatientFocus, onKnock, onPatientCount, onElevatorOpen]);
+  }, [
+    onReady,
+    onTalk,
+    onPatientFocus,
+    onKnock,
+    onPatientCount,
+    onElevatorOpen,
+    onThirdFloorTrafficSnapshot,
+  ]);
   useEffect(() => {
     if (patientFocusClearRequest > 0) clearPatientFocusRef.current?.();
   }, [patientFocusClearRequest]);

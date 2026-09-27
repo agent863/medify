@@ -3,7 +3,11 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AmbientSound from "./AmbientSound";
-import type { CameraView, CharacterInteraction } from "./HospitalScene";
+import type {
+  CameraView,
+  CharacterInteraction,
+  CharacterSpeedMultiplier,
+} from "./HospitalScene";
 import { cloneDefaultContent, type SiteContentConfig } from "./content-config";
 
 const HospitalScene = dynamic(() => import("./HospitalScene"), { ssr: false });
@@ -36,6 +40,8 @@ const floorThreeViews: ViewOption[] = [
   { key: "courtyard", label: "中庭", description: "前往三樓日照植栽中庭" },
 ];
 
+const characterSpeedOptions: CharacterSpeedMultiplier[] = [1, 2, 3, 4];
+
 export default function Home() {
   const [sceneReady, setSceneReady] = useState(false);
   const [dialog, setDialog] = useState<DialogContent | null>(null);
@@ -53,7 +59,9 @@ export default function Home() {
   const [elevatorDisplayFloor, setElevatorDisplayFloor] = useState<Floor>(1);
   const [selectedFloor, setSelectedFloor] = useState<Floor | null>(null);
   const [floorFade, setFloorFade] = useState(false);
-  const [characterSpeedMultiplier, setCharacterSpeedMultiplier] = useState<1 | 2>(1);
+  const [characterSpeedMultiplier, setCharacterSpeedMultiplier] =
+    useState<CharacterSpeedMultiplier>(1);
+  const [mobileSpeedMenuOpen, setMobileSpeedMenuOpen] = useState(false);
   const [content, setContent] = useState<SiteContentConfig>(() =>
     cloneDefaultContent(),
   );
@@ -61,7 +69,9 @@ export default function Home() {
   const elevatorTimers = useRef<number[]>([]);
   const elevatorTravelingRef = useRef(elevatorTraveling);
   const logoGestureArmedRef = useRef(false);
-  const musicGestureArmedRef = useRef(false);
+  const speedInputArmedRef = useRef(false);
+  const speedInputRef = useRef("");
+  const mobileSpeedGestureStepRef = useRef<0 | 1 | 2>(0);
 
   const cameraViews = useMemo(
     () =>
@@ -140,30 +150,116 @@ export default function Home() {
   }, []);
   const onPatientCount = useCallback((count: number) => setPatientCount(count), []);
   const onSceneReady = useCallback(() => setSceneReady(true), []);
-  const handleLogoGesture = useCallback(() => {
-    // The logo is the first step of the deliberate three-click gesture. A
-    // second logo click restarts the sequence instead of carrying an earlier
-    // music click forward.
-    logoGestureArmedRef.current = true;
-    musicGestureArmedRef.current = false;
-  }, []);
-  const handleMusicStateChange = useCallback(
-    (enabled: boolean) => {
-      if (!logoGestureArmedRef.current) return;
-      // Enabling music completes the second step when entering 2× mode. When
-      // leaving 2× mode, accept the same music-button click even though it
-      // naturally turns the already-enabled music off.
-      if (enabled || characterSpeedMultiplier === 2)
-        musicGestureArmedRef.current = true;
+  const isMobileViewport = useCallback(
+    () => {
+      if (typeof window === "undefined") return false;
+      return window.matchMedia(
+        "(max-width: 760px), (pointer: coarse) and (max-width: 1024px)",
+      ).matches;
     },
-    [characterSpeedMultiplier],
+    [],
   );
-  const handleHospitalTitleClick = useCallback(() => {
-    if (!logoGestureArmedRef.current || !musicGestureArmedRef.current) return;
-    setCharacterSpeedMultiplier((current) => (current === 1 ? 2 : 1));
+  const resetSpeedGesture = useCallback(() => {
     logoGestureArmedRef.current = false;
-    musicGestureArmedRef.current = false;
+    speedInputArmedRef.current = false;
+    speedInputRef.current = "";
+    mobileSpeedGestureStepRef.current = 0;
   }, []);
+  const handleLogoGesture = useCallback(() => {
+    if (isMobileViewport()) {
+      // Mobile uses a three-tap gesture: Logo, Medify醫院, Logo. The final
+      // Logo tap opens the touch-friendly speed chooser instead of requiring
+      // a keyboard.
+      if (mobileSpeedGestureStepRef.current === 2) {
+        resetSpeedGesture();
+        setMobileSpeedMenuOpen(true);
+        return;
+      }
+      resetSpeedGesture();
+      mobileSpeedGestureStepRef.current = 1;
+      return;
+    }
+
+    // Desktop keeps the deliberate two-click gesture and keyboard input.
+    logoGestureArmedRef.current = true;
+    speedInputArmedRef.current = false;
+    speedInputRef.current = "";
+    mobileSpeedGestureStepRef.current = 0;
+  }, [isMobileViewport, resetSpeedGesture]);
+  const handleHospitalTitleClick = useCallback(() => {
+    if (isMobileViewport()) {
+      if (mobileSpeedGestureStepRef.current === 1)
+        mobileSpeedGestureStepRef.current = 2;
+      return;
+    }
+    if (!logoGestureArmedRef.current) return;
+    speedInputArmedRef.current = true;
+    speedInputRef.current = "";
+  }, [isMobileViewport]);
+  useEffect(() => {
+    const handleSpeedInput = (event: KeyboardEvent) => {
+      if (!speedInputArmedRef.current) return;
+
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        const match = speedInputRef.current.trim().match(/^([1-4])x$/i);
+        if (match) {
+          setCharacterSpeedMultiplier(Number(match[1]) as CharacterSpeedMultiplier);
+        }
+        logoGestureArmedRef.current = false;
+        speedInputArmedRef.current = false;
+        speedInputRef.current = "";
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        logoGestureArmedRef.current = false;
+        speedInputArmedRef.current = false;
+        speedInputRef.current = "";
+        return;
+      }
+
+      if (event.key === "Backspace") {
+        event.preventDefault();
+        speedInputRef.current = speedInputRef.current.slice(0, -1);
+        return;
+      }
+
+      if (/^[1-4xX]$/.test(event.key) && speedInputRef.current.length < 2) {
+        event.preventDefault();
+        speedInputRef.current += event.key;
+      }
+    };
+
+    window.addEventListener("keydown", handleSpeedInput);
+    return () => window.removeEventListener("keydown", handleSpeedInput);
+  }, []);
+  const closeMobileSpeedMenu = useCallback(() => {
+    setMobileSpeedMenuOpen(false);
+    resetSpeedGesture();
+  }, [resetSpeedGesture]);
+  const chooseMobileSpeed = useCallback(
+    (speed: CharacterSpeedMultiplier) => {
+      setCharacterSpeedMultiplier(speed);
+      closeMobileSpeedMenu();
+    },
+    [closeMobileSpeedMenu],
+  );
+  useEffect(() => {
+    if (!mobileSpeedMenuOpen) return;
+    const handleMobileSpeedMenuKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeMobileSpeedMenu();
+    };
+    window.addEventListener("keydown", handleMobileSpeedMenuKeyDown);
+    return () =>
+      window.removeEventListener("keydown", handleMobileSpeedMenuKeyDown);
+  }, [closeMobileSpeedMenu, mobileSpeedMenuOpen]);
   const closeDialog = useCallback(() => {
     if (dialog?.role === "patient")
       setPatientFocusClearRequest((request) => request + 1);
@@ -309,16 +405,64 @@ export default function Home() {
           >
             <img src="/logo-h.png" alt="Medify" />
           </button>
-          {characterSpeedMultiplier === 2 && (
-            <span className="speed-indicator" aria-label="人物二倍速">2×</span>
+          {characterSpeedMultiplier !== 1 && (
+            <span
+              className="speed-indicator"
+              aria-label={`人物${characterSpeedMultiplier}倍速`}
+            >{characterSpeedMultiplier}×</span>
           )}
           <span className="brand-copy">3D HOSPITAL<br /><small>INTERACTIVE CLINIC</small></span>
         </div>
       </header>
+      {mobileSpeedMenuOpen && (
+        <div
+          className="mobile-speed-overlay"
+          role="presentation"
+          onPointerDown={(event) => {
+            if (event.target === event.currentTarget) closeMobileSpeedMenu();
+          }}
+        >
+          <section
+            className="mobile-speed-menu"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mobile-speed-menu-title"
+          >
+            <button
+              type="button"
+              className="mobile-speed-close"
+              aria-label="關閉倍速選單"
+              onClick={closeMobileSpeedMenu}
+            >
+              ×
+            </button>
+            <small>人物控制</small>
+            <h2 id="mobile-speed-menu-title">選擇人物倍速</h2>
+            <div className="mobile-speed-options" aria-label="人物倍速選擇">
+              {characterSpeedOptions.map((speed) => (
+                <button
+                  key={speed}
+                  type="button"
+                  className={
+                    characterSpeedMultiplier === speed
+                      ? "active"
+                      : undefined
+                  }
+                  aria-pressed={characterSpeedMultiplier === speed}
+                  onClick={() => chooseMobileSpeed(speed)}
+                >
+                  <b>{speed}×</b>
+                  <span>{speed === 1 ? "正常" : `${speed}倍`}</span>
+                </button>
+              ))}
+            </div>
+            <p>點選後立即套用</p>
+          </section>
+        </div>
+      )}
       <AmbientSound
         audio={content.audio}
         activeFloor={activeFloor}
-        onMusicStateChange={handleMusicStateChange}
       />
 
       <aside className="scene-intro">
