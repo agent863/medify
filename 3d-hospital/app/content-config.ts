@@ -9,11 +9,9 @@ export const QR_IDS = [
   "lobby-waiting-2",
   "lobby-waiting-3",
   "lobby-waiting-4",
-  "clinic-door-1",
-  "clinic-door-2",
-  "clinic-door-3",
-  "clinic-door-4",
-  "clinic-door-5",
+  "third-floor-nurse-1",
+  "third-floor-nurse-2",
+  "third-floor-nurse-3",
   "clinic-tablet-1",
   "clinic-tablet-2",
   "clinic-tablet-3",
@@ -45,6 +43,10 @@ export type QrEntry = {
   name: string;
   location: string;
   destinationUrl: string;
+  imageFileName: string;
+  imageObjectKey: string;
+  imageSourceVersion: number;
+  hasCustomImage: boolean;
 };
 
 export type AudioTrackConfig = {
@@ -54,6 +56,14 @@ export type AudioTrackConfig = {
   sourceVersion: number;
   volume: number;
   hasCustomAudio: boolean;
+};
+
+export type VideoConfig = {
+  name: string;
+  fileName: string;
+  objectKey: string;
+  sourceVersion: number;
+  hasCustomVideo: boolean;
 };
 
 export type DialogueConfig = {
@@ -104,6 +114,7 @@ export type SiteContentConfig = {
   patientStatuses: PatientStatusConfig;
   patientDetails: PatientDetailConfig;
   audio: Record<AudioSlot, AudioTrackConfig>;
+  video: VideoConfig;
   updatedAt: string;
 };
 
@@ -112,6 +123,10 @@ const qr = (id: QrId, name: string, location: string): QrEntry => ({
   name,
   location,
   destinationUrl: "",
+  imageFileName: "",
+  imageObjectKey: "",
+  imageSourceVersion: 0,
+  hasCustomImage: false,
 });
 
 export const DEFAULT_CONTENT: SiteContentConfig = {
@@ -129,11 +144,11 @@ export const DEFAULT_CONTENT: SiteContentConfig = {
         `二樓候診區 ${index + 1}`,
       ),
     ),
-    ...Array.from({ length: 5 }, (_, index) =>
+    ...Array.from({ length: 3 }, (_, index) =>
       qr(
-        `clinic-door-${index + 1}` as QrId,
-        `${index + 1} 號診間門口 QR Code`,
-        `${index + 1} 號診間門口`,
+        `third-floor-nurse-${index + 1}` as QrId,
+        `三樓護理站立牌 QR Code ${index + 1}`,
+        `三樓護理站桌面 ${index + 1}`,
       ),
     ),
     ...Array.from({ length: 5 }, (_, index) =>
@@ -261,6 +276,13 @@ export const DEFAULT_CONTENT: SiteContentConfig = {
       hasCustomAudio: false,
     },
   },
+  video: {
+    name: "病房壁掛電視影片",
+    fileName: "尚未上傳影片（目前顯示 LOGO）",
+    objectKey: "",
+    sourceVersion: 0,
+    hasCustomVideo: false,
+  },
   updatedAt: "",
 };
 
@@ -302,6 +324,7 @@ export function mergeContentConfig(
   };
   for (const slot of AUDIO_SLOTS)
     base.audio[slot] = { ...base.audio[slot], ...(stored.audio?.[slot] ?? {}) };
+  base.video = { ...base.video, ...(stored.video ?? {}) };
   // Existing installations predate the 3F mixer. On first load, seed its
   // independent volume controls from 2F while source resolution continues to
   // inherit the corresponding 2F audio until a dedicated 3F file is uploaded.

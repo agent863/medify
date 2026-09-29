@@ -8,7 +8,11 @@ import type {
   CharacterInteraction,
   CharacterSpeedMultiplier,
 } from "./HospitalScene";
-import { cloneDefaultContent, type SiteContentConfig } from "./content-config";
+import {
+  cloneDefaultContent,
+  type QrId,
+  type SiteContentConfig,
+} from "./content-config";
 
 const HospitalScene = dynamic(() => import("./HospitalScene"), { ssr: false });
 
@@ -45,6 +49,7 @@ const characterSpeedOptions: CharacterSpeedMultiplier[] = [1, 2, 3, 4];
 export default function Home() {
   const [sceneReady, setSceneReady] = useState(false);
   const [dialog, setDialog] = useState<DialogContent | null>(null);
+  const [qrModalId, setQrModalId] = useState<QrId | null>(null);
   const [toast, setToast] = useState("");
   const [patientCount, setPatientCount] = useState(0);
   const [cameraView, setCameraView] = useState<CameraView>("panorama");
@@ -62,6 +67,8 @@ export default function Home() {
   const [characterSpeedMultiplier, setCharacterSpeedMultiplier] =
     useState<CharacterSpeedMultiplier>(1);
   const [mobileSpeedMenuOpen, setMobileSpeedMenuOpen] = useState(false);
+  const [wardVideoOpen, setWardVideoOpen] = useState(false);
+  const [wardVideoStartTime, setWardVideoStartTime] = useState(0);
   const [content, setContent] = useState<SiteContentConfig>(() =>
     cloneDefaultContent(),
   );
@@ -159,6 +166,45 @@ export default function Home() {
     },
     [],
   );
+  const openQrCode = useCallback(
+    (qrId: QrId) => {
+      if (isMobileViewport()) {
+        window.location.assign(`/qr/${qrId}`);
+        return;
+      }
+      setDialog(null);
+      setPatientFocusClearRequest((request) => request + 1);
+      setQrModalId(qrId);
+    },
+    [isMobileViewport],
+  );
+  const closeQrModal = useCallback(() => setQrModalId(null), []);
+  const openWardVideo = useCallback(() => {
+    // Every interactive screen opens the central player from the beginning.
+    setWardVideoStartTime(0);
+    setWardVideoOpen(true);
+  }, []);
+  const closeWardVideo = useCallback(() => setWardVideoOpen(false), []);
+  useEffect(() => {
+    if (!wardVideoOpen) return;
+    const handleWardVideoKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeWardVideo();
+    };
+    window.addEventListener("keydown", handleWardVideoKeyDown);
+    return () => window.removeEventListener("keydown", handleWardVideoKeyDown);
+  }, [closeWardVideo, wardVideoOpen]);
+  useEffect(() => {
+    if (!qrModalId) return;
+    const handleQrModalKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeQrModal();
+    };
+    window.addEventListener("keydown", handleQrModalKeyDown);
+    return () => window.removeEventListener("keydown", handleQrModalKeyDown);
+  }, [closeQrModal, qrModalId]);
   const resetSpeedGesture = useCallback(() => {
     logoGestureArmedRef.current = false;
     speedInputArmedRef.current = false;
@@ -321,9 +367,8 @@ export default function Home() {
       addElevatorTimer(() => {
         setElevatorDisplayFloor(floor);
         setActiveFloor(floor);
-        // Keep the visitor's current viewing direction when the elevator
-        // reaches the next floor. HospitalScene lifts the existing camera and
-        // target by one storey instead of cutting to an elevator preset.
+        // Every floor starts from its panorama so the visitor gets the same
+        // complete orientation regardless of the view used before travelling.
         setCameraView("panorama");
         setCameraViewRequest((request) => request + 1);
         setPatientFocusClearRequest((request) => request + 1);
@@ -332,21 +377,21 @@ export default function Home() {
         setElevatorOpen(true);
       }, arrivalAt);
       addElevatorTimer(() => setFloorFade(false), arrivalAt + 360);
-      // Keep the current-floor display present through arrival, then fade the
-      // complete elevator interface as one unit instead of hiding its screen
-      // before the surrounding panel.
-      addElevatorTimer(() => setElevatorPanelClosing(true), arrivalAt + 600);
+      // The panorama is ready as soon as the arrival fade completes. Close
+      // the elevator overlay promptly so arriving at 3F does not leave the
+      // visitor waiting in an apparently blank scene.
+      addElevatorTimer(() => setElevatorPanelClosing(true), arrivalAt + 360);
       addElevatorTimer(() => {
         setElevatorPanelOpen(false);
         setElevatorPanelClosing(false);
         setElevatorTraveling(false);
-      }, arrivalAt + 980);
+      }, arrivalAt + 720);
       addElevatorTimer(() => {
         setElevatorOpen(false);
         setSelectedFloor(null);
         setElevatorDisplayArrived(false);
         setElevatorDisplayFloor(floor);
-      }, arrivalAt + 1760);
+      }, arrivalAt + 900);
     },
     [activeFloor, addElevatorTimer, elevatorTraveling],
   );
@@ -357,11 +402,13 @@ export default function Home() {
         content={content}
         onReady={onSceneReady}
         onTalk={onTalk}
+        onQrCode={openQrCode}
         onPatientFocus={onPatientFocus}
         patientFocusClearRequest={patientFocusClearRequest}
         onKnock={onKnock}
         onPatientCount={onPatientCount}
         onElevatorOpen={openElevator}
+        onWardVideoOpen={openWardVideo}
         activeFloor={activeFloor}
         elevatorOpen={elevatorOpen}
         cameraView={cameraView}
@@ -570,6 +617,99 @@ export default function Home() {
 
       <div className={`floor-transition${floorFade ? " active" : ""}`} />
       {toast && <div className="toast">✓ {toast}</div>}
+      {qrModalId && (() => {
+        const qr = content.qrCodes.find((entry) => entry.id === qrModalId);
+        if (!qr) return null;
+        return (
+          <div
+            className="qr-modal-overlay"
+            role="presentation"
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget) closeQrModal();
+            }}
+          >
+            <section
+              className="qr-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="qr-modal-title"
+            >
+              <button
+                type="button"
+                className="qr-modal-close"
+                aria-label="關閉 QR Code"
+                onClick={closeQrModal}
+              >
+                ×
+              </button>
+              <small>QR CODE</small>
+              <h2 id="qr-modal-title">{qr.name}</h2>
+              <div className="qr-modal-image">
+                {qr.hasCustomImage ? (
+                  <img
+                    src={`/api/qr-image/${qr.id}?v=${qr.imageSourceVersion}`}
+                    alt={`${qr.name} 圖片`}
+                  />
+                ) : (
+                  <p>尚未上傳 QR Code 圖片</p>
+                )}
+              </div>
+              <p className="qr-modal-location">{qr.location}</p>
+              <a
+                className="qr-modal-link"
+                href={`/qr/${qr.id}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                前往目標網頁➜
+              </a>
+            </section>
+          </div>
+        );
+      })()}
+      {wardVideoOpen && content.video.hasCustomVideo && (
+        <div
+          className="ward-video-modal-overlay"
+          role="presentation"
+          onPointerDown={(event) => {
+            if (event.target === event.currentTarget) closeWardVideo();
+          }}
+        >
+          <section
+            className="ward-video-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="病房電視影片"
+          >
+            <button
+              type="button"
+              className="ward-video-modal-close"
+              aria-label="關閉影片"
+              onClick={closeWardVideo}
+            >
+              ×
+            </button>
+            <video
+              key={content.video.sourceVersion}
+              className="ward-video-modal-player"
+              src={`/api/video?v=${content.video.sourceVersion}`}
+              controls
+              autoPlay
+              playsInline
+              preload="auto"
+              onLoadedMetadata={(event) => {
+                const video = event.currentTarget;
+                if (wardVideoStartTime > 0 && Number.isFinite(video.duration))
+                  video.currentTime = Math.min(
+                    wardVideoStartTime,
+                    Math.max(0, video.duration - 0.05),
+                  );
+                void video.play().catch(() => undefined);
+              }}
+            />
+          </section>
+        </div>
+      )}
       {dialog && (
         <div className="dialog" role="dialog" aria-label={dialog.title}>
           <button onClick={closeDialog} aria-label="關閉對話">×</button>
@@ -584,6 +724,7 @@ export default function Home() {
         <span>{activeFloor}F · COLLISION-SAFE NAVIGATION</span>
         <b>用心溝通，讓醫療更容易理解。</b>
       </footer>
+      <span className="site-version" aria-label="網站版本">v536</span>
     </main>
   );
 }

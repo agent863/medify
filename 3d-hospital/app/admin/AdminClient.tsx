@@ -7,6 +7,7 @@ import {
   AUDIO_SLOTS,
   PUBLIC_AUDIO_FALLBACKS,
   type AudioSlot,
+  type QrId,
   type SiteContentConfig,
 } from "../content-config";
 import { roleRuleGroups } from "./role-rules";
@@ -138,7 +139,19 @@ type AudioUploadResult = {
   etag?: string;
 };
 
+type VideoUploadResult = {
+  error?: string;
+  content?: SiteContentConfig;
+  video?: SiteContentConfig["video"];
+  uploadId?: string;
+  key?: string;
+  version?: number;
+  partNumber?: number;
+  etag?: string;
+};
+
 const AUDIO_PART_BYTES = 5 * 1024 * 1024;
+const VIDEO_PART_BYTES = 5 * 1024 * 1024;
 
 async function audioUploadResponse(response: Response) {
   try {
@@ -220,6 +233,70 @@ async function uploadAudioTrack(
     complete = await audioUploadResponse(completeResponse);
   if (!completeResponse.ok)
     throw new Error(complete.error || "音檔合併失敗");
+  return complete;
+}
+
+async function videoUploadResponse(response: Response) {
+  try {
+    return (await response.json()) as VideoUploadResult;
+  } catch {
+    return {
+      error:
+        response.status === 413
+          ? "影片分段上傳遭到拒絕，請改用較小的影片。"
+          : "伺服器沒有回傳有效的影片上傳結果。",
+    };
+  }
+}
+
+async function uploadWardScreenVideo(file: File) {
+  const startResponse = await fetch("/api/admin/video?action=start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fileName: file.name,
+        contentType: file.type || "video/mp4",
+        size: file.size,
+      }),
+    }),
+    start = await videoUploadResponse(startResponse);
+  if (!startResponse.ok || !start.uploadId || !start.key || !start.version)
+    throw new Error(start.error || "無法開始影片上傳");
+
+  const parts: Array<{ partNumber: number; etag: string }> = [];
+  for (let offset = 0, partNumber = 1; offset < file.size; partNumber++) {
+    const chunk = file.slice(offset, offset + VIDEO_PART_BYTES);
+    const partUrl = new URL("/api/admin/video", window.location.origin);
+    partUrl.searchParams.set("action", "part");
+    partUrl.searchParams.set("key", start.key);
+    partUrl.searchParams.set("uploadId", start.uploadId);
+    partUrl.searchParams.set("partNumber", String(partNumber));
+    const partResponse = await fetch(partUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: chunk,
+      }),
+      part = await videoUploadResponse(partResponse);
+    if (!partResponse.ok || !part.etag || !part.partNumber)
+      throw new Error(part.error || `影片第 ${partNumber} 段上傳失敗`);
+    parts.push({ partNumber: part.partNumber, etag: part.etag });
+    offset += chunk.size;
+  }
+
+  const completeResponse = await fetch("/api/admin/video?action=complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        key: start.key,
+        uploadId: start.uploadId,
+        version: start.version,
+        fileName: file.name,
+        parts,
+      }),
+    }),
+    complete = await videoUploadResponse(completeResponse);
+  if (!completeResponse.ok || !complete.content)
+    throw new Error(complete.error || "影片合併失敗");
   return complete;
 }
 
@@ -420,7 +497,7 @@ export default function AdminClient({
 }: Props) {
   const [content, setContent] = useState(initialContent);
   const [activeSection, setActiveSection] = useState<
-    "qr" | "dialogues" | "statuses" | "audio" | "rules"
+    "qr" | "dialogues" | "statuses" | "audio" | "video" | "rules"
   >("qr");
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
@@ -449,6 +526,8 @@ export default function AdminClient({
   const previewAudios = useRef<HTMLAudioElement[]>([]);
   const previewTimers = useRef<number[]>([]);
   const blobUrls = useRef(new Set<string>());
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [qrFiles, setQrFiles] = useState<Partial<Record<QrId, File>>>({});
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => setOrigin(window.location.origin));
@@ -515,6 +594,22 @@ export default function AdminClient({
     () => content.qrCodes.filter((entry) => entry.destinationUrl).length,
     [content.qrCodes],
   );
+
+  const uploadQrImage = async (qrId: QrId, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    const response = await fetch(
+      `/api/admin/qr-image?id=${encodeURIComponent(qrId)}`,
+      { method: "POST", body: form },
+    );
+    const result = (await response.json()) as {
+      content?: SiteContentConfig;
+      error?: string;
+    };
+    if (!response.ok || !result.content)
+      throw new Error(result.error || "QR Code 圖片儲存失敗");
+    return result.content;
+  };
 
   const stopPreview = () => {
     previewAudios.current.forEach((audio) => audio.pause());
@@ -733,6 +828,32 @@ export default function AdminClient({
     setNotice("");
     setError("");
     try {
+      let nextContent = content;
+      for (const entry of nextContent.qrCodes) {
+        const file = qrFiles[entry.id];
+        if (!file) continue;
+        const uploadedContent = await uploadQrImage(entry.id, file);
+        const uploadedEntry = uploadedContent.qrCodes.find(
+          (qr) => qr.id === entry.id,
+        );
+        if (uploadedEntry) {
+          nextContent = {
+            ...nextContent,
+            qrCodes: nextContent.qrCodes.map((qr) =>
+              qr.id === entry.id ? { ...qr, ...uploadedEntry } : qr,
+            ),
+          };
+          setContent(nextContent);
+        }
+      }
+      setQrFiles({});
+      if (videoFile) {
+        const uploaded = await uploadWardScreenVideo(videoFile);
+        if (!uploaded.content) throw new Error(uploaded.error || "影片儲存失敗");
+        nextContent = uploaded.content;
+        setContent(nextContent);
+        setVideoFile(null);
+      }
       const processedAudio = new Map<
         AudioSlot,
         { blob: Blob; duration: number; peaks: number[]; fileName: string }
@@ -767,7 +888,7 @@ export default function AdminClient({
       const response = await fetch("/api/admin/content", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(content),
+        body: JSON.stringify(nextContent),
       });
       const result = (await response.json()) as {
         content?: SiteContentConfig;
@@ -846,18 +967,21 @@ export default function AdminClient({
         <button className={activeSection === "dialogues" ? "active" : ""} onClick={() => setActiveSection("dialogues")}>角色台詞</button>
         <button className={activeSection === "statuses" ? "active" : ""} onClick={() => setActiveSection("statuses")}>病患狀態</button>
         <button className={activeSection === "audio" ? "active" : ""} onClick={() => setActiveSection("audio")}>場景聲音</button>
+        <button className={activeSection === "video" ? "active" : ""} onClick={() => setActiveSection("video")}>病房電視</button>
         <button className={activeSection === "rules" ? "active" : ""} onClick={() => setActiveSection("rules")}>角色規則</button>
       </nav>
 
       <section className="admin-panel">
         {activeSection === "qr" && (
           <div>
-            <div className="admin-section-title"><div><p>永久 QR CODE</p><h2>每一個位置都有獨立連結</h2></div><span>修改目的網址後，已印出的 QR Code 仍可繼續使用。</span></div>
+            <div className="admin-section-title"><div><p>永久 QR CODE</p><h2>每一個位置都有獨立連結</h2></div><span>手機點擊會直接前往目標網頁；電腦點擊會先顯示 QR Code 圖片，再由按鈕開啟目標網頁。</span></div>
             <div className="qr-admin-grid">
               {content.qrCodes.map((entry) => (
                 <article className="qr-admin-card" key={entry.id}>
                   <div><small>{entry.location}</small><h3>{entry.name}</h3></div>
                   <label>目的網址<input type="url" placeholder="https://…" value={entry.destinationUrl} onChange={(event) => setContent((current) => ({ ...current, qrCodes: current.qrCodes.map((qr) => qr.id === entry.id ? { ...qr, destinationUrl: event.target.value } : qr) }))}/></label>
+                  <label className="qr-image-upload">上傳 QR Code 圖片<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" onChange={(event) => { const file = event.target.files?.[0]; if (file) setQrFiles((current) => ({ ...current, [entry.id]: file })); }} /></label>
+                  {qrFiles[entry.id] ? <p className="qr-pending-file">待上傳：{qrFiles[entry.id]?.name}</p> : entry.hasCustomImage ? <img className="qr-admin-preview" src={`/api/qr-image/${entry.id}?v=${entry.imageSourceVersion}`} alt={`${entry.name} 預覽`} /> : <p>尚未上傳圖片，請選擇 QR Code 圖片後按下方儲存。</p>}
                   <p>永久網址：<code>{origin ? `${origin}/qr/${entry.id}` : `/qr/${entry.id}`}</code></p>
                 </article>
               ))}
@@ -929,6 +1053,22 @@ export default function AdminClient({
                 </div>
               </section>
             ))}
+          </div>
+        )}
+
+        {activeSection === "video" && (
+          <div>
+            <div className="admin-section-title"><div><p>WARD SCREEN MEDIA</p><h2>病房壁掛電視影片</h2></div><span>病房一與病房二同步靜音播放上傳影片；點擊任一電視後，中央播放器會接續播放並開啟聲音。</span></div>
+            <article className="video-admin-card">
+              <div>
+                <small>WARD 1 + WARD 2</small>
+                <h3>{content.video.hasCustomVideo ? "已有影片素材" : "目前尚未上傳影片"}</h3>
+                <p>{videoFile?.name || content.video.fileName}</p>
+              </div>
+              <label className="audio-upload">選擇影片檔案<input type="file" accept="video/*" onChange={(event) => setVideoFile(event.target.files?.[0] ?? null)} /></label>
+              <span className="video-upload-hint">支援瀏覽器可播放的 MP4、WebM 等格式，單檔上限 250 MB；按下「儲存並發布」後才會上傳。</span>
+              {content.video.hasCustomVideo && <video className="video-admin-preview" controls preload="metadata" src={`/api/video?v=${content.video.sourceVersion}`} />}
+            </article>
           </div>
         )}
 

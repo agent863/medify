@@ -79,6 +79,7 @@ type WardSwingDoor = {
 };
 
 type CourtyardAutoDoor = {
+  active: boolean;
   root: THREE.Group;
   tangent: THREE.Vector3;
   leaves: Array<{ mesh: THREE.Mesh; closed: THREE.Vector3; side: number }>;
@@ -107,6 +108,11 @@ export type ThirdFloorCareContext = {
   wardSwingDoors: WardSwingDoor[];
   courtyardAutoDoors: CourtyardAutoDoor[];
   courtyardDoorOpening: number;
+  courtyardSemicircleRadius: number;
+  courtyardCircleCenterZ: number;
+  courtyardCirclePathRadius: number;
+  courtyardLowerPlantingArcCenterZ: number;
+  courtyardLowerPlantingArcRadius: number;
   courtyardFacadeHalf: number;
   courtyardNorthWest: THREE.Vector3;
   courtyardNorthEast: THREE.Vector3;
@@ -127,6 +133,11 @@ export function createThirdFloorCare({
   wardSwingDoors,
   courtyardAutoDoors,
   courtyardDoorOpening,
+  courtyardSemicircleRadius,
+  courtyardCircleCenterZ,
+  courtyardCirclePathRadius,
+  courtyardLowerPlantingArcCenterZ,
+  courtyardLowerPlantingArcRadius,
   courtyardFacadeHalf,
   courtyardNorthWest,
   courtyardNorthEast,
@@ -174,7 +185,7 @@ export function createThirdFloorCare({
       activityPriority: number;
       lastActivitySequence: number;
       assignedCourtyardSeat?: number;
-      assignedCourtyardDoor?: 0 | 1 | 2;
+      assignedCourtyardDoor?: 1 | 2;
       inspectionReserved: boolean;
       partner?: number;
       pausedCourtyardRest: number;
@@ -236,6 +247,13 @@ export function createThirdFloorCare({
       doorExitHandoffSafePoint?: THREE.Vector3;
       doorExitHandoffPatientSide?: -1 | 1;
       doorExitHandoffWaitTime: number;
+      // An outbound nurse and an exiting patient may temporarily own
+      // opposite sides of the same ward doorway. Keep this exact inbound
+      // handoff finite as well; otherwise a stale patient side-pocket marker
+      // can leave both actors waiting forever.
+      doorEntryHandoffPatient?: number;
+      doorEntryHandoffRoom?: number;
+      doorEntryHandoffWaitTime: number;
     };
     type MedicationRobotMode =
       | "home"
@@ -263,6 +281,10 @@ export function createThirdFloorCare({
       actorYieldDoorRoom?: number;
       actorYieldNurse?: number;
       actorYieldCart?: number;
+      // Emergency retreat is used only for a verified nurse/robot mutual
+      // wait.  During that short retreat the robot may ignore that exact
+      // nurse/cart proxy, while fixed walls and glass remain authoritative.
+      actorYieldEmergencyRetreat?: boolean;
       actorYieldWaitTime: number;
       actorYieldPassThroughTime: number;
       // When a generic yield retreats diagonally to the robot's right, keep a
@@ -285,6 +307,12 @@ export function createThirdFloorCare({
       doorEntryPatient?: number;
       doorEntryRoom?: number;
       doorEntryWaitPoint?: THREE.Vector3;
+      // A returning cabinet can wait on the opposite side of a ward door
+      // while the entering patient reaches the room. Keep this timer separate
+      // from the outbound/exiting-patient handoff timer so this state cannot
+      // remain parked forever.
+      doorEntryStallRoom?: number;
+      doorEntryStallTime: number;
       // An inbound robot has been released through the doorway after the
       // patient reached the side pocket. Keep this exact pair non-blocking
       // until the robot's centre is inside the same room; otherwise the
@@ -292,11 +320,25 @@ export function createThirdFloorCare({
       // the robot step into the room and immediately back out.
       doorPassThroughPatient?: number;
       doorPassThroughRoom?: number;
+      // After a timed-out doorway handoff, suppress re-queuing other actors at
+      // the same door for one short, geometry-checked recovery window.
+      doorHandoffRecoveryRoom?: number;
+      doorHandoffRecoveryTime: number;
+      doorHandoffStallRoom?: number;
+      doorHandoffStallTime: number;
       // An inbound cabinet holds at the doorway while the exiting patient
       // reaches its side pocket, then crosses the threshold into the room.
       doorInboundPatient?: number;
       doorInboundRoom?: number;
+      // A doorway handoff must have a finite lifetime. Keep this separate
+      // from the generic movement watchdog because a valid side-pocket wait
+      // intentionally resets that watchdog every frame.
+      doorHandoffWaitTime: number;
       northCourtyardPassDirection?: -1 | 1;
+      // Arrival at the bedside is also a visible navigation turn. Keep the
+      // target until the cabinet has actually completed its turn instead of
+      // starting the medication animation while the body is still rotating.
+      servingTargetYaw?: number;
     };
 
     const inpatientWalkSpeed = 0.52,
@@ -358,6 +400,19 @@ export function createThirdFloorCare({
       medicationRobotYieldReleaseDistance = 2,
       medicationRobotYieldForceResumeDelay = 2,
       medicationRobotYieldPassThroughDuration = 4,
+      // A nurse and the medication cabinet can enter the same narrow doorway
+      // pocket from opposite sides.  Give the cabinet a short, deterministic
+      // retreat window before the normal movement watchdog rebuilds either
+      // task; this prevents both actors from rotating in place forever.
+      medicationRobotNurseDeadlockThreshold = 1.15,
+      // Do not let an exiting-patient handoff keep resetting a valid wait
+      // forever when the two actors cannot complete the exchange.
+      medicationRobotDoorHandoffForceResumeDelay = 3.2,
+      // A doorway handoff is deliberately finite. If the patient and the
+      // returning nurse/cart do not complete the side-pocket exchange within
+      // this window, release the stale pair and rebuild both routes from their
+      // current positions instead of allowing a permanent mutual wait.
+      nurseDoorHandoffForceResumeDelay = 3.2,
       thirdFloorYaw = (from: THREE.Vector3, to: THREE.Vector3) =>
         Math.atan2(-(to.x - from.x), -(to.z - from.z)),
       // Patient and nurse rigs both face local -Z (hair is on +Z). Keeping
@@ -394,20 +449,83 @@ export function createThirdFloorCare({
           0.72;
         return direct.lerp(nextDirection, blend).normalize();
       },
+      // The ward 1/2 doorway connector is a sampled cubic curve. Use the
+      // local route tangent (rather than only the current chord to the next
+      // sample) as the facing direction, so the character follows one
+      // continuous turn instead of making a small heading correction at each
+      // sample.
+      thirdFloorDoorCurveDirection = (
+        current: THREE.Vector3,
+        route: THREE.Vector3[],
+        waypoint: number,
+      ) => {
+        const target = route[waypoint],
+          previous = route[Math.max(0, waypoint - 1)],
+          next = route[Math.min(route.length - 1, waypoint + 2)],
+          direct = target
+            ? target.clone().sub(current).setY(0)
+            : new THREE.Vector3(0, 0, -1);
+        if (direct.lengthSq() < 0.0001) return direct.set(0, 0, -1);
+        direct.normalize();
+        if (!previous || !next) return direct;
+        const tangent = next.clone().sub(previous).setY(0);
+        if (tangent.lengthSq() < 0.0001) return direct;
+        tangent.normalize();
+        if (direct.dot(tangent) < 0.05) return direct;
+        // Preview the local tangent before reaching the current sample. This
+        // creates one continuous heading profile instead of restarting a new
+        // turn at every densely sampled waypoint.
+        // Keep the path tangent as a preview, but do not let it overpower the
+        // actual next sample. A strong tangent blend makes the body steer
+        // past the curve and then correct back, which reads as lateral wobble.
+        return direct.lerp(tangent, 0.38).normalize();
+      },
       northCourtyardDoor = courtyardNorthWest
         .clone()
         .add(courtyardNorthEast)
         .multiplyScalar(0.5),
-      northCourtyardInside = new THREE.Vector3(0, 0, 0.42),
+      courtyardNorthWallZ = courtyardNorthWest.z,
+      courtyardNorthPlanterTipZ =
+        courtyardNorthWallZ + courtyardSemicircleRadius,
+      courtyardCentreReference = new THREE.Vector3(
+        0,
+        0,
+        courtyardCircleCenterZ,
+      ),
+      northCourtyardInside = new THREE.Vector3(
+        0,
+        0,
+        courtyardNorthWallZ + 0.42,
+      ),
       courtyardStoneSeatBases = [
-        new THREE.Vector3(-2.37, 0.14, 2.09),
-        new THREE.Vector3(2.37, 0.14, 2.09),
-        new THREE.Vector3(-2.43, 0.14, 4.87),
-        new THREE.Vector3(2.43, 0.14, 4.87),
+        new THREE.Vector3(
+          -courtyardSemicircleRadius / Math.sqrt(2),
+          0.14,
+          courtyardNorthWallZ + courtyardSemicircleRadius / Math.sqrt(2),
+        ),
+        new THREE.Vector3(0, 0.14, courtyardNorthPlanterTipZ),
+        new THREE.Vector3(
+          courtyardSemicircleRadius / Math.sqrt(2),
+          0.14,
+          courtyardNorthWallZ + courtyardSemicircleRadius / Math.sqrt(2),
+        ),
+        new THREE.Vector3(
+          -2.43,
+          0.14,
+          courtyardLowerPlantingArcCenterZ +
+            Math.sqrt(courtyardLowerPlantingArcRadius ** 2 - 2.43 ** 2),
+        ),
+        new THREE.Vector3(
+          2.43,
+          0.14,
+          courtyardLowerPlantingArcCenterZ +
+            Math.sqrt(courtyardLowerPlantingArcRadius ** 2 - 2.43 ** 2),
+        ),
       ],
       courtyardPlantingCentres = [
-        new THREE.Vector3(-3.35, 0, 0.48),
-        new THREE.Vector3(3.35, 0, 0.48),
+        new THREE.Vector3(0, 0, courtyardNorthWallZ),
+        new THREE.Vector3(0, 0, courtyardNorthWallZ),
+        new THREE.Vector3(0, 0, courtyardNorthWallZ),
         new THREE.Vector3(-3.7, 0, 5.58),
         new THREE.Vector3(3.7, 0, 5.58),
       ],
@@ -416,16 +534,12 @@ export function createThirdFloorCare({
       // places on the same bench are already occupied.
       courtyardStoneSeatBodyOffset = 0.1,
       courtyardStoneSeats = courtyardStoneSeatBases.flatMap((base, benchIndex) => {
-        const facing = new THREE.Vector3(0, 0, 3.48)
-            .sub(base)
-            .setY(0)
-            .normalize(),
-          tangent = new THREE.Vector3(-facing.z, 0, facing.x),
-          outward = base
+        const outward = base
             .clone()
             .sub(courtyardPlantingCentres[benchIndex])
             .setY(0)
-            .normalize();
+            .normalize(),
+          tangent = new THREE.Vector3(-outward.z, 0, outward.x);
         // The stone cap is 46 cm deep. Keep a modest promenade-side inset so
         // the hips visibly remain over the seat surface while the torso and
         // rise origin still stay outside the planting bed.
@@ -453,27 +567,23 @@ export function createThirdFloorCare({
           return [outward.clone(), outward.clone()];
         },
       ),
-      // The two north/upper benches are seat groups 0 and 1. Their radial
-      // planting-centre normals point diagonally toward the inner corners, so
-      // a centre-side seat can otherwise enter with a 150° rear turn. Use a
-      // mirrored open-promenade heading for seated presentation: the upper-left
-      // bench faces -Z and the upper-right bench faces +Z. Exit channels still
-      // use the geometric outward vectors above.
-      courtyardStoneSeatFacingDirections = courtyardStoneSeats.map(
-        (_, seatIndex) =>
-          Math.floor(seatIndex / 2) === 0
-            ? new THREE.Vector3(0, 0, -1)
-            : Math.floor(seatIndex / 2) === 1
-              ? new THREE.Vector3(0, 0, 1)
-            : courtyardStoneSeatOutwardDirections[seatIndex].clone(),
-      ),
+      // Every seated patient faces the actual central promenade, not the
+      // nearby planting bed. Derive the heading from each physical seat so
+      // mirrored and corner benches cannot inherit a reversed group-wide yaw.
+      // Departure channels continue to use the separate geometric outward
+      // vectors above.
+      courtyardStoneSeatFacingDirections = courtyardStoneSeatOutwardDirections,
       courtyardStoneSeatExitPoint = (seatIndex: number) =>
         courtyardStoneSeats[seatIndex]
           .clone()
           .setY(0)
           .addScaledVector(
             courtyardStoneSeatOutwardDirections[seatIndex],
-            1.28,
+            // Leave a full body-width beyond the stone cap before turning.
+            // The old 0.62/1.28 m points left the torso or IV stand in the
+            // seat envelope, so the next steering frame could keep rotating
+            // against the cap instead of reaching the promenade.
+            seatIndex < 6 ? 0.96 : 1.48,
           ),
       courtyardStoneSeatChannelContains = (
         seatIndex: number,
@@ -487,17 +597,21 @@ export function createThirdFloorCare({
           lateralDistance = Math.abs(relative.dot(tangent));
         return (
           outwardDistance >= -0.08 &&
-          outwardDistance <= 1.36 &&
-          lateralDistance <= 0.42
+          outwardDistance <= 1.58 &&
+          lateralDistance <= 0.5
         );
       },
       courtyardStoneSeatIvParkPoint = (seatIndex: number) => {
-        const seat = courtyardStoneSeats[seatIndex];
-        return new THREE.Vector3(
-          seat.x - Math.sign(seat.x || 1) * 0.24,
-          courtyardPatientGroundY,
-          seat.z < 3.48 ? 2.82 : 4.14,
-        );
+        const seat = courtyardStoneSeats[seatIndex],
+          semiCircleSeat = seatIndex < 6;
+        return seat
+          .clone()
+          .addScaledVector(
+            courtyardStoneSeatOutwardDirections[seatIndex],
+            semiCircleSeat ? 0.42 : 0.68,
+          )
+          .add(new THREE.Vector3(-Math.sign(seat.x || 1) * 0.24, 0, 0))
+          .setY(courtyardPatientGroundY);
       },
       lyingPose = (slot: WardBedSlot) => {
         const poseY = slot.out.clone().normalize(),
@@ -531,64 +645,207 @@ export function createThirdFloorCare({
         slot.doorCentre.clone().addScaledVector(slot.out, 0.86).setY(0),
       roomOutsidePoint = (slot: WardBedSlot) =>
         slot.doorCentre.clone().addScaledVector(slot.out, -0.92).setY(0),
-      patientCourtyardQueue = new THREE.Vector3(0, 0, -1.58),
+      patientCourtyardQueue = new THREE.Vector3(0, 0, 4.3),
       courtyardDoorCentres = [
         northCourtyardDoor.clone(),
         westDoorCentre.clone(),
         eastDoorCentre.clone(),
       ],
-      courtyardCentreReference = new THREE.Vector3(0, 0, 3.48),
+      courtyardDoorCrossingCentres = courtyardDoorCentres.map(
+        (centre, index) =>
+          index === 0
+            ? centre.clone()
+            : centre
+                .clone()
+                .addScaledVector(courtyardAutoDoors[index].tangent, -0.45),
+      ),
       // The patient body and left-hand IV stand both fit between the upper
       // and lower stone boundaries at this surveyed east-west centreline.
-      courtyardEastWestLaneZ = 3.36,
+      courtyardEastWestLaneZ = 4.3,
       // Clockwise order viewed from above: north, east, south, west. Every
       // courtyard route joins this ring instead of cutting across the centre.
       courtyardRoundaboutRing = [
-        new THREE.Vector3(0, 0, 2.05),
-        new THREE.Vector3(1.43, 0, 3.48),
-        new THREE.Vector3(0, 0, 4.91),
-        new THREE.Vector3(-1.43, 0, 3.48),
+        new THREE.Vector3(
+          0,
+          0,
+          courtyardCircleCenterZ - courtyardCirclePathRadius + 0.1,
+        ),
+        new THREE.Vector3(
+          courtyardCirclePathRadius - 0.1,
+          0,
+          courtyardCircleCenterZ,
+        ),
+        new THREE.Vector3(
+          0,
+          0,
+          courtyardCircleCenterZ + courtyardCirclePathRadius - 0.1,
+        ),
+        new THREE.Vector3(
+          -courtyardCirclePathRadius + 0.1,
+          0,
+          courtyardCircleCenterZ,
+        ),
       ],
-      courtyardClockwiseArc = (fromIndex: number, toIndex: number) => {
-        const points: THREE.Vector3[] = [],
-          count = courtyardRoundaboutRing.length;
-        let index = ((fromIndex % count) + count) % count;
-        points.push(courtyardRoundaboutRing[index].clone());
-        while (index !== toIndex) {
-          index = (index + 1) % count;
-          points.push(courtyardRoundaboutRing[index].clone());
-        }
-        return points;
-      },
-      courtyardDoorInsidePoints = courtyardDoorCentres.map((centre, index) =>
-        index === 0
-          ? northCourtyardInside.clone()
-          : centre
-              .clone()
-              .add(
-                courtyardCentreReference
-                  .clone()
-                  .sub(centre)
-                  .setY(0)
-                  .normalize()
-                  .multiplyScalar(0.92),
-              ),
+      // The lower planting bed is a concentric arc around the same centre as
+      // the north flowerbed. The planting occupies the outside/south side of
+      // this boundary, so the patient lane must sit one walkway width inside
+      // the planting radius. The previous `+ 0.88` value put the route on the
+      // green surface and made patients cut straight through the seat/bed
+      // area even though the route was labelled as an edge route.
+      courtyardLowerPlantingEdgePathRadius =
+        Math.max(0.6, courtyardLowerPlantingArcRadius - 0.88),
+      courtyardLowerPlantingEdgeHalfWidth = Math.sqrt(
+        Math.max(
+          0,
+          courtyardLowerPlantingEdgePathRadius ** 2 -
+            (courtyardEastWestLaneZ - courtyardLowerPlantingArcCenterZ) ** 2,
+        ),
       ),
-      courtyardDoorOutsidePoints = courtyardDoorCentres.map((centre, index) =>
-        index === 0
-          ? patientCourtyardQueue.clone()
-          : centre
-              .clone()
-              .add(
-                centre
-                  .clone()
-                  .sub(courtyardCentreReference)
-                  .setY(0)
-                  .normalize()
-                  .multiplyScalar(0.92),
-              ),
+      courtyardLowerPlantingEdgeStartAngle = Math.atan2(
+        courtyardEastWestLaneZ - courtyardLowerPlantingArcCenterZ,
+        -courtyardLowerPlantingEdgeHalfWidth,
       ),
-      courtyardDoorLaneOffset = 0.5,
+      courtyardLowerPlantingEdgeEndAngle = Math.atan2(
+        courtyardEastWestLaneZ - courtyardLowerPlantingArcCenterZ,
+        courtyardLowerPlantingEdgeHalfWidth,
+      ),
+      courtyardLowerPlantingEdge = Array.from(
+        { length: 21 },
+        (_, index) => {
+          const angle = THREE.MathUtils.lerp(
+            courtyardLowerPlantingEdgeStartAngle,
+            courtyardLowerPlantingEdgeEndAngle,
+            index / 20,
+          );
+          return new THREE.Vector3(
+            courtyardLowerPlantingEdgePathRadius * Math.cos(angle),
+            0,
+            courtyardLowerPlantingArcCenterZ +
+              courtyardLowerPlantingEdgePathRadius * Math.sin(angle),
+          );
+        },
+      ),
+      courtyardNearestLowerPlantingEdgeIndex = (point: THREE.Vector3) =>
+        courtyardLowerPlantingEdge.reduce(
+          (nearest, candidate, index) =>
+            actorHorizontalDistance(point, candidate) <
+            actorHorizontalDistance(
+              point,
+              courtyardLowerPlantingEdge[nearest],
+            )
+              ? index
+              : nearest,
+          0,
+        ),
+      // The central promenade has two directional tracks.  Viewed from
+      // above, right-to-left traffic follows the northern red arc around the
+      // upper semicircle; left-to-right traffic follows the southern blue arc
+      // beside the lower planting edge.  Keep the arcs as explicit surveyed
+      // waypoints instead of letting look-ahead steering blend them into the
+      // flowerbeds or stone seats.
+      courtyardCentralJunction = new THREE.Vector3(
+        0,
+        0,
+        courtyardEastWestLaneZ,
+      ),
+      courtyardNorthArcPathRadius = courtyardSemicircleRadius + 0.82,
+      // The red westbound lane stays close to the upper glass wall on both
+      // side arms before it bends around the upper flowerbed. Keep a separate
+      // join from the blue lower-lane join so an east-side entrant never
+      // drops down beside the lower seats first.
+      courtyardNorthGlassLaneZ = courtyardNorthWallZ + 0.72,
+      courtyardNorthArcHalfWidth = Math.sqrt(
+        Math.max(
+          0,
+          courtyardNorthArcPathRadius ** 2 -
+            (courtyardNorthGlassLaneZ - courtyardNorthWallZ) ** 2,
+        ),
+      ),
+      courtyardNorthArcEastAngle = Math.atan2(
+        courtyardNorthGlassLaneZ - courtyardNorthWallZ,
+        courtyardNorthArcHalfWidth,
+      ),
+      courtyardNorthArcWestAngle =
+        Math.PI - courtyardNorthArcEastAngle,
+      courtyardNorthArcEastToWest = Array.from(
+        { length: 33 },
+        (_, index) => {
+          const angle = THREE.MathUtils.lerp(
+            courtyardNorthArcEastAngle,
+            courtyardNorthArcWestAngle,
+            index / 32,
+          );
+          return new THREE.Vector3(
+            courtyardNorthArcPathRadius * Math.cos(angle),
+            0,
+            courtyardNorthWallZ +
+              courtyardNorthArcPathRadius * Math.sin(angle),
+          );
+        },
+      ),
+      courtyardSouthArcPathRadius = courtyardLowerPlantingEdgePathRadius,
+      courtyardSouthArcHalfWidth = Math.sqrt(
+        Math.max(
+          0,
+          courtyardSouthArcPathRadius ** 2 -
+            (courtyardEastWestLaneZ - courtyardLowerPlantingArcCenterZ) ** 2,
+        ),
+      ),
+      courtyardSouthArcWestAngle = Math.atan2(
+        courtyardEastWestLaneZ - courtyardLowerPlantingArcCenterZ,
+        -courtyardSouthArcHalfWidth,
+      ),
+      courtyardSouthArcEastAngle = Math.atan2(
+        courtyardEastWestLaneZ - courtyardLowerPlantingArcCenterZ,
+        courtyardSouthArcHalfWidth,
+      ),
+      courtyardSouthArcWestToEast = Array.from(
+        { length: 41 },
+        (_, index) => {
+          const angle = THREE.MathUtils.lerp(
+            courtyardSouthArcWestAngle,
+            courtyardSouthArcEastAngle,
+            index / 40,
+          );
+          return new THREE.Vector3(
+            courtyardSouthArcPathRadius * Math.cos(angle),
+            0,
+            courtyardLowerPlantingArcCenterZ +
+              courtyardSouthArcPathRadius * Math.sin(angle),
+          );
+        },
+      ),
+      courtyardNorthArcMidIndex = Math.floor(
+        courtyardNorthArcEastToWest.length / 2,
+      ),
+      courtyardSouthArcMidIndex = Math.floor(
+        courtyardSouthArcWestToEast.length / 2,
+      ),
+      courtyardDoorInsidePoints = courtyardDoorCentres.map((centre, index) => {
+        if (index === 0) return northCourtyardInside.clone();
+        const tangent = courtyardAutoDoors[index].tangent,
+          inward = new THREE.Vector3(
+            -Math.sign(centre.x) * Math.abs(tangent.z),
+            0,
+            Math.abs(tangent.x),
+          ).normalize();
+        return courtyardDoorCrossingCentres[index]
+          .clone()
+          .addScaledVector(inward, 0.64);
+      }),
+      courtyardDoorOutsidePoints = courtyardDoorCentres.map((centre, index) => {
+        if (index === 0) return patientCourtyardQueue.clone();
+        const tangent = courtyardAutoDoors[index].tangent,
+          outward = new THREE.Vector3(
+            Math.sign(centre.x) * Math.abs(tangent.z),
+            0,
+            -Math.abs(tangent.x),
+          ).normalize();
+        return courtyardDoorCrossingCentres[index]
+          .clone()
+          .addScaledVector(outward, 0.68);
+      }),
+      courtyardDoorLaneOffset = 0.32,
       // Shorten the automatic-door sensing apron to 60% of the former
       // distance. The door still opens before the body reaches the threshold,
       // but no longer reacts to actors several metres away.
@@ -599,7 +856,7 @@ export function createThirdFloorCare({
         location: "outside" | "threshold" | "inside",
         entering: boolean,
       ) => {
-        const centre = courtyardDoorCentres[doorIndex],
+        const centre = courtyardDoorCrossingCentres[doorIndex],
           inward = courtyardDoorInsidePoints[doorIndex]
             .clone()
             .sub(centre)
@@ -612,33 +869,23 @@ export function createThirdFloorCare({
               ? courtyardDoorOutsidePoints[doorIndex]
               : location === "inside"
                 ? courtyardDoorInsidePoints[doorIndex]
-                : centre;
+                : courtyardDoorCrossingCentres[doorIndex];
         return base
           .clone()
           .addScaledVector(right, courtyardDoorLaneOffset)
           .setY(0);
       },
-      courtyardDoorLaneThresholds = ([0, 1, 2] as const).flatMap(
+      courtyardDoorLaneThresholds = ([1, 2] as const).flatMap(
         (doorIndex) => [
           courtyardDoorLanePoint(doorIndex, "threshold", true),
           courtyardDoorLanePoint(doorIndex, "threshold", false),
         ],
       ),
-      // Keep the whole north entrance arm straight. Inbound and outbound
-      // patients stay on separate right-hand lines until they are well clear
-      // of the doorway, then merge with the roundabout away from the leaves.
-      courtyardNorthEntryRelease = new THREE.Vector3(
-        courtyardDoorLanePoint(0, "inside", true).x,
-        0,
-        1.72,
-      ),
-      courtyardNorthExitRelease = new THREE.Vector3(
-        courtyardDoorLanePoint(0, "inside", false).x,
-        0,
-        1.72,
-      ),
+      // Side-door flows join the central promenade beyond the semicircle.
+      courtyardNorthEntryRelease = new THREE.Vector3(0, 0, 4.3),
+      courtyardNorthExitRelease = new THREE.Vector3(0, 0, 4.3),
       courtyardGateToNorthRoute = (
-        doorIndex: 0 | 1 | 2,
+        doorIndex: 1 | 2,
         entering = true,
       ) => {
         const laneInside = courtyardDoorLanePoint(
@@ -646,19 +893,33 @@ export function createThirdFloorCare({
           "inside",
           entering,
         );
-        if (doorIndex === 0)
-          return [laneInside, courtyardNorthEntryRelease.clone()];
-        const side = doorIndex === 1 ? -1 : 1,
-          sideRingIndex = doorIndex === 1 ? 3 : 1;
-        return courtyardRightLaneRoute([
+        if (doorIndex === 1) {
+          // West-to-east traffic uses the blue/southern track. Join the
+          // surveyed arc directly from the door's inside lane; the old
+          // central-junction join sent the actor to the statue-side centre and
+          // then back to the same arc midpoint when the loop started.
+          return [
+            laneInside,
+            ...courtyardSouthArcWestToEast.slice(
+              0,
+              courtyardSouthArcMidIndex + 1,
+            ),
+          ];
+        }
+        // East-to-west traffic uses the red/northern track. The direct join
+        // prevents the first post-threshold step from reversing toward the
+        // glass wall before entering the arc. It ends at the arc midpoint so
+        // the return loop can continue without a central-junction detour.
+        return [
           laneInside,
-          new THREE.Vector3(side * 3.72, 0, courtyardEastWestLaneZ),
-          ...courtyardClockwiseArc(sideRingIndex, 0),
-          courtyardNorthEntryRelease.clone(),
-        ]);
+          ...courtyardNorthArcEastToWest.slice(
+            0,
+            courtyardNorthArcMidIndex + 1,
+          ),
+        ];
       },
       courtyardNorthToGateRoute = (
-        doorIndex: 0 | 1 | 2,
+        doorIndex: 1 | 2,
         entering = false,
       ) => {
         const laneInside = courtyardDoorLanePoint(
@@ -666,28 +927,32 @@ export function createThirdFloorCare({
           "inside",
           entering,
         );
-        if (doorIndex === 0)
-          return [courtyardNorthExitRelease.clone(), laneInside];
-        const side = doorIndex === 1 ? -1 : 1,
-          sideRingIndex = doorIndex === 1 ? 3 : 1;
-        return courtyardRightLaneRoute([
-          courtyardNorthExitRelease.clone(),
-          ...courtyardClockwiseArc(0, sideRingIndex),
-          new THREE.Vector3(side * 3.72, 0, courtyardEastWestLaneZ),
+        if (doorIndex === 1) {
+          // Centre-to-west traffic turns onto the red/northern track.
+          return [
+            courtyardCentralJunction.clone(),
+            courtyardNorthArcEastToWest[courtyardNorthArcMidIndex].clone(),
+            ...courtyardNorthArcEastToWest.slice(
+              courtyardNorthArcMidIndex + 1,
+            ),
+            laneInside,
+          ];
+        }
+        // Centre-to-east traffic turns onto the blue/southern track.
+        return [
+          courtyardCentralJunction.clone(),
+          courtyardSouthArcWestToEast[courtyardSouthArcMidIndex].clone(),
+          ...courtyardSouthArcWestToEast.slice(
+            courtyardSouthArcMidIndex + 1,
+          ),
           laneInside,
-        ]);
+        ];
       },
       // Patients and nurses share two persistent right-hand lanes in the
       // public ward corridor: eastbound traffic uses the southern lane and
       // westbound traffic uses the northern lane.
       wardCorridorLaneZ = (eastbound: boolean) =>
         eastbound ? -1.94 : -3.42,
-      // The nurse pushes a 0.8 m long cart in front of the body. Its
-      // eastbound line sits 28 cm north of the pedestrian/robot lane so the
-      // cart can finish the west-corner turn without its front edge entering
-      // the courtyard glass envelope; it remains on the right-hand half.
-      wardNurseLaneZ = (eastbound: boolean) =>
-        eastbound ? -2.22 : wardCorridorLaneZ(false),
       // Offset a surveyed centreline to the actor's actual right side. The
       // route arrays below are sometimes stored room-to-corridor even when
       // they are traversed in reverse, so the travel direction must be
@@ -707,6 +972,35 @@ export function createThirdFloorCare({
           const right = new THREE.Vector3(-tangent.z, 0, tangent.x);
           return point.clone().addScaledVector(right, offset).setY(0);
         }),
+      // Keep the medication robot on its own parallel pair beside the public
+      // patient lanes. In particular, the westbound robot lane must not reuse
+      // wardNurseCorridorZ (-3.42), which is also the nurse/public westbound
+      // lane and was the direct cause of the robot/nurse deadlock.
+      medicationRobotCorridorLaneZ = (eastbound: boolean) =>
+        eastbound ? -1.72 : -3.64,
+      // Ward 3's branch is part of the same public two-way corridor. Keep a
+      // surveyed centreline so every actor can select a true right-hand lane
+      // instead of sharing the old diagonal room branch.
+      wardThreePublicCorridorCentreline = [
+        new THREE.Vector3(9.96, 0, 2.52),
+        new THREE.Vector3(8.42, 0, 0.18),
+        new THREE.Vector3(7.12, 0, -2.22),
+        new THREE.Vector3(4.24, 0, -2.68),
+        new THREE.Vector3(4.18, 0, -2.68),
+      ],
+      wardThreePatientCorridorCentreline = [
+        ...wardThreePublicCorridorCentreline,
+        new THREE.Vector3(0, 0, -2.68),
+      ],
+      wardThreePublicCorridorLane = (
+        towardWard: boolean,
+        offset = 0.74,
+      ) =>
+        directionalRightLaneRoute(
+          wardThreePublicCorridorCentreline,
+          towardWard ? false : true,
+          offset,
+        ).reverse(),
       // A medical cart needs more turning depth than a walking patient. Keep
       // every cross-building nurse segment on one straight line well north of
       // the courtyard entrance; turns occur only at the station merge or the
@@ -731,7 +1025,10 @@ export function createThirdFloorCare({
           ];
         if (slot.room === 2)
           return [
-            new THREE.Vector3(5.82, 0, -2.94),
+            // Join the ward-front corridor on the selected lane first. The
+            // previous -2.94 point cut diagonally across the two-way corridor
+            // before the patient reached the right-hand lane.
+            new THREE.Vector3(5.82, 0, laneZ),
             new THREE.Vector3(4.18, 0, laneZ),
             new THREE.Vector3(0, 0, laneZ),
           ];
@@ -741,22 +1038,86 @@ export function createThirdFloorCare({
         // toward the courtyard use the opposite north/west edge. The former
         // fixed points were a shared centreline and forced the robot toward
         // the wall whenever it met a patient here.
-        const wardThreeCentreline = [
-          new THREE.Vector3(9.96, 0, 2.52),
-          new THREE.Vector3(8.42, 0, 0.18),
-          new THREE.Vector3(7.12, 0, -2.22),
-          new THREE.Vector3(4.24, 0, -2.68),
-          new THREE.Vector3(0, 0, -2.68),
-        ];
         return directionalRightLaneRoute(
-          wardThreeCentreline,
+          wardThreePatientCorridorCentreline,
           enteringCourtyard,
           0.74,
         );
       },
+      // Keep the room-side approach straight through the doorway. The broad
+      // curve belongs to the public corridor side, so a patient does not spin
+      // inside the room while trying to line up with the outside lane.
+      patientDoorCurveStartPoint = (slot: WardBedSlot) =>
+        roomOutsidePoint(slot),
+      patientWardDoorCurve = (
+        slot: WardBedSlot,
+        route: THREE.Vector3[],
+      ) => {
+        // Start the connector just outside the doorway. The preceding
+        // roomInside -> door -> roomOutside points remain a straight passage;
+        // the reversed route uses this same connector in the opposite
+        // direction, so arrivals and departures share one smooth corridor
+        // turn without rotating in the room.
+        if (slot.room === 3 || route.length === 0) return route;
+        const curveStart = patientDoorCurveStartPoint(slot),
+          first = route[0].clone().setY(0),
+          initial = first.clone().sub(curveStart).setY(0),
+          approach = (route[1] ?? first)
+            .clone()
+            .sub(first)
+            .setY(0);
+        if (initial.lengthSq() < 0.001) return route;
+        initial.normalize();
+        if (approach.lengthSq() < 0.001)
+          approach.copy(initial);
+        approach.normalize();
+        // Give the doorway turn enough radius to read as a broad arc rather
+        // than a softened right angle. The control points remain between
+        // the surveyed door and corridor points, so the larger curve does
+        // not widen into the ward shell.
+        const curveDepth = Math.min(1.84, curveStart.distanceTo(first) * 0.78),
+          controlStart = curveStart
+            .clone()
+            .addScaledVector(initial, curveDepth),
+          controlEnd = first.clone().addScaledVector(approach, -curveDepth),
+          cubicPoint = (t: number) => {
+            const inverse = 1 - t,
+              point = curveStart
+                .clone()
+                .multiplyScalar(inverse * inverse * inverse)
+                .add(
+                  controlStart
+                    .clone()
+                    .multiplyScalar(3 * inverse * inverse * t),
+                )
+                .add(
+                  controlEnd.clone().multiplyScalar(3 * inverse * t * t),
+                )
+                .add(first.clone().multiplyScalar(t * t * t));
+            return point.setY(0);
+          },
+          // Keep the same geometric curve, but sample it densely enough that
+          // the walker never has to negotiate three visibly separate corners.
+          // The movement solver can blend each short segment while the body
+          // keeps its continuous tangent through the doorway.
+          connector = Array.from({ length: 25 }, (_, index) =>
+            cubicPoint((index + 1) / 26),
+          ).filter(
+            (point, index, points) =>
+              point.distanceToSquared(curveStart) > 0.01 &&
+              (index === 0 ||
+                point.distanceToSquared(points[index - 1]) > 0.01),
+          );
+        return [
+          slot.doorCentre.clone().setY(0),
+          curveStart,
+          ...connector,
+          ...route,
+        ];
+      },
       patientRoomToCourtyardDoorPath = (
         slot: WardBedSlot,
-        doorIndex: 0 | 1 | 2,
+        doorIndex: 1 | 2,
         entering = true,
       ) => {
         const laneOutside = courtyardDoorLanePoint(
@@ -764,152 +1125,59 @@ export function createThirdFloorCare({
           "outside",
           entering,
         );
-        if (doorIndex === 0)
-          return patientRoomCorridorPath(slot, entering).concat(
-            laneOutside,
-          );
         if (doorIndex === 1 && slot.room === 1) {
-          const outward = westDoorCentre
-            .clone()
-            .sub(courtyardCentreReference)
-            .setY(0)
-            .normalize(),
-            centreline = [
+          const centreline = [
               new THREE.Vector3(-5.82, 0, -2.68),
               new THREE.Vector3(-6.18, 0, -1.88),
-              courtyardNorthWest
-                .clone()
-                .addScaledVector(outward, 0.92),
-              courtyardDoorOutsidePoints[doorIndex].clone(),
+              new THREE.Vector3(
+                courtyardNorthWest.x - 0.95,
+                0,
+                courtyardNorthWallZ,
+              ),
+              laneOutside.clone(),
             ],
-            lane = directionalRightLaneRoute(centreline, entering, 0.5);
-          // The threshold point is derived from the door's actual inward
-          // normal. Keep it exact after offsetting the west-facade approach.
+            lane = directionalRightLaneRoute(centreline, entering, 0.4);
           lane[lane.length - 1] = laneOutside;
-          return lane;
+          return patientWardDoorCurve(slot, lane);
         }
         if (doorIndex === 2 && slot.room >= 2) {
-          const outward = eastDoorCentre
-            .clone()
-            .sub(courtyardCentreReference)
-            .setY(0)
-            .normalize();
-          if (!entering) {
-            // The outer Ward 2/3 facade is the surveyed line through the ward
-            // doorway. After leaving the east courtyard door, first reach a
-            // corridor-side point beside that wall, then follow the wall in
-            // short straight sections to the patient's own doorway. Keeping
-            // the entire return segment on this offset line removes the old
-            // diagonal shortcut across the public corridor.
-            const wallClearance = 1.08,
-              wallTrackPoint = (lateral: number) =>
-                slot.doorCentre
-                  .clone()
-                  .addScaledVector(slot.tan, lateral)
-                  .addScaledVector(slot.out, -wallClearance)
-                  .setY(0),
-              eastDoorWallLateral = laneOutside
-                .clone()
-                .sub(slot.doorCentre)
-                .setY(0)
-                .dot(slot.tan),
-              wallTrackSegments = Math.max(
-                1,
-                Math.ceil(Math.abs(eastDoorWallLateral) / 1.65),
-              ),
-              wallTrack = Array.from(
-                { length: wallTrackSegments + 1 },
-                (_, index) =>
-                  wallTrackPoint(
-                    eastDoorWallLateral *
-                      (1 - index / wallTrackSegments),
-                  ),
-              ).filter(
-                (point, index, points) =>
-                  index === 0 || point.distanceTo(points[index - 1]) > 0.04,
-              );
-            // This helper is stored room-to-courtyard for the shared home-tail
-            // builder. Reversing it there produces east-door -> wall -> room.
-            return [
-              laneOutside.clone(),
-              ...wallTrack,
-              roomOutsidePoint(slot),
-            ].reverse();
-          }
           const centreline =
               slot.room === 2
                 ? [
-                new THREE.Vector3(5.82, 0, -2.94),
-                new THREE.Vector3(6.18, 0, -1.88),
-                courtyardNorthEast.clone().addScaledVector(outward, 0.92),
-                    courtyardDoorOutsidePoints[doorIndex].clone(),
-              ]
+                    new THREE.Vector3(5.82, 0, -2.94),
+                    new THREE.Vector3(6.18, 0, -1.88),
+                    new THREE.Vector3(
+                      courtyardNorthEast.x + 0.95,
+                      0,
+                      courtyardNorthWallZ,
+                    ),
+                    laneOutside.clone(),
+                  ]
                 : [
-                new THREE.Vector3(10.92, 0, 2.52),
+                    new THREE.Vector3(10.92, 0, 2.52),
                     new THREE.Vector3(10.12, 0, 2.74),
-                    courtyardDoorOutsidePoints[doorIndex].clone(),
+                    laneOutside.clone(),
                   ],
-            lane = directionalRightLaneRoute(centreline, entering, 0.5);
-          // Entering and exiting patients now use opposite sides of the east
-          // facade route; both still meet the exact directional door lane.
+            lane = directionalRightLaneRoute(centreline, entering, 0.4);
           lane[lane.length - 1] = laneOutside;
-          return lane;
+          return patientWardDoorCurve(slot, lane);
         }
-        return patientRoomCorridorPath(slot, entering).concat(
-          courtyardDoorLanePoint(0, "outside", entering),
-        );
-      },
-      nurseRoomCorridorPath = (
-        slot: WardBedSlot,
-        eastbound: boolean,
-      ) => {
-        // The public corridor owns permanent directional lanes. Nurses and
-        // their carts select the right-hand lane when the route is created,
-        // never as a reaction after another actor is already close.
-        const laneZ = wardNurseLaneZ(eastbound);
-        if (slot.room === 1)
-          return [
-            new THREE.Vector3(-5.74, 0, laneZ),
-            new THREE.Vector3(-4.18, 0, laneZ),
-            new THREE.Vector3(0, 0, laneZ),
-          ];
-        if (slot.room === 2)
-          return [
-            // Keep the east-side Ward 2 approach on the directional lane
-            // until the actual room branch. The former fixed -3.10 centre
-            // point pulled both the nurse and cart onto their left side as
-            // they crossed the eastern public corridor.
-            new THREE.Vector3(5.74, 0, laneZ),
-            new THREE.Vector3(4.18, 0, laneZ),
-            new THREE.Vector3(0, 0, laneZ),
-          ];
-        const wardThreeCentreline = [
-          new THREE.Vector3(9.92, 0, 2.42),
-          new THREE.Vector3(8.4, 0, 0.08),
-          new THREE.Vector3(7.24, 0, -2.24),
-          new THREE.Vector3(5.18, 0, -2.82),
-          new THREE.Vector3(0, 0, -2.82),
-        ];
-        // This array is stored room-to-corridor. An eastbound nurse traverses
-        // it in reverse, so invert the stored direction before calculating
-        // the right-side offset. The endpoints then land exactly at -2.22 m
-        // eastbound and -3.42 m westbound.
-        return directionalRightLaneRoute(
-          wardThreeCentreline,
-          !eastbound,
-          0.6,
+        return patientWardDoorCurve(
+          slot,
+          patientRoomCorridorPath(slot, entering).concat(laneOutside),
         );
       },
       patientOutboundRoute = (
         slot: WardBedSlot,
         destination: THREE.Vector3,
-        doorIndex: 0 | 1 | 2 = 0,
+        doorIndex: 1 | 2 = slot.room === 1 ? 1 : 2,
       ) => [
         bedExitPoint(slot),
         bedAislePoint(slot),
         roomInsidePoint(slot),
-        slot.doorCentre.clone().setY(0),
-        roomOutsidePoint(slot),
+        ...(slot.room === 3
+          ? [slot.doorCentre.clone().setY(0), roomOutsidePoint(slot)]
+          : []),
         ...patientRoomToCourtyardDoorPath(slot, doorIndex, true),
         courtyardDoorLanePoint(doorIndex, "threshold", true),
         ...courtyardGateToNorthRoute(doorIndex, true),
@@ -917,29 +1185,22 @@ export function createThirdFloorCare({
       ],
       patientHomeTail = (
         slot: WardBedSlot,
-        doorIndex: 0 | 1 | 2 = 0,
+        doorIndex: 1 | 2 = slot.room === 1 ? 1 : 2,
+        fromCourtyardArc = false,
       ) => {
-        const wardOneWestReturnCorner =
-          slot.room === 1 && doorIndex === 1
-            ? [
-                // The west-door return lane reaches the room-side corner from
-                // the north. Connecting it directly to roomOutsidePoint made
-                // an almost 180-degree final turn, so a patient could rotate
-                // in place at the corner and repeatedly rebuild the same
-                // stalled route. These two points keep the body and IV stand
-                // on the open corridor side while easing into the doorway.
-                new THREE.Vector3(-6.52, 0, -2.57),
-                new THREE.Vector3(-7.08, 0, -2.7),
-              ]
-            : [];
+        const courtyardApproach = fromCourtyardArc
+          ? courtyardNorthToGateRoute(doorIndex, false).slice(1)
+          : [
+              courtyardNorthExitRelease.clone(),
+              ...courtyardNorthToGateRoute(doorIndex, false).slice(1),
+            ];
         return [
-          courtyardNorthExitRelease.clone(),
-          ...courtyardNorthToGateRoute(doorIndex, false).slice(1),
+          ...courtyardApproach,
           courtyardDoorLanePoint(doorIndex, "threshold", false),
           ...patientRoomToCourtyardDoorPath(slot, doorIndex, false).reverse(),
-          ...wardOneWestReturnCorner,
-          roomOutsidePoint(slot),
-          slot.doorCentre.clone().setY(0),
+          ...(slot.room === 3
+            ? [roomOutsidePoint(slot), slot.doorCentre.clone().setY(0)]
+            : []),
           roomInsidePoint(slot),
           bedAislePoint(slot),
           bedExitPoint(slot),
@@ -981,6 +1242,8 @@ export function createThirdFloorCare({
       setWardWalkerStanding = (walker: Walker, yaw?: number) => {
         const nextYaw = yaw ?? walker.group.rotation.y;
         walker.group.position.y = 0;
+        walker.group.userData.thirdFloorPatientTurnVelocity = 0;
+        walker.group.userData.thirdFloorPatientPathDirection = undefined;
         walker.group.quaternion.setFromEuler(new THREE.Euler(0, nextYaw, 0));
         resetWardWalkerPose(walker);
       },
@@ -1024,6 +1287,26 @@ export function createThirdFloorCare({
           nurse.walker.arms[0].rotation.set(-gait * 0.34, 0, 0.06);
           nurse.walker.arms[1].rotation.set(gait * 0.34, 0, -0.06);
         }
+      },
+      animateWardNurseComputer = (nurse: WardNurseActor, t: number) => {
+        // Keep both hands visibly above the keyboard. The alternating pitch
+        // and slight outward wrist angle make this read as typing rather than
+        // the static arms used while reading a chart.
+        const typing = Math.sin(t * 8 + nurse.index * 0.8);
+        nurse.walker.arms[0].rotation.set(
+          0.94 + typing * 0.13,
+          0,
+          0.18,
+        );
+        nurse.walker.arms[1].rotation.set(
+          0.94 - typing * 0.13,
+          0,
+          -0.18,
+        );
+        nurse.walker.headRig.rotation.x =
+          0.1 + Math.sin(t * 2.3 + nurse.index) * 0.035;
+        nurse.walker.headRig.rotation.z =
+          Math.sin(t * 1.7 + nurse.index) * 0.018;
       },
       setWardWalkerSeated = (walker: Walker, yaw: number, y = 0.14) => {
         walker.group.position.y = y;
@@ -1228,11 +1511,34 @@ export function createThirdFloorCare({
       },
     );
 
-    const wardNurseSeatPoints = [-2.15, 0, 2.15].map(
-        // The 90%-scale chair centre is at z=-6.352 and its backrest front
-        // face is near z=-6.186. Moving the torso slightly toward the desk
-        // keeps the seated body on the cushion without entering the backrest.
-        (x) => new THREE.Vector3(x, 0.14, -6.42),
+    const wardNurseStationCentre = new THREE.Vector3(0, 0, -3.125),
+      wardNurseStationAngles = [
+        -Math.PI / 6,
+        Math.PI / 2,
+        (Math.PI * 7) / 6,
+      ],
+      // The chair seat is just inside the low desk. Keep the nurse's body
+      // centred over that seat instead of leaving the torso half inside the
+      // chair back; the outward shift also brings the operator closer to the
+      // computer and lower desktop as requested.
+      wardNurseSeatRadius = 0.84,
+      wardNurseSeatPoints = wardNurseStationAngles.map(
+        (angle) =>
+          new THREE.Vector3(
+            wardNurseStationCentre.x + wardNurseSeatRadius * Math.cos(angle),
+            0.14,
+            wardNurseStationCentre.z + wardNurseSeatRadius * Math.sin(angle),
+          ),
+      ),
+      wardNurseSeatYaws = wardNurseSeatPoints.map((seat, index) =>
+        thirdFloorPatientYaw(
+          seat,
+          new THREE.Vector3(
+            wardNurseStationCentre.x + 1.72 * Math.cos(wardNurseStationAngles[index]),
+            0,
+            wardNurseStationCentre.z + 1.72 * Math.sin(wardNurseStationAngles[index]),
+          ),
+        ),
       ),
       outerWardMedicalCart = thirdFloorMedicalCarts[0],
       outerWardMedicalCartHome = outerWardMedicalCart.position.clone(),
@@ -1260,7 +1566,7 @@ export function createThirdFloorCare({
         interactive.push(object);
       });
       if (walker.chart) walker.chart.visible = false;
-      setWardWalkerSeated(walker, 0, 0.14);
+      setWardWalkerSeated(walker, wardNurseSeatYaws[index], 0.14);
       return {
         walker,
         index,
@@ -1281,6 +1587,7 @@ export function createThirdFloorCare({
         motionWatchPosition: startPoint.clone(),
         navigationOverride: 0,
         doorExitHandoffWaitTime: 0,
+        doorEntryHandoffWaitTime: 0,
       };
       });
 
@@ -1406,8 +1713,15 @@ export function createThirdFloorCare({
       actorYieldPassThroughTime: 0,
       motionStallTime: 0,
       motionWatchPosition: medicationRobotHome.clone(),
+      doorEntryStallRoom: undefined,
+      doorEntryStallTime: 0,
       doorInboundPatient: undefined,
       doorInboundRoom: undefined,
+      doorHandoffRecoveryRoom: undefined,
+      doorHandoffRecoveryTime: 0,
+      doorHandoffStallRoom: undefined,
+      doorHandoffStallTime: 0,
+      doorHandoffWaitTime: 0,
     };
 
     const inpatientIvPalmFloorPoint = (actor: InpatientActor) => {
@@ -1445,21 +1759,40 @@ export function createThirdFloorCare({
 
     const courtyardHalfWidthAt = (z: number) => {
         const depthProgress = THREE.MathUtils.clamp(
-            (z + 1.08) / 8.78,
+            (z - courtyardNorthWallZ) / (7.7 - courtyardNorthWallZ),
             0,
             1,
           );
-        return THREE.MathUtils.lerp(5.56, courtyardFacadeHalf, depthProgress);
+        return THREE.MathUtils.lerp(7.2, courtyardFacadeHalf, depthProgress);
       },
       isInsideCourtyardFootprint = (point: THREE.Vector3) => {
-        if (point.z < -1.08 || point.z > 7.7) return false;
+        if (point.z < courtyardNorthWest.z || point.z > 7.7) return false;
         return Math.abs(point.x) < courtyardHalfWidthAt(point.z) - 0.16;
+      },
+      isCourtyardArcRoutePoint = (point: THREE.Vector3) => {
+        if (!isInsideCourtyardFootprint(point)) return false;
+        const onSouthArc =
+            Math.abs(
+              Math.hypot(
+                point.x,
+                point.z - courtyardLowerPlantingArcCenterZ,
+              ) - courtyardSouthArcPathRadius,
+            ) <= 0.24,
+          onNorthArc =
+            Math.abs(
+              Math.hypot(point.x, point.z - courtyardNorthWallZ) -
+                courtyardNorthArcPathRadius,
+            ) <= 0.24;
+        return onSouthArc || onNorthArc;
       },
       isNurseClearOfCourtyardGlass = (
         point: THREE.Vector3,
         clearance = 0.72,
       ) => {
-        if (point.z <= -1.08 - clearance || point.z >= 7.7 + clearance)
+        if (
+          point.z <= courtyardNorthWest.z - clearance ||
+          point.z >= 7.7 + clearance
+        )
           return true;
         return Math.abs(point.x) >= courtyardHalfWidthAt(point.z) + clearance;
       },
@@ -1467,28 +1800,64 @@ export function createThirdFloorCare({
         if (!isInsideCourtyardFootprint(point)) return false;
         const verticalArm =
             Math.abs(point.x) <= 1.16 &&
-            point.z >= -1.18 &&
-            point.z <= 7.58,
+            point.z >= courtyardNorthPlanterTipZ + 0.06 &&
+            point.z <= courtyardCircleCenterZ - courtyardCirclePathRadius + 0.22,
           horizontalArm =
-            Math.abs(point.z - 3.48) <= 1.07 &&
+            point.z >= courtyardNorthWallZ + 1.02 &&
+            point.z <= courtyardEastWestLaneZ + 0.3 &&
+            Math.abs(point.x) <= courtyardHalfWidthAt(point.z) - 0.35 &&
+            Math.hypot(point.x, point.z - courtyardNorthWallZ) >=
+              courtyardSemicircleRadius + 0.12,
+          northGlassSideArm =
+            point.z >= courtyardNorthGlassLaneZ - 0.34 &&
+            point.z <= courtyardNorthGlassLaneZ + 0.34 &&
+            Math.abs(point.x) >= courtyardNorthArcHalfWidth - 0.12 &&
             Math.abs(point.x) <= courtyardHalfWidthAt(point.z) - 0.35,
-          centralCircle = Math.hypot(point.x, point.z - 3.48) <= 2,
+          lowerPlantingEdge =
+            point.z >= courtyardEastWestLaneZ - 0.34 &&
+            point.z <= courtyardNorthWallZ + 4.62 &&
+            Math.abs(
+              Math.hypot(
+                point.x,
+                point.z - courtyardLowerPlantingArcCenterZ,
+              ) - courtyardLowerPlantingEdgePathRadius,
+            ) <= 0.52,
+          northFlowerbedEdge =
+            point.z >= courtyardNorthGlassLaneZ - 0.34 &&
+            point.z <= courtyardNorthWallZ + courtyardNorthArcPathRadius + 0.3 &&
+            Math.abs(
+              Math.hypot(point.x, point.z - courtyardNorthWallZ) -
+                courtyardNorthArcPathRadius,
+            ) <= 0.52,
+          centralCircle =
+            Math.hypot(
+              point.x - courtyardCentreReference.x,
+              point.z - courtyardCentreReference.z,
+            ) <= courtyardCirclePathRadius + 0.08,
           stoneSeatAccess = courtyardStoneSeats.some((seat, seatIndex) => {
             const outward = courtyardStoneSeatOutwardDirections[seatIndex],
               tangent = new THREE.Vector3(-outward.z, 0, outward.x),
               relative = point.clone().sub(seat).setY(0),
               outwardDistance = relative.dot(outward),
               lateralDistance = Math.abs(relative.dot(tangent));
-            // Only the promenade-facing side is open. A continuous 1.45 m
+            // Only the promenade-facing side is open. A continuous 1.58 m
             // apron reaches the real walkway, while the planting-bed side
             // remains invalid for both the patient and IV stand.
             return (
-              outwardDistance >= -0.08 &&
-              outwardDistance <= 1.45 &&
-              lateralDistance <= 0.5
+              outwardDistance >= -0.2 &&
+              outwardDistance <= 1.58 &&
+              lateralDistance <= 0.78
             );
           });
-        return verticalArm || horizontalArm || centralCircle || stoneSeatAccess;
+        return (
+          verticalArm ||
+          horizontalArm ||
+          northGlassSideArm ||
+          lowerPlantingEdge ||
+          northFlowerbedEdge ||
+          centralCircle ||
+          stoneSeatAccess
+        );
       },
       courtyardStoneSeatStepIsForbidden = (
         actor: InpatientActor,
@@ -1529,7 +1898,7 @@ export function createThirdFloorCare({
           // The only opening through a stone boundary is a narrow straight
           // channel centred on the actor's own seat. The adjacent cap and the
           // rest of the same bench stay forbidden.
-          return channelOutward < -0.08 || channelLateral > 0.42;
+          return channelOutward < -0.08 || channelLateral > 0.78;
         });
       },
       // The north arm has enough width for a full lane offset. The east-west
@@ -1537,24 +1906,41 @@ export function createThirdFloorCare({
       // surveyed offset while still preserving direction-based right travel.
       courtyardRightLaneOffset = 0.78,
       courtyardSideArmRightLaneOffset = 0.42,
+      // The roundabout is one-way, but it still has a usable right-hand
+      // walking line. Keep patients slightly inside the surveyed ring rather
+      // than returning them to the exact centreline at every turn.
+      courtyardRoundaboutRightLaneOffset = 0.24,
       courtyardRightLaneRoute = (points: THREE.Vector3[]) =>
         points.map((point, index) => {
-          if (index === 0 || index === points.length - 1)
-            return point.clone().setY(0);
-          // The central plaza is already a clockwise one-way roundabout. Keep
-          // its enlarged ring intact and reserve right-lane offsets for the
-          // bidirectional straight arms where opposing patients must pass.
+          const original = point.clone().setY(0);
           if (
+            index === 0 ||
+            index === points.length - 1 ||
+            !isInsideCourtyardFootprint(original)
+          )
+            return original;
+          const onLowerPlantingEdge =
+            Math.abs(
+              Math.hypot(
+                original.x,
+                original.z - courtyardLowerPlantingArcCenterZ,
+              ) - courtyardLowerPlantingEdgePathRadius,
+            ) <= 0.52;
+          const onNorthFlowerbedEdge =
+            Math.abs(
+              Math.hypot(original.x, original.z - courtyardNorthWallZ) -
+                courtyardNorthArcPathRadius,
+            ) <= 0.52;
+          if (onLowerPlantingEdge || onNorthFlowerbedEdge) return original;
+          const centralRoundabout =
             Math.hypot(
               point.x - courtyardCentreReference.x,
               point.z - courtyardCentreReference.z,
-            ) < 2.08
-          )
-            return point.clone().setY(0);
+            ) < courtyardCirclePathRadius + 0.8;
           const previous = points[index - 1],
             next = points[index + 1],
             direction = next.clone().sub(previous).setY(0);
-          if (direction.lengthSq() < 0.001) return point.clone().setY(0);
+          if (direction.lengthSq() < 0.001) return original;
           direction.normalize();
           // Local right side for a +Z traveller is -X. The IV stand is never
           // flipped to an artificial inside position: its live palm offset
@@ -1564,57 +1950,159 @@ export function createThirdFloorCare({
               .clone()
               .addScaledVector(
                 right,
-                Math.abs(point.x) > 1.2
-                  ? courtyardSideArmRightLaneOffset
-                  : courtyardRightLaneOffset,
+                centralRoundabout
+                  ? courtyardRoundaboutRightLaneOffset
+                  : Math.abs(point.x) > 1.2
+                    ? courtyardSideArmRightLaneOffset
+                    : courtyardRightLaneOffset,
               )
               .setY(0);
-          return isCourtyardWalkwayPoint(candidate)
-            ? candidate
-            : point.clone().setY(0);
+          if (
+            isCourtyardWalkwayPoint(candidate) ||
+            isCourtyardDoorPassagePoint(candidate)
+          )
+            return candidate;
+          if (
+            isCourtyardWalkwayPoint(original) ||
+            isCourtyardDoorPassagePoint(original)
+          )
+            return original;
+          // A stale offset must never leave an interior waypoint in a
+          // planting bed. Re-anchor it to the nearest surveyed promenade
+          // anchor instead of preserving the obsolete point.
+          return [
+            courtyardNorthEntryRelease,
+            courtyardNorthExitRelease,
+            ...courtyardRoundaboutRing,
+            ...courtyardNorthArcEastToWest,
+            ...courtyardLowerPlantingEdge,
+          ].reduce((nearest, anchor) =>
+            actorHorizontalDistance(original, anchor) <
+            actorHorizontalDistance(original, nearest)
+              ? anchor
+              : nearest,
+          );
         }),
       courtyardSafeRouteTo = (destination: THREE.Vector3) => {
-        const side = Math.sign(destination.x) || 1,
-          sideRingIndex = side < 0 ? 3 : 1,
-          seatIndex = courtyardStoneSeats.findIndex(
+        const seatIndex = courtyardStoneSeats.findIndex(
             (seat) => actorHorizontalDistance(seat, destination) < 0.08,
-          ),
-          promenadeRoute = courtyardRightLaneRoute([
-            courtyardNorthEntryRelease.clone(),
-            ...courtyardClockwiseArc(0, sideRingIndex),
-          ]);
-        // The promenade-to-seat connection must begin at the side ring and
-        // go directly to the seat's outward release point. The former pair of
-        // axis-aligned approach points were individually valid, but their
-        // connecting segment crossed the lower bench/flowerbed boundary.
-        return seatIndex >= 0
-          ? promenadeRoute.concat([
+          );
+        if (seatIndex >= 6) {
+          // Lower curved seats are reached from the matching point on the
+          // outer concentric arc. The route therefore follows the curve and
+          // never cuts through the planting bed on the way to a seat.
+          const edgeIndex = courtyardNearestLowerPlantingEdgeIndex(destination);
+          if (destination.x < 0) {
+            const westArc = courtyardSouthArcWestToEast
+              .slice(edgeIndex, courtyardSouthArcMidIndex + 1)
+              .reverse()
+              .map((point) => point.clone());
+            return [
+              courtyardCentralJunction.clone(),
+              ...westArc,
               courtyardStoneSeatExitPoint(seatIndex),
               destination.clone().setY(0),
-            ])
-          : promenadeRoute.concat(destination.clone().setY(0));
-      },
-      courtyardSafeReturnRouteFrom = (origin: THREE.Vector3) => {
-        const side = Math.sign(origin.x) || 1,
-          sideRingIndex = side < 0 ? 3 : 1;
+            ];
+          }
+          return [
+            courtyardCentralJunction.clone(),
+            courtyardSouthArcWestToEast[courtyardSouthArcMidIndex].clone(),
+            ...courtyardSouthArcWestToEast
+              .slice(courtyardSouthArcMidIndex + 1, edgeIndex + 1)
+              .map((point) => point.clone()),
+            courtyardStoneSeatExitPoint(seatIndex),
+            destination.clone().setY(0),
+          ];
+        }
+        if (seatIndex >= 0)
+          return courtyardRightLaneRoute([
+            courtyardNorthEntryRelease.clone(),
+            courtyardRoundaboutRing[0].clone(),
+            courtyardStoneSeatExitPoint(seatIndex),
+            destination.clone().setY(0),
+          ]);
         return courtyardRightLaneRoute([
-          origin.clone().setY(0),
-          ...courtyardClockwiseArc(sideRingIndex, 0),
+          courtyardNorthEntryRelease.clone(),
+          courtyardLowerPlantingEdge[0].clone(),
+          ...courtyardLowerPlantingEdge.slice(1).map((point) => point.clone()),
           courtyardNorthExitRelease.clone(),
         ]);
       },
-      courtyardSafeWalkLoop = () =>
-        courtyardRightLaneRoute([
-          courtyardNorthEntryRelease.clone(),
-          new THREE.Vector3(0, 0, 1.72),
-          courtyardRoundaboutRing[0].clone(),
-          courtyardRoundaboutRing[1].clone(),
-          courtyardRoundaboutRing[2].clone(),
-          courtyardRoundaboutRing[3].clone(),
-          courtyardRoundaboutRing[0].clone(),
-          new THREE.Vector3(0, 0, 1.72),
-          courtyardNorthExitRelease.clone(),
-        ]);
+      courtyardSafeReturnRouteFrom = (
+        origin: THREE.Vector3,
+        travelEastbound = origin.x < 0,
+      ) => {
+        const safeOrigin = origin.clone().setY(0);
+        if (Math.abs(safeOrigin.x) < 0.85)
+          return [safeOrigin, courtyardCentralJunction.clone()];
+        if (travelEastbound) {
+          const nearestIndex = courtyardSouthArcWestToEast.reduce(
+            (nearest, point, index) =>
+              actorHorizontalDistance(safeOrigin, point) <
+              actorHorizontalDistance(
+                safeOrigin,
+                courtyardSouthArcWestToEast[nearest],
+              )
+                ? index
+                : nearest,
+            0,
+          );
+          return [
+            safeOrigin,
+            ...courtyardSouthArcWestToEast
+              .slice(nearestIndex, courtyardSouthArcMidIndex + 1)
+              .map((point) => point.clone()),
+            courtyardCentralJunction.clone(),
+          ];
+        }
+        const nearestIndex = courtyardNorthArcEastToWest.reduce(
+          (nearest, point, index) =>
+            actorHorizontalDistance(safeOrigin, point) <
+            actorHorizontalDistance(
+              safeOrigin,
+              courtyardNorthArcEastToWest[nearest],
+            )
+              ? index
+              : nearest,
+          0,
+        );
+        return [
+          safeOrigin,
+          ...courtyardNorthArcEastToWest
+            .slice(nearestIndex, courtyardNorthArcMidIndex + 1)
+            .map((point) => point.clone()),
+          courtyardCentralJunction.clone(),
+        ];
+      },
+      courtyardSafeWalkLoop = (startFromWest = true) => {
+        if (startFromWest) {
+          // After entering from the west, the entry route already ends at the
+          // blue arc midpoint. Continue from that exact midpoint, finish the
+          // blue eastbound half, then return on the red westbound half. The
+          // room-specific home tail continues from the red midpoint.
+          return [
+            courtyardSouthArcWestToEast[courtyardSouthArcMidIndex].clone(),
+            ...courtyardSouthArcWestToEast
+              .slice(courtyardSouthArcMidIndex + 1)
+              .map((point) => point.clone()),
+            ...courtyardNorthArcEastToWest
+              .slice(0, courtyardNorthArcMidIndex + 1)
+              .map((point) => point.clone()),
+          ];
+        }
+        // After entering from the east, the entry route already ends at the
+        // red arc midpoint. Finish the red westbound half, then return on the
+        // blue eastbound half and hand off at its midpoint.
+        return [
+          courtyardNorthArcEastToWest[courtyardNorthArcMidIndex].clone(),
+          ...courtyardNorthArcEastToWest
+            .slice(courtyardNorthArcMidIndex + 1)
+            .map((point) => point.clone()),
+          ...courtyardSouthArcWestToEast
+            .slice(0, courtyardSouthArcMidIndex + 1)
+            .map((point) => point.clone()),
+        ];
+      };
 
     type ThirdFloorDoorDirection = -1 | 1;
     type ThirdFloorDoorReservation = {
@@ -1644,7 +2132,7 @@ export function createThirdFloorCare({
       courtyardDoorDirections = courtyardDoorCentres.map((centre, index) =>
         courtyardDoorInsidePoints[index]
           .clone()
-          .sub(centre)
+          .sub(courtyardDoorCrossingCentres[index])
           .setY(0)
           .normalize(),
       ),
@@ -1677,6 +2165,7 @@ export function createThirdFloorCare({
           ),
       isCourtyardDoorPassagePoint = (point: THREE.Vector3) =>
         courtyardDoorCentres.some((centre, index) => {
+          if (!courtyardAutoDoors[index].active) return false;
           const relative = point.clone().sub(centre).setY(0),
             tangent = courtyardAutoDoors[index].tangent,
             inward = courtyardDoorDirections[index];
@@ -1738,7 +2227,10 @@ export function createThirdFloorCare({
             !patient ||
             patient.state !== "walking" ||
             !position ||
-            actorHorizontalDistance(position, courtyardCentreReference) > 2.42
+            actorHorizontalDistance(
+              position,
+              courtyardCentreReference,
+            ) > courtyardCirclePathRadius + 0.92
           )
             courtyardRoundaboutOccupants.delete(key);
         });
@@ -1752,10 +2244,10 @@ export function createThirdFloorCare({
           actorHorizontalDistance(current, courtyardCentreReference),
           actorHorizontalDistance(proposed, courtyardCentreReference),
         );
-        // The roundabout is a visual one-way route, not a physical capacity
-        // gate. Patients may overlap one another, so nobody waits for another
-        // patient's reservation before continuing around the ring.
-        if (nearest < 2.08) courtyardRoundaboutOccupants.add(key);
+        // Keep the reservation as a lightweight traffic marker so recovery
+        // and route rebuilds release cleanly after an actor leaves the ring.
+        if (nearest < courtyardCirclePathRadius + 0.56)
+          courtyardRoundaboutOccupants.add(key);
         return true;
       },
       releaseThirdFloorDoorReservations = () => {
@@ -1996,9 +2488,11 @@ export function createThirdFloorCare({
         if (!includeCourtyard) return true;
         const patientDoorTransit = inpatientIndex >= 0,
           patientCourtyardDoorIndex = patientDoorTransit
-            ? (inpatientPatients[inpatientIndex]?.assignedCourtyardDoor ?? 0)
+            ? (inpatientPatients[inpatientIndex]?.assignedCourtyardDoor ??
+              (inpatientPatients[inpatientIndex]?.slot.room === 1 ? 1 : 2))
             : -1;
         for (let index = 0; index < courtyardDoorCentres.length; index++) {
+          if (!courtyardAutoDoors[index].active) continue;
           // A patient walking past either side exit is unrelated to that door.
           // Only the doorway assigned to this trip may open or participate in
           // transit checks.
@@ -2069,18 +2563,165 @@ export function createThirdFloorCare({
         walker: Walker,
         targetYaw: number,
         dt: number,
+        turnRate = 7.4,
+        smoothAngularMotion = false,
       ) => {
         const yawDiff = Math.atan2(
             Math.sin(targetYaw - walker.group.rotation.y),
             Math.cos(targetYaw - walker.group.rotation.y),
           ),
-          maxTurn = dt * 7.4;
+          maxTurn = dt * turnRate;
+        if (smoothAngularMotion) {
+          const currentAngularVelocity = Number(
+              walker.group.userData.thirdFloorPatientTurnVelocity ?? 0,
+            ),
+            angularAcceleration = turnRate * 7.2,
+            brakingDistance =
+              (currentAngularVelocity * currentAngularVelocity) /
+              (2 * angularAcceleration),
+            desiredAngularVelocity =
+              Math.abs(yawDiff) <= brakingDistance + 0.028
+                ? 0
+                : Math.sign(yawDiff) * turnRate,
+            maxVelocityChange = angularAcceleration * dt,
+            angularVelocity = THREE.MathUtils.clamp(
+              desiredAngularVelocity - currentAngularVelocity,
+              -maxVelocityChange,
+              maxVelocityChange,
+            ) + currentAngularVelocity,
+            rotationStep = angularVelocity * dt;
+          if (
+            Math.abs(yawDiff) <=
+            Math.max(0.035, Math.abs(rotationStep) * 1.35)
+          ) {
+            walker.group.rotation.y += yawDiff;
+            walker.group.userData.thirdFloorPatientTurnVelocity = 0;
+            return true;
+          }
+          walker.group.userData.thirdFloorPatientTurnVelocity =
+            angularVelocity;
+          walker.group.rotation.y += rotationStep;
+          return Math.abs(yawDiff) < 0.08;
+        }
         walker.group.rotation.y += THREE.MathUtils.clamp(
           yawDiff,
           -maxTurn,
           maxTurn,
         );
         return Math.abs(yawDiff) < 0.14;
+      };
+
+    const turnMedicationRobotToward = (
+        targetYaw: number,
+        dt: number,
+        turnRate = 4.2,
+      ) => {
+        const robot = medicationRobot.group,
+          yawDiff = Math.atan2(
+            Math.sin(targetYaw - robot.rotation.y),
+            Math.cos(targetYaw - robot.rotation.y),
+          ),
+          currentAngularVelocity = Number(
+            robot.userData.thirdFloorMedicationRobotTurnVelocity ?? 0,
+          ),
+          angularAcceleration = turnRate * 7.2,
+          brakingDistance =
+            (currentAngularVelocity * currentAngularVelocity) /
+            (2 * angularAcceleration),
+          desiredAngularVelocity =
+            Math.abs(yawDiff) <= brakingDistance + 0.028
+              ? 0
+              : Math.sign(yawDiff) * turnRate,
+          maxVelocityChange = angularAcceleration * dt,
+          angularVelocity = THREE.MathUtils.clamp(
+            desiredAngularVelocity - currentAngularVelocity,
+            -maxVelocityChange,
+            maxVelocityChange,
+          ) + currentAngularVelocity,
+          rotationStep = angularVelocity * dt;
+        if (
+          Math.abs(yawDiff) <=
+          Math.max(0.035, Math.abs(rotationStep) * 1.35)
+        ) {
+          robot.rotation.y += yawDiff;
+          robot.userData.thirdFloorMedicationRobotTurnVelocity = 0;
+          return true;
+        }
+        robot.userData.thirdFloorMedicationRobotTurnVelocity =
+          angularVelocity;
+        robot.rotation.y += rotationStep;
+        return Math.abs(yawDiff) < 0.075;
+      },
+      turnNurseCartToward = (
+        cart: THREE.Object3D,
+        targetYaw: number,
+        dt: number,
+        turnRate = 3.15,
+      ) => {
+        const yawDiff = Math.atan2(
+            Math.sin(targetYaw - cart.rotation.y),
+            Math.cos(targetYaw - cart.rotation.y),
+          ),
+          maxTurn = dt * turnRate;
+        cart.rotation.y += THREE.MathUtils.clamp(yawDiff, -maxTurn, maxTurn);
+        return Math.abs(yawDiff) < 0.1;
+      },
+      moveNurseCartWithInertia = (
+        nurse: WardNurseActor,
+        targetPosition: THREE.Vector3,
+        targetYaw: number,
+        dt: number,
+        moving = true,
+      ) => {
+        if (!nurse.cartAttached || nurse.cartParked) return;
+        const cart = nurse.cart;
+        // The cart has its own heading and limited steering speed. Moving its
+        // centre directly to the nurse's latest heading made the cabinet
+        // pivot around the nurse and visibly swing through corners.
+        turnNurseCartToward(cart, targetYaw, dt, moving ? 3.15 : 2.7);
+        const cartForward = new THREE.Vector3(
+            -Math.sin(cart.rotation.y),
+            0,
+            -Math.cos(cart.rotation.y),
+          ),
+          toTarget = targetPosition.clone().setY(0).sub(cart.position),
+          longitudinalDistance = toTarget.dot(cartForward),
+          longitudinalStep = cartForward
+            .clone()
+            .multiplyScalar(
+              THREE.MathUtils.clamp(
+                longitudinalDistance,
+                -dt * (moving ? 1.1 : 1.6),
+                dt * (moving ? 1.1 : 1.6),
+              ),
+            ),
+          lateralStep = toTarget
+            .clone()
+            .addScaledVector(cartForward, -longitudinalDistance),
+          maxLateralStep = dt * (moving ? 0.95 : 1.15);
+        if (lateralStep.length() > maxLateralStep)
+          lateralStep.setLength(maxLateralStep);
+        cart.position.add(longitudinalStep).add(lateralStep).setY(0);
+        // Never let a turning nurse rotate into the cart while the cart is
+        // still completing its own limited steering. This is a one-sided
+        // physical constraint, not a teleport: it only removes penetration
+        // along the nurse's current pushing direction.
+        const nurseForward = new THREE.Vector3(
+            -Math.sin(targetYaw),
+            0,
+            -Math.cos(targetYaw),
+          ),
+          nurseToCart = cart.position
+            .clone()
+            .sub(nurse.walker.group.position)
+            .setY(0),
+          minimumPushGap = 0.58,
+          forwardGap = nurseToCart.dot(nurseForward);
+        if (forwardGap < minimumPushGap)
+          cart.position.addScaledVector(
+            nurseForward,
+            minimumPushGap - forwardGap,
+          );
       };
 
     const actorHorizontalDistance = (
@@ -2094,8 +2735,9 @@ export function createThirdFloorCare({
       // cannot be pushed into the wall when the two flows meet.
       medicationRobotIsInBedsideAisle = () => {
         if (medicationRobot.mode === "home") return false;
-        const room = medicationRobotTargetRoom(),
-          slot = wardBedSlots.find((candidate) => candidate.room === room);
+        const room = medicationRobotTargetRoom();
+        if (room === undefined) return false;
+        const slot = wardBedSlots.find((candidate) => candidate.room === room);
         if (!slot) return false;
         const relative = medicationRobot.group.position
             .clone()
@@ -2272,7 +2914,87 @@ export function createThirdFloorCare({
           // face the doorway here would visibly rotate a parked cabinet.
           medicationRobot.waitPoseYaw = medicationRobot.group.rotation.y;
         }
-        medicationRobot.group.rotation.set(0, medicationRobot.waitPoseYaw, 0);
+        medicationRobot.group.userData.thirdFloorMedicationRobotTurnVelocity = 0;
+      },
+      releaseMedicationRobotDoorHandoff = () => {
+        const patientIndex = medicationRobot.doorInboundPatient,
+          room = medicationRobot.doorInboundRoom,
+          patient =
+            patientIndex !== undefined
+              ? inpatientPatients[patientIndex]
+              : undefined;
+        if (patient) {
+          const patientUserData = patient.walker.group.userData;
+          clearPatientMedicationRobotDoorWait(patient);
+          patientUserData.medicationRobotDoorHandoffReleased = true;
+          patient.doorPassOverride = Math.max(patient.doorPassOverride, 3.2);
+          patient.blockedTime = 0;
+          patient.motionStallTime = 0;
+          patient.motionWatchPosition.copy(patient.walker.group.position);
+        }
+        if (patientIndex === undefined || room === undefined) return false;
+        // Keep this exact pair non-blocking long enough to cross the doorway;
+        // the fixed wall, glass and door-passage tests still run on every
+        // proposed step. The short room window prevents another patient at
+        // the same door from re-arming the deadlock immediately.
+        medicationRobot.doorPassThroughPatient = patientIndex;
+        medicationRobot.doorPassThroughRoom = room;
+        medicationRobot.doorHandoffRecoveryRoom = room;
+        medicationRobot.doorHandoffRecoveryTime = 2.4;
+        medicationRobot.actorYieldPassThroughTime = Math.max(
+          medicationRobot.actorYieldPassThroughTime,
+          1.6,
+        );
+        medicationRobot.doorInboundPatient = undefined;
+        medicationRobot.doorInboundRoom = undefined;
+        medicationRobot.doorHandoffWaitTime = 0;
+        medicationRobot.doorHandoffStallRoom = undefined;
+        medicationRobot.doorHandoffStallTime = 0;
+        clearMedicationRobotWaitPose();
+        medicationRobot.motionStallTime = 0;
+        medicationRobot.motionWatchPosition.copy(
+          medicationRobot.group.position,
+        );
+        return true;
+      },
+      releaseMedicationRobotDoorEntryHandoff = () => {
+        const patientIndex = medicationRobot.doorEntryPatient,
+          room = medicationRobot.doorEntryRoom,
+          patient =
+            patientIndex !== undefined
+              ? inpatientPatients[patientIndex]
+              : undefined;
+        if (patient) {
+          const patientUserData = patient.walker.group.userData;
+          clearPatientMedicationRobotDoorWait(patient);
+          patientUserData.medicationRobotDoorHandoffReleased = true;
+          patient.doorPassOverride = Math.max(patient.doorPassOverride, 3.2);
+          patient.blockedTime = 0;
+          patient.motionStallTime = 0;
+          patient.motionWatchPosition.copy(patient.walker.group.position);
+        }
+        if (patientIndex === undefined || room === undefined) return false;
+        // The robot is already parked on the opposite side of the doorway.
+        // Release the exact pair together, then let the route consume the
+        // existing wait waypoint on the next frame. Fixed geometry checks
+        // remain active; only this short actor-pair window is non-blocking.
+        medicationRobot.doorEntryPatient = undefined;
+        medicationRobot.doorEntryRoom = undefined;
+        medicationRobot.doorEntryWaitPoint = undefined;
+        medicationRobot.doorEntryStallRoom = undefined;
+        medicationRobot.doorEntryStallTime = 0;
+        medicationRobot.doorHandoffRecoveryRoom = room;
+        medicationRobot.doorHandoffRecoveryTime = 2.4;
+        medicationRobot.actorYieldPassThroughTime = Math.max(
+          medicationRobot.actorYieldPassThroughTime,
+          1.6,
+        );
+        clearMedicationRobotWaitPose();
+        medicationRobot.motionStallTime = 0;
+        medicationRobot.motionWatchPosition.copy(
+          medicationRobot.group.position,
+        );
+        return true;
       },
       clearMedicationRobotDoorPassThrough = () => {
         const patient =
@@ -2673,6 +3395,14 @@ export function createThirdFloorCare({
           clearPatientMedicationRobotDoorWait(actor);
           return undefined;
         }
+        // A timed-out inbound handoff releases this patient to its own route.
+        // Do not immediately recreate the same side-pocket waypoint on the
+        // next patient frame while the body is still clearing the door.
+        if (
+          actor.walker.group.userData.medicationRobotDoorHandoffReleased ===
+          true
+        )
+          return undefined;
         const actorIndex = Number(
             actor.walker.group.userData.inpatientIndex ?? -1,
           ),
@@ -2875,7 +3605,7 @@ export function createThirdFloorCare({
       ): -1 | 1 | undefined => {
         if (
           actor.state !== "walking" ||
-          (actor.assignedCourtyardDoor ?? 0) !== 0
+          actor.assignedCourtyardDoor !== undefined
         )
           return undefined;
         const routeWindow = actor.route.slice(
@@ -3081,6 +3811,28 @@ export function createThirdFloorCare({
         point: THREE.Vector3,
         ivPoint: THREE.Vector3,
       ) => {
+        // A safety proxy may be close to a patient without being in the
+        // proposed step's corridor (for example a parked cart beside the
+        // nursing station). Treating every nearby proxy as a full stop made
+        // an otherwise clear route look permanently blocked. Only keep the
+        // proxy solid when at least one of the body/IV steps is moving toward
+        // it; walking away from an accidental overlap must always be allowed.
+        const stepApproachesObstacle = (obstacle: THREE.Vector3) =>
+          [
+            [self.walker.group.position, point],
+            [self.slot.ivStand.position, ivPoint],
+          ].some(([from, to]) => {
+            const step = to.clone().sub(from).setY(0),
+              stepLength = step.length();
+            if (stepLength < 0.001) return true;
+            return (
+              obstacle
+                .clone()
+                .sub(from)
+                .setY(0)
+                .dot(step.multiplyScalar(1 / stepLength)) > -0.18
+            );
+          });
         const patientHasDoorPassage = medicationRobotEntryPatientHasPassage(self),
           patientRobotFollowAllowsStep =
             patientMedicationRobotSameExitFollowerAllowsStep(
@@ -3122,6 +3874,7 @@ export function createThirdFloorCare({
             ),
             clearance = 0.94;
           if (attached) return false;
+          if (!stepApproachesObstacle(cart.position)) return false;
           // A patient already inside a parked cart's safety envelope must be
           // able to walk out. Blocking every candidate inside the radius used
           // to seal the patient in place; only inward/lateral steps are now
@@ -3158,7 +3911,9 @@ export function createThirdFloorCare({
                   medicationRobot.group.position,
                 ),
               ),
-              robotClearance = 0.82;
+            robotClearance = 0.82;
+            if (!stepApproachesObstacle(medicationRobot.group.position))
+              return false;
             // Once a patient is already inside the robot's clearance, permit
             // only a step that increases separation. This applies at the
             // nursing-station exit as well as at the courtyard handoff: the
@@ -3208,6 +3963,8 @@ export function createThirdFloorCare({
         actor.avoidanceAttempt = 0;
         actor.courtyardTrafficWait = 0;
         clearPatientNurseExitDoorHandoff(actor);
+        actor.walker.group.userData.nurseExitDoorHandoffReleasedNurseIndex =
+          undefined;
         actor.walker.group.userData.nurseDoorHandoffWaitPoint = undefined;
         actor.walker.group.userData.nurseDoorHandoffNurseIndex = undefined;
         actor.walker.group.userData.nurseDoorHandoffApproachSide = undefined;
@@ -3246,6 +4003,29 @@ export function createThirdFloorCare({
         route: THREE.Vector3[],
         arrival: InpatientArrival,
       ) => {
+        // Remove only true backtracks from rebuilt routes. A valid corner can
+        // be close to 90 degrees, but a negative tangent here means the next
+        // waypoint sends the patient back across the same doorway apron. This
+        // was most visible at ward 2's east courtyard entrance.
+        const compactRoute = route.map((point) => point.clone());
+        for (let index = 1; index < compactRoute.length - 1; index += 1) {
+          const incoming = compactRoute[index]
+              .clone()
+              .sub(compactRoute[index - 1])
+              .setY(0),
+            outgoing = compactRoute[index + 1]
+              .clone()
+              .sub(compactRoute[index])
+              .setY(0);
+          if (
+            incoming.lengthSq() > 0.04 &&
+            outgoing.lengthSq() > 0.04 &&
+            incoming.normalize().dot(outgoing.normalize()) < -0.55
+          ) {
+            compactRoute.splice(index, 1);
+            index = Math.max(0, index - 2);
+          }
+        }
         const fixedSeatExit = actor.walker.group.userData
           .courtyardSeatExitPoint as THREE.Vector3 | undefined;
         setWardWalkerStanding(
@@ -3253,7 +4033,10 @@ export function createThirdFloorCare({
           thirdFloorPatientYaw(
             actor.walker.group.position,
             fixedSeatExit ??
-              firstDistinctRouteTarget(actor.walker.group.position, route),
+              firstDistinctRouteTarget(
+                actor.walker.group.position,
+                compactRoute,
+              ),
           ),
         );
         actor.walker.group.position.y = courtyardPatientGroundYAt(
@@ -3261,7 +4044,7 @@ export function createThirdFloorCare({
         );
         actor.state = "walking";
         actor.timer = 0;
-        actor.route = route.map((point) => point.clone());
+        actor.route = compactRoute;
         actor.waypoint = 0;
         actor.motionStallTime = 0;
         actor.motionWatchPosition.copy(actor.walker.group.position);
@@ -3270,6 +4053,8 @@ export function createThirdFloorCare({
         actor.recoveryResumeArrival = undefined;
         actor.arrival = arrival;
         clearPatientNurseExitDoorHandoff(actor);
+        actor.walker.group.userData.nurseExitDoorHandoffReleasedNurseIndex =
+          undefined;
         actor.walker.group.userData.nurseDoorHandoffWaitPoint = undefined;
         actor.walker.group.userData.nurseDoorHandoffNurseIndex = undefined;
         actor.walker.group.userData.nurseDoorHandoffApproachSide = undefined;
@@ -3641,10 +4426,10 @@ export function createThirdFloorCare({
         arrival: "bedRest" | "waitingCheck",
         continueCourtyardWalk = false,
       ) => {
-        const route = patientHomeTail(
-          actor.slot,
-          actor.assignedCourtyardDoor ?? 0,
-        ),
+        const homeDoor =
+            actor.assignedCourtyardDoor ?? (actor.slot.room === 1 ? 1 : 2),
+          route = patientHomeTail(actor.slot, homeDoor),
+          arcHomeTail = patientHomeTail(actor.slot, homeDoor, true),
           assignedDepartureSeat = actor.assignedCourtyardSeat,
           nearestStoneSeatIndex = courtyardStoneSeats.reduce(
             (nearest, seat, index) =>
@@ -3703,19 +4488,31 @@ export function createThirdFloorCare({
                     courtyardNorthExitRelease.clone(),
                   ])
                 : courtyardSafeReturnRouteFrom(returnOrigin),
+            // Release every seat through its promenade-side channel, then
+            // rejoin the directional track nearest to that channel. Lower
+            // seats must never use the old straight shortcut across the
+            // curved bench/planting boundary.
             courtyardReturn = seatExit
               ? [current.clone().setY(0), seatExit].concat(
-                  baseCourtyardReturn.slice(1),
+                  courtyardSafeReturnRouteFrom(seatExit).slice(1),
                 )
               : baseCourtyardReturn;
+          // A continued courtyard walk already contains its complete
+          // arc-to-home handoff. Appending the legacy `route` afterwards
+          // rebuilt the old central-junction segment, which made the north
+          // detour appear unchanged even after the loop itself was fixed.
           const extendedCourtyardRoute = continueCourtyardWalk
             ? courtyardReturn
-                .concat(courtyardNorthEntryRelease.clone())
-                .concat(courtyardSafeWalkLoop().slice(1))
-            : courtyardReturn;
+                .concat(
+                  courtyardSafeWalkLoop(actor.assignedCourtyardDoor === 1).slice(
+                    1,
+                  ),
+                )
+                .concat(arcHomeTail.slice(1))
+            : courtyardReturn.concat(route.slice(1));
           startPatientWalk(
             actor,
-            extendedCourtyardRoute.concat(route.slice(1)),
+            extendedCourtyardRoute,
             arrival,
           );
           return;
@@ -3824,28 +4621,8 @@ export function createThirdFloorCare({
         actor.lastTask = task;
         actor.lastActivitySequence = ++inpatientActivitySequence;
       },
-      selectPatientCourtyardDoor = (actor: InpatientActor): 0 | 1 | 2 => {
-        const sideDoor: 1 | 2 = actor.slot.room === 1 ? 1 : 2,
-          actorIndex = actor.walker.group.userData.inpatientIndex,
-          preferred: 0 | 1 | 2 =
-            (actorIndex + inpatientTaskSequence) % 2 === 0 ? sideDoor : 0,
-          options: Array<0 | 1 | 2> = [preferred, preferred === 0 ? sideDoor : 0];
-        return options.sort((a, b) => {
-          const score = (doorIndex: 0 | 1 | 2) =>
-            courtyardDoorQueues[doorIndex].queue.length * 2 +
-            inpatientPatients.filter(
-              (patient) =>
-                ["rising", "walking"].includes(patient.state) &&
-                actorHorizontalDistance(
-                  patient.walker.group.position,
-                  courtyardDoorCentres[doorIndex],
-                ) < 2.6,
-            ).length *
-              2 +
-            (doorIndex === preferred ? 0 : 0.4);
-          return score(a) - score(b);
-        })[0];
-      },
+      selectPatientCourtyardDoor = (actor: InpatientActor): 1 | 2 =>
+        actor.slot.room === 1 ? 1 : 2,
       schedulePatientTask = (
         actor: InpatientActor,
         preferredTask?: InpatientTask,
@@ -3886,7 +4663,7 @@ export function createThirdFloorCare({
             (task !== "eat" &&
               latestCounts.inBed <= minimumInBedPatients) ||
             (task !== "eat" && patientDepartureCooldown > 0) ||
-            task === actor.lastTask
+            task === actor.lastTask && preferredTask === undefined
           )
             continue;
           if (task === "eat" && latestCounts.eat < 2) {
@@ -3915,8 +4692,8 @@ export function createThirdFloorCare({
                 courtyardNorthEntryRelease,
                 doorIndex,
               ).slice(0, -1),
-              safeLoop = courtyardSafeWalkLoop(),
-              homeTail = patientHomeTail(actor.slot, doorIndex),
+              safeLoop = courtyardSafeWalkLoop(doorIndex === 1),
+              homeTail = patientHomeTail(actor.slot, doorIndex, true),
               route = entryRoute
                 .concat(safeLoop.slice(1))
                 .concat(homeTail.slice(1));
@@ -3992,7 +4769,7 @@ export function createThirdFloorCare({
         actor.lastTask = "courtyardSit";
         actor.lastActivitySequence = ++inpatientActivitySequence;
         actor.assignedCourtyardSeat = seatIndex;
-        actor.assignedCourtyardDoor = 0;
+        actor.assignedCourtyardDoor = actor.slot.room === 1 ? 1 : 2;
         actor.walker.group.position.copy(courtyardStoneSeats[seatIndex]);
         seatPatientInCourtyard(actor);
         actor.motionWatchPosition.copy(actor.walker.group.position);
@@ -4033,20 +4810,28 @@ export function createThirdFloorCare({
               counts.inBed <= minimumInBedPatients
             )
               break;
-            const candidates = inpatientPatients
+            const eligibleCandidates = inpatientPatients
               .filter(
                 (patient) =>
                   patient.state === "bedRest" &&
                   !patient.inspectionReserved &&
                   !patient.medicationReserved &&
-                  patient.postInspectionCooldown <= 0 &&
-                  patient.lastTask !== task,
+                  patient.postInspectionCooldown <= 0,
               )
               .sort(comparePatientActivityPriority);
-            const candidate = candidates[0];
-            if (!candidate) break;
-            candidate.timer = 0;
-            if (!schedulePatientTask(candidate, task)) break;
+            const candidates = [
+              ...eligibleCandidates.filter((patient) => patient.lastTask !== task),
+              ...eligibleCandidates.filter((patient) => patient.lastTask === task),
+            ];
+            let scheduled = false;
+            for (const candidate of candidates) {
+              candidate.timer = 0;
+              if (schedulePatientTask(candidate, task)) {
+                scheduled = true;
+                break;
+              }
+            }
+            if (!scheduled) break;
           }
         };
       // Dining is a sub-state of the 4–7 patients who remain at their beds; it
@@ -4074,19 +4859,24 @@ export function createThirdFloorCare({
           ];
         let scheduled = false;
         for (const task of alternatives) {
-          const candidate = inpatientPatients
+          const eligibleCandidates = inpatientPatients
             .filter(
               (patient) =>
                 patient.state === "bedRest" &&
                 !patient.inspectionReserved &&
                 !patient.medicationReserved &&
-                patient.postInspectionCooldown <= 0 &&
-                patient.lastTask !== task,
+                patient.postInspectionCooldown <= 0,
             )
-            .sort(comparePatientActivityPriority)[0];
-          if (candidate && schedulePatientTask(candidate, task)) {
-            scheduled = true;
-            break;
+            .sort(comparePatientActivityPriority);
+          const candidates = [
+            ...eligibleCandidates.filter((patient) => patient.lastTask !== task),
+            ...eligibleCandidates.filter((patient) => patient.lastTask === task),
+          ];
+          for (const candidate of candidates) {
+            if (schedulePatientTask(candidate, task)) {
+              scheduled = true;
+              break;
+            }
           }
         }
         if (!scheduled) break;
@@ -4137,84 +4927,6 @@ export function createThirdFloorCare({
         startSeatedConversation(actor, partner);
         return;
       }
-    };
-
-    const invitePassingPatientToNeighbourSeat = (
-      actor: InpatientActor,
-      t: number,
-    ) => {
-      if (
-        actor.state !== "walking" ||
-        actor.arrival !== "bedRest" ||
-        actor.assignedCourtyardSeat !== undefined ||
-        !isInsideCourtyardFootprint(actor.walker.group.position) ||
-        t < (actor.walker.group.userData.nextCourtyardConversationOffer ?? 0)
-      )
-        return false;
-      const host = inpatientPatients
-        .filter(
-          (patient) =>
-            patient !== actor &&
-            actor.walker.group.userData.lastCourtyardConversationPartner !==
-              patient.walker.group.userData.inpatientIndex &&
-            patient.walker.group.userData.lastCourtyardConversationPartner !==
-              actor.walker.group.userData.inpatientIndex &&
-            patient.state === "courtyardSit" &&
-            !patient.inspectionReserved &&
-            patient.assignedCourtyardSeat !== undefined &&
-            patient.timer > 3,
-        )
-        .sort(
-          (a, b) =>
-            actorHorizontalDistance(
-              actor.walker.group.position,
-              a.walker.group.position,
-            ) -
-            actorHorizontalDistance(
-              actor.walker.group.position,
-              b.walker.group.position,
-            ),
-        )[0];
-      if (!host || host.assignedCourtyardSeat === undefined) return false;
-      const hostDistance = actorHorizontalDistance(
-        actor.walker.group.position,
-        host.walker.group.position,
-      );
-      if (hostDistance > 2.25) return false;
-      const neighbourIndex =
-        host.assignedCourtyardSeat % 2 === 0
-          ? host.assignedCourtyardSeat + 1
-          : host.assignedCourtyardSeat - 1;
-      actor.walker.group.userData.nextCourtyardConversationOffer = t + 7;
-      if (
-        courtyardSeatIsOccupied(neighbourIndex, actor) ||
-        Math.random() >= 0.7
-      )
-        return false;
-      const seat = courtyardStoneSeats[neighbourIndex],
-        fullRoute = courtyardSafeRouteTo(seat),
-        closestIndex = fullRoute.reduce(
-          (best, point, index) =>
-            actorHorizontalDistance(actor.walker.group.position, point) <
-            actorHorizontalDistance(actor.walker.group.position, fullRoute[best])
-              ? index
-              : best,
-          0,
-        ),
-        route = [
-          actor.walker.group.position.clone().setY(0),
-          // Never skip the final promenade-side approach point, even when a
-          // passing patient is already closer to the stone cap than to the
-          // preceding loop waypoint.
-          ...fullRoute.slice(Math.min(closestIndex + 1, fullRoute.length - 2)),
-        ];
-      actor.lastTask = "courtyardSit";
-      actor.assignedCourtyardSeat = neighbourIndex;
-      actor.walker.group.userData.conversationInvitedBy =
-        host.walker.group.userData.inpatientIndex;
-      actor.walker.group.userData.conversationReservedSeat = neighbourIndex;
-      startPatientWalk(actor, route, "courtyardSit");
-      return true;
     };
 
     const inpatientProjectedIvPoint = (
@@ -4746,6 +5458,38 @@ export function createThirdFloorCare({
       } else {
         clearPatientMedicationRobotDoorWait(actor);
       }
+      // A doorway route can legitimately contain a point that is already
+      // occupied after a side-pocket handoff or a route rebuild. Consume that
+      // duplicate before the wall/actor solver sees a zero-length step. The
+      // normal distance branch below is too late for some door states because
+      // the stale point is repeatedly reclassified as a doorway approach.
+      const reachedRouteTarget = actor.route[actor.waypoint],
+        smoothWardDoorTransit =
+          !!reachedRouteTarget &&
+          actor.slot.room <= 2 &&
+          !isInsideCourtyardFootprint(currentPosition) &&
+          !isInsideCourtyardFootprint(reachedRouteTarget) &&
+          (actorHorizontalDistance(currentPosition, actor.slot.doorCentre) <
+            2.8 ||
+            actorHorizontalDistance(reachedRouteTarget, actor.slot.doorCentre) <
+              2.8),
+        walkingBetweenCourtyardArcPoints =
+          reachedRouteTarget !== undefined &&
+          isCourtyardArcRoutePoint(currentPosition) &&
+          isCourtyardArcRoutePoint(reachedRouteTarget);
+      if (
+        reachedRouteTarget &&
+        !smoothWardDoorTransit &&
+        !walkingBetweenCourtyardArcPoints &&
+        actorHorizontalDistance(currentPosition, reachedRouteTarget) < 0.06
+      ) {
+        currentPosition.x = reachedRouteTarget.x;
+        currentPosition.z = reachedRouteTarget.z;
+        actor.courtyardTrafficWait = 0;
+        actor.waypoint++;
+        if (actor.waypoint >= actor.route.length) finishPatientRoute(actor);
+        return;
+      }
       const target = actor.route[actor.waypoint];
       if (!target) {
         if (actor.recoveryEscapeActive) {
@@ -4809,11 +5553,69 @@ export function createThirdFloorCare({
           courtyardDoorLaneThresholds.some(
             (point) => actorHorizontalDistance(target, point) < 0.14,
           ),
-        assignedDoorIndex = actor.assignedCourtyardDoor ?? 0,
-        assignedDoorCentre = courtyardDoorCentres[assignedDoorIndex],
+        assignedDoorIndex =
+          actor.assignedCourtyardDoor ?? (actor.slot.room === 1 ? 1 : 2),
+        assignedDoorCentre = courtyardDoorCrossingCentres[assignedDoorIndex],
         assignedDoorDirection = courtyardDoorDirections[assignedDoorIndex],
+        sideDoorArcPoint =
+          assignedDoorIndex === 1
+            ? courtyardSouthArcWestToEast[0]
+            : courtyardNorthArcEastToWest[0],
+        sideDoorInsideLaneEntering = courtyardDoorLanePoint(
+          assignedDoorIndex as 1 | 2,
+          "inside",
+          true,
+        ),
+        sideDoorInsideLaneExiting = courtyardDoorLanePoint(
+          assignedDoorIndex as 1 | 2,
+          "inside",
+          false,
+        ),
+        // The side-door route now connects directly to the first surveyed
+        // arc point. Treat that one short link as a valid promenade segment;
+        // otherwise the generic planting/seat containment test can reject a
+        // diagonal doorway-to-arc step and send the actor into a needless
+        // correction loop.
+        sideDoorArcConnectorTransit =
+          isInsideCourtyardFootprint(current) &&
+          isInsideCourtyardFootprint(target) &&
+          ((actorHorizontalDistance(current, sideDoorArcPoint) < 0.34 &&
+            (actorHorizontalDistance(target, sideDoorInsideLaneEntering) <
+              0.34 ||
+              actorHorizontalDistance(target, sideDoorInsideLaneExiting) <
+                0.34)) ||
+            (actorHorizontalDistance(target, sideDoorArcPoint) < 0.34 &&
+              (actorHorizontalDistance(current, sideDoorInsideLaneEntering) <
+                0.34 ||
+                actorHorizontalDistance(current, sideDoorInsideLaneExiting) <
+                  0.34))),
+        // The two directional arcs meet through one short diagonal at each
+        // side. Keep those surveyed connectors exact as well; look-ahead
+        // steering there can pull the body toward the north stone seats and
+        // make it perform a vertical correction before rejoining the arc.
+        courtyardArcJoinTransit =
+          isInsideCourtyardFootprint(current) &&
+          isInsideCourtyardFootprint(target) &&
+          ((actorHorizontalDistance(
+            current,
+            courtyardSouthArcWestToEast[courtyardSouthArcWestToEast.length - 1],
+          ) < 0.34 &&
+            actorHorizontalDistance(target, courtyardNorthArcEastToWest[0]) <
+              0.34) ||
+            (actorHorizontalDistance(
+              current,
+              courtyardNorthArcEastToWest[courtyardNorthArcEastToWest.length - 1],
+            ) < 0.34 &&
+              actorHorizontalDistance(target, courtyardSouthArcWestToEast[0]) <
+                0.34)),
+        surveyedCourtyardConnectorTransit =
+          sideDoorArcConnectorTransit || courtyardArcJoinTransit,
         doorSegmentDirection = delta.clone().normalize(),
         publicWardDepth = current
+          .clone()
+          .sub(actor.slot.doorCentre)
+          .dot(actor.slot.out),
+        targetWardDepth = target
           .clone()
           .sub(actor.slot.doorCentre)
           .dot(actor.slot.out),
@@ -4831,48 +5633,116 @@ export function createThirdFloorCare({
         eastWestCourtyardTransit =
           isInsideCourtyardFootprint(current) &&
           isInsideCourtyardFootprint(target) &&
-          Math.abs(current.z - 3.48) <= 1.06 &&
-          Math.abs(target.z - 3.48) <= 1.06 &&
+          Math.abs(current.z - courtyardEastWestLaneZ) <= 0.3 &&
+          Math.abs(target.z - courtyardEastWestLaneZ) <= 0.3 &&
           Math.abs(delta.x) > 0.12 &&
           Math.abs(delta.x) > Math.abs(delta.z) * 1.3,
+        lowerPlantingEdgeTransit =
+          isInsideCourtyardFootprint(current) &&
+          isInsideCourtyardFootprint(target) &&
+          Math.abs(
+            Math.hypot(
+              current.x,
+              current.z - courtyardLowerPlantingArcCenterZ,
+            ) - courtyardLowerPlantingEdgePathRadius,
+          ) <= 0.7 &&
+          Math.abs(
+            Math.hypot(
+              target.x,
+              target.z - courtyardLowerPlantingArcCenterZ,
+            ) - courtyardLowerPlantingEdgePathRadius,
+          ) <= 0.7,
+        northFlowerbedEdgeTransit =
+          isInsideCourtyardFootprint(current) &&
+          isInsideCourtyardFootprint(target) &&
+          Math.abs(
+            Math.hypot(current.x, current.z - courtyardNorthWallZ) -
+              courtyardNorthArcPathRadius,
+          ) <= 0.7 &&
+          Math.abs(
+            Math.hypot(target.x, target.z - courtyardNorthWallZ) -
+              courtyardNorthArcPathRadius,
+          ) <= 0.7,
+        northGlassSideArmTransit =
+          isInsideCourtyardFootprint(current) &&
+          isInsideCourtyardFootprint(target) &&
+          Math.abs(current.z - courtyardNorthGlassLaneZ) <= 0.28 &&
+          Math.abs(target.z - courtyardNorthGlassLaneZ) <= 0.28 &&
+          Math.abs(current.x) >= courtyardNorthArcHalfWidth - 0.12 &&
+          Math.abs(target.x) >= courtyardNorthArcHalfWidth - 0.12 &&
+          Math.abs(delta.x) > 0.12,
+        courtyardArcTransit =
+          lowerPlantingEdgeTransit || northFlowerbedEdgeTransit,
+        sameWardRoomTransit =
+          !isInsideCourtyardFootprint(current) &&
+          !isInsideCourtyardFootprint(target) &&
+          pointIsInsideWardRoom(current, actor.slot.room) &&
+          pointIsInsideWardRoom(target, actor.slot.room) &&
+          !doorWaypoint &&
+          !recoveryWaypoint,
+        wardDoorCurveTransit =
+          // Keep a wider doorway neighbourhood active so the public-corridor
+          // turn does not fall back to a polyline immediately after the
+          // threshold.
+          (actor.slot.room <= 2 || !sameWardRoomTransit) &&
+          !isInsideCourtyardFootprint(current) &&
+          !isInsideCourtyardFootprint(target) &&
+          (actorHorizontalDistance(current, actor.slot.doorCentre) < 2.8 ||
+            actorHorizontalDistance(target, actor.slot.doorCentre) < 2.8),
+        wardDoorOutsideCurveTransit =
+          // Do not begin the public-corridor curve while either endpoint is
+          // still in the doorway. The previous OR condition made the patient
+          // rotate at the threshold and could repeatedly pull the heading
+          // between the door axis and the corridor tangent.
+          wardDoorCurveTransit &&
+          publicWardDepth < -1.15 &&
+          targetWardDepth < -1.15,
         exactMovementWaypoint =
           exactCourtyardWaypoint ||
           straightCourtyardDoorTransit ||
+          surveyedCourtyardConnectorTransit ||
           eastWestCourtyardTransit ||
-          // Outside the assigned room, patients follow the surveyed ward
-          // polyline exactly. Curved person-avoidance previously bowed a
-          // westbound patient south into the nursing counter and cart rack.
-          // Characters do not collide here, so no lateral search is needed.
-          (!isInsideCourtyardFootprint(current) && publicWardDepth < -0.52),
-        waypointThreshold = exactMovementWaypoint
-          ? 0.08
-          : doorWaypoint
-            ? 0.11
-            : 0.24;
+          northGlassSideArmTransit ||
+          lowerPlantingEdgeTransit ||
+          northFlowerbedEdgeTransit ||
+          sameWardRoomTransit,
+        waypointThreshold = courtyardArcTransit
+          ? 0.018
+          : exactMovementWaypoint
+            ? 0.08
+            : doorWaypoint
+              ? 0.11
+              : wardDoorCurveTransit
+                ? 0.08
+              : 0.24;
       if (
         isInsideCourtyardFootprint(current) &&
         actor.arrival === "courtyardSit" &&
         assignedSeatIndex >= 0 &&
         assignedSeat !== undefined &&
         nearAssignedSeat &&
+        !actor.avoidanceDetourActive &&
         !courtyardStoneSeatChannelContains(assignedSeatIndex, current)
       ) {
         // The inner corner beside the lower-left planter is close to a final
         // seating turn. If an actor drifts outside the reserved seat channel,
         // return to the promenade-side release point before approaching again
         // instead of retrying a diagonal segment through the planting bed.
-        const release = courtyardStoneSeatExitPoint(assignedSeatIndex);
-        current.copy(release);
-        current.y = courtyardPatientGroundY;
-        actor.route = [release, assignedSeat.clone()];
-        actor.waypoint = 1;
+        const release = courtyardStoneSeatExitPoint(assignedSeatIndex)
+            .clone()
+            .setY(0),
+          recoveryRoute = compactThirdFloorRoute([
+            current.clone().setY(0),
+            release,
+            assignedSeat.clone().setY(0),
+          ]);
+        actor.route = recoveryRoute;
+        actor.waypoint = recoveryRoute.length > 1 ? 1 : 0;
         actor.avoidanceDetourActive = true;
         actor.blockedTime = 0;
         actor.motionStallTime = 0;
         actor.motionWatchPosition.copy(current);
-        actor.slot.ivStand.position.copy(
-          courtyardStoneSeatIvParkPoint(assignedSeatIndex),
-        );
+        actor.slot.ivStand.position.copy(inpatientIvPalmFloorPoint(actor));
         return;
       }
       // Last-resort containment: if any earlier steering residue ever places
@@ -4882,8 +5752,12 @@ export function createThirdFloorCare({
       if (
         isInsideCourtyardFootprint(current) &&
         !eastWestCourtyardTransit &&
+        !northGlassSideArmTransit &&
+        !northFlowerbedEdgeTransit &&
+        !surveyedCourtyardConnectorTransit &&
         !leavingCourtyardSeat &&
         !nearAssignedSeat &&
+        !actor.avoidanceDetourActive &&
         (!courtyardPatientBodyIsOnWalkway(current) ||
           !courtyardPatientBodyAvoidsStoneSeats(actor, current))
       ) {
@@ -4892,6 +5766,7 @@ export function createThirdFloorCare({
             actor.route[actor.waypoint + 1],
             actor.route[Math.max(0, actor.waypoint - 1)],
             ...courtyardRoundaboutRing,
+            ...courtyardLowerPlantingEdge,
             courtyardNorthEntryRelease,
             courtyardNorthExitRelease,
             ...courtyardStoneSeats.map((_, index) =>
@@ -4907,9 +5782,14 @@ export function createThirdFloorCare({
             ),
           recoveryPoint = safeCandidates[0];
         if (recoveryPoint) {
-          current.copy(recoveryPoint);
-          current.y = courtyardPatientGroundY;
-          actor.slot.ivStand.position.copy(inpatientIvPalmFloorPoint(actor));
+          const remainingRoute = actor.route.slice(actor.waypoint),
+            recoveryRoute = compactThirdFloorRoute([
+              current.clone().setY(0),
+              recoveryPoint.clone().setY(0),
+              ...remainingRoute,
+            ]);
+          actor.route = recoveryRoute;
+          actor.waypoint = recoveryRoute.length > 1 ? 1 : 0;
         }
         actor.avoidanceDetourActive = true;
         actor.blockedTime = 0;
@@ -4918,12 +5798,16 @@ export function createThirdFloorCare({
         return;
       }
       if (distance < waypointThreshold) {
-        if (doorWaypoint || exactMovementWaypoint) {
+        // Do not snap a patient to the densely sampled ward 1/2 doorway
+        // curve. The curve is traversed by the eased heading below; snapping
+        // each sample back to its exact coordinate is what made the motion
+        // visibly stutter even after the route itself had been smoothed.
+        if ((doorWaypoint || exactMovementWaypoint) && !wardDoorCurveTransit) {
           current.x = target.x;
           current.z = target.z;
         }
         if (seatExitWaypoint) {
-          // The full 1.28 m outward segment is complete. Only now may normal
+          // The full outward clearance segment is complete. Only now may normal
           // curved steering turn the body toward the promenade route.
           actor.walker.group.userData.leavingCourtyardSeat = false;
           actor.walker.group.userData.courtyardSeatExitIndex = undefined;
@@ -4946,20 +5830,39 @@ export function createThirdFloorCare({
         return;
       }
       const nearDoorCorner = wardDoorCentres
-          .concat(courtyardDoorCentres)
+          .concat(
+            courtyardDoorCentres.filter((_, index) =>
+              courtyardAutoDoors[index].active,
+            ),
+          )
           .some(
             (centre) =>
               actorHorizontalDistance(current, centre) < 1.35 ||
               actorHorizontalDistance(target, centre) < 1.35,
-          ),
-        routeDirection = exactMovementWaypoint
+            ),
+        curvedCourtyardTransit =
+          isInsideCourtyardFootprint(current) &&
+          isInsideCourtyardFootprint(target) &&
+          !doorWaypoint &&
+          !exactCourtyardWaypoint &&
+          !lowerPlantingEdgeTransit &&
+          !northFlowerbedEdgeTransit &&
+          !recoveryWaypoint &&
+          distance > 0.08,
+        routeDirection = wardDoorCurveTransit && !wardDoorOutsideCurveTransit
           ? delta.clone().normalize()
-          : thirdFloorRouteDirection(
-              current,
-              actor.route,
-              actor.waypoint,
-              nearDoorCorner ? 0.28 : 0.72,
-            );
+          : wardDoorOutsideCurveTransit
+          ? thirdFloorDoorCurveDirection(current, actor.route, actor.waypoint)
+          : exactMovementWaypoint && !curvedCourtyardTransit
+            ? delta.clone().normalize()
+            : thirdFloorRouteDirection(
+                current,
+                actor.route,
+                actor.waypoint,
+                nearDoorCorner
+                  ? 1.42
+                  : 0.72,
+              );
       const direction = routeDirection,
         speedFactor = courtyardSameDirectionSpeedFactor(
           actor,
@@ -4968,8 +5871,6 @@ export function createThirdFloorCare({
         ),
         step = Math.min(distance, inpatientWalkSpeed * speedFactor * dt);
       const actorKey = `p:${actor.walker.group.userData.inpatientIndex}`,
-        steeringPoint = current.clone().add(direction),
-        targetYaw = thirdFloorPatientYaw(current, steeringPoint),
         wardDepth = current
           .clone()
           .sub(actor.slot.doorCentre)
@@ -4980,18 +5881,82 @@ export function createThirdFloorCare({
         // surveyed points while activating curved motion immediately in the
         // public corridor.
         useCurvedForward =
-          !exactMovementWaypoint &&
+          (!exactMovementWaypoint || curvedCourtyardTransit) &&
           !leavingCourtyardSeat &&
           !doorWaypoint &&
           wardDepth < -0.52;
+      const smoothPathTransit =
+        !wardDoorCurveTransit &&
+        (useCurvedForward || curvedCourtyardTransit);
+      let pathDirection = direction.clone();
+      if (smoothPathTransit) {
+        const previousPathDirection = actor.walker.group.userData
+          .thirdFloorPatientPathDirection as THREE.Vector3 | undefined;
+        if (
+          previousPathDirection &&
+          previousPathDirection.lengthSq() > 0.0001 &&
+          previousPathDirection.dot(direction) >= 0.12
+        ) {
+          previousPathDirection.lerp(
+            direction,
+            1 - Math.exp(-dt * 14),
+          ).normalize();
+          pathDirection = previousPathDirection;
+        } else {
+          pathDirection = direction.clone();
+          actor.walker.group.userData.thirdFloorPatientPathDirection =
+            pathDirection.clone();
+        }
+      } else {
+        actor.walker.group.userData.thirdFloorPatientPathDirection =
+          direction.clone();
+      }
+      const steeringPoint = current.clone().add(pathDirection),
+        targetYaw = thirdFloorPatientYaw(current, steeringPoint);
+      const doorwayFacingDirection = actor.slot.out
+        .clone()
+        .setY(0)
+        .normalize();
+      if (doorwayFacingDirection.dot(direction) < 0)
+        doorwayFacingDirection.negate();
+      const smoothPatientHeading =
+          !exactCourtyardWaypoint &&
+          !courtyardArcTransit &&
+          !recoveryWaypoint &&
+          (wardDoorOutsideCurveTransit ||
+            ((!doorWaypoint && !straightCourtyardDoorTransit) &&
+              ((isInsideCourtyardFootprint(current) &&
+                isInsideCourtyardFootprint(target)) ||
+                (!isInsideCourtyardFootprint(current) &&
+                  publicWardDepth < -0.52)))),
+        // Keep the complete turn animation through a doorway and across an
+        // exact courtyard threshold. Patients use a slower turn rate than
+        // nurses, so every visible heading change contains real intermediate
+        // frames instead of flashing to the finished yaw.
+        animatePatientTurn =
+          wardDoorOutsideCurveTransit ||
+          straightCourtyardDoorTransit ||
+          smoothPatientHeading;
       actor.walker.arms[0].rotation.set(0.78, 0, 0.3);
       const movementStartYaw = actor.walker.group.rotation.y;
-      const facingReady = turnWardWalkerToward(actor.walker, targetYaw, dt);
-      if (
-        (straightCourtyardDoorTransit || eastWestCourtyardTransit) &&
-        !facingReady
-      )
-        actor.walker.group.rotation.set(0, targetYaw, 0);
+      const patientUsesSmoothTurn =
+        wardDoorOutsideCurveTransit || smoothPatientHeading;
+      if (!patientUsesSmoothTurn)
+        actor.walker.group.userData.thirdFloorPatientTurnVelocity = 0;
+      const facingReady = turnWardWalkerToward(
+        actor.walker,
+        actor.slot.room <= 2 &&
+        wardDoorCurveTransit &&
+        !wardDoorOutsideCurveTransit
+          ? thirdFloorPatientYaw(
+              current,
+              current.clone().add(doorwayFacingDirection),
+            )
+          : targetYaw,
+        dt,
+        4.8,
+        patientUsesSmoothTurn,
+      );
       // Recompute from the actual palm on every turning frame. The stand
       // therefore stays in the same hand instead of rotating a frame later.
       actor.slot.ivStand.position.copy(
@@ -5002,6 +5967,7 @@ export function createThirdFloorCare({
       actor.slot.ivStand.rotation.y = actor.walker.group.rotation.y;
       const restoreBlockedPatientHeading = () => {
         actor.walker.group.rotation.set(0, movementStartYaw, 0);
+        actor.walker.group.userData.thirdFloorPatientTurnVelocity = 0;
         actor.walker.group.updateWorldMatrix(true, true);
         actor.slot.ivStand.position.copy(
           seatLandingWaypoint && assignedSeatIvPark
@@ -5010,24 +5976,53 @@ export function createThirdFloorCare({
         );
         actor.slot.ivStand.rotation.y = movementStartYaw;
       };
+      const roomThreePublicCorridorTransit =
+        actor.slot.room === 3 &&
+        publicWardDepth < -0.52 &&
+        !sameWardRoomTransit &&
+        !exactCourtyardWaypoint &&
+        !recoveryWaypoint &&
+        distance > 0.08;
+      const roomThreeTurningBeforeWalk =
+        roomThreePublicCorridorTransit && !facingReady;
+      if (roomThreeTurningBeforeWalk) {
+        // Ward 3 has a diagonal branch immediately outside the room. Do not
+        // translate along that branch while the body is still facing the
+        // previous leg; otherwise the patient visibly crab-walks sideways.
+        // Let the continuous turn finish first, then take the next movement
+        // step with the body aligned to the corridor tangent.
+        actor.blockedTime = 0;
+        actor.motionWatchPosition.copy(current);
+        actor.walker.legs.forEach((leg) => leg.rotation.set(0, 0, 0));
+        actor.walker.arms[1].rotation.set(0, 0, -0.08);
+        return;
+      }
       // The room, bedside aisle and door threshold use exact movement. Once
       // the character has fully entered the public corridor, translation uses
       // the model's actual local -Z front while yaw continues easing toward
-      // the look-ahead direction, producing a genuine walking arc.
-      if (
-        !useCurvedForward &&
-        !straightCourtyardDoorTransit &&
-        !eastWestCourtyardTransit &&
-        !facingReady
-      )
-        return;
-      if (!useCurvedForward)
+      // the look-ahead direction, producing a genuine walking arc. Exact
+      // surveyed segments must not wait for a full turn: a patient can be
+      // visibly facing the next leg while still standing in the room, which
+      // was the source of the long post-bed and mid-route pauses.
+      if (!useCurvedForward && !animatePatientTurn)
         actor.walker.group.rotation.set(0, targetYaw, 0);
       const visualForward = new THREE.Vector3(0, 0, -1)
         .applyQuaternion(actor.walker.group.quaternion)
         .setY(0)
         .normalize();
-      let movementDirection = useCurvedForward ? visualForward : direction;
+      // Doorway connectors are sampled curves, but following each sampled
+      // chord directly still makes the patient visibly cut from one small
+      // segment to the next. Let the eased body heading drive translation
+      // through the ward 1/2 connector so the position follows the same
+      // continuous turn that the model is showing. The existing containment,
+      // doorway and IV-swept collision checks below remain authoritative.
+      let movementDirection = roomThreePublicCorridorTransit
+        ? visualForward
+        : wardDoorCurveTransit
+          ? direction
+          : smoothPathTransit
+            ? pathDirection
+            : direction;
       const liveIvPoint = inpatientProjectedIvPoint(
           current,
           actor.walker.group.rotation.y,
@@ -5038,10 +6033,22 @@ export function createThirdFloorCare({
           direction,
           actor,
         );
+      let movementYaw = actor.walker.group.rotation.y;
+      let proposed = current
+          .clone()
+          .addScaledVector(movementDirection, step)
+          .setY(0),
+        proposedIv =
+          seatLandingWaypoint && assignedSeatIvPark
+            ? assignedSeatIvPark.clone()
+            : inpatientProjectedIvPoint(proposed, movementYaw);
+      const nurseDoorHandoffAllowsStep =
+        patientNurseDoorHandoffAllowsStep(actor, proposed, proposedIv);
       if (
         nurseConflict &&
         useCurvedForward &&
-        !isInsideCourtyardFootprint(current)
+        !isInsideCourtyardFootprint(current) &&
+        !nurseDoorHandoffAllowsStep
       ) {
         // Public corridors already have surveyed right-hand lanes. Keep the
         // patient on that lane and briefly yield to an opposing/crossing
@@ -5052,27 +6059,28 @@ export function createThirdFloorCare({
         restoreBlockedPatientHeading();
         return;
       }
-      let movementYaw = actor.walker.group.rotation.y;
-      let proposed = current
-          .clone()
-          .addScaledVector(movementDirection, step)
-          .setY(0),
-        proposedIv =
-          seatLandingWaypoint && assignedSeatIvPark
-            ? assignedSeatIvPark.clone()
-            : inpatientProjectedIvPoint(proposed, movementYaw);
       const patientCourtyardStepIsInvalid = () =>
           isInsideCourtyardFootprint(proposed) &&
           !eastWestCourtyardTransit &&
-          ((seatExitWaypoint || seatApproachWaypoint || seatLandingWaypoint
-            ? !isCourtyardWalkwayPoint(proposed) &&
-              !isCourtyardDoorPassagePoint(proposed)
-            : !courtyardPatientBodyIsOnWalkway(proposed) ||
-              !courtyardPatientBodyAvoidsStoneSeats(actor, proposed)) ||
-            courtyardStoneSeatStepIsForbidden(actor, proposed)),
+          !northGlassSideArmTransit &&
+          !northFlowerbedEdgeTransit &&
+          !surveyedCourtyardConnectorTransit &&
+          (!recoveryWaypoint &&
+            (seatLandingWaypoint
+              ? actorHorizontalDistance(proposed, assignedSeat) >= 0.18 &&
+                !isCourtyardWalkwayPoint(proposed) &&
+                !isCourtyardDoorPassagePoint(proposed)
+              : !courtyardPatientBodyIsOnWalkway(proposed) ||
+                !courtyardPatientBodyAvoidsStoneSeats(actor, proposed))) ||
+            (!recoveryWaypoint &&
+              courtyardStoneSeatStepIsForbidden(actor, proposed)),
         ivCourtyardStepIsInvalid = () =>
           isInsideCourtyardFootprint(proposedIv) &&
           !eastWestCourtyardTransit &&
+          !northGlassSideArmTransit &&
+          !northFlowerbedEdgeTransit &&
+          !surveyedCourtyardConnectorTransit &&
+          !recoveryWaypoint &&
           ((!isCourtyardWalkwayPoint(proposedIv) &&
             !isCourtyardDoorPassagePoint(proposedIv)) ||
             courtyardStoneSeatStepIsForbidden(actor, proposedIv)),
@@ -5083,13 +6091,14 @@ export function createThirdFloorCare({
         // the surveyed segment in the same frame. Facing is aligned before
         // translation, so this cannot become sideways/backward movement or a
         // visible pause while the patient waits for the next recovery cycle.
+        const fallbackDirection = delta.clone().normalize();
         const recoveryYaw = thirdFloorPatientYaw(
           current,
-          current.clone().add(direction),
+          current.clone().add(fallbackDirection),
         );
         actor.walker.group.rotation.set(0, recoveryYaw, 0);
         actor.avoidanceDetourActive = true;
-        movementDirection = direction;
+        movementDirection = fallbackDirection;
         movementYaw = actor.walker.group.rotation.y;
         proposed = current
           .clone()
@@ -5107,15 +6116,27 @@ export function createThirdFloorCare({
         restoreBlockedPatientHeading();
         return;
       }
-      if (
+      const wardStepIsBlocked = () =>
         patientWardStepIsBlocked(
           actor,
           current,
           proposed,
           actor.slot.ivStand.position,
           proposedIv,
-        )
-      ) {
+        );
+      if (wardStepIsBlocked() && useCurvedForward) {
+        // A public-corridor curve is only a steering hint. If the swept body
+        // or IV stand approaches the ward shell, retry the same frame on the
+        // surveyed lane instead of waiting for the curve to turn back or
+        // allowing a short wall-cutting segment.
+        movementDirection = delta.clone().normalize();
+        proposed = current
+          .clone()
+          .addScaledVector(movementDirection, step)
+          .setY(0);
+        proposedIv = inpatientProjectedIvPoint(proposed, movementYaw);
+      }
+      if (wardStepIsBlocked()) {
         // Ward walls are fixed geometry. Keep the surveyed route and its
         // lateral doorway approach, but reject only the invalid body/IV step;
         // patients are never re-centred as a side effect of this check.
@@ -5178,10 +6199,15 @@ export function createThirdFloorCare({
       )
         requestWardDoorOpen(actor.slot.doorIndex);
       courtyardAutoDoors.forEach((door) => {
-        const centre = door.leaves[0].closed
-          .clone()
-          .add(door.leaves[1].closed)
-          .multiplyScalar(0.5);
+        if (!door.active) return;
+        // East and west courtyard doors are single sliding glass panels.
+        // Keep the old two-panel calculation tolerant for any legacy door
+        // data, but never read a missing second leaf during every frame.
+        const firstLeaf = door.leaves[0]?.closed;
+        if (!firstLeaf) return;
+        const centre = firstLeaf.clone();
+        if (door.leaves[1]?.closed)
+          centre.add(door.leaves[1].closed).multiplyScalar(0.5);
         if (
           actorHorizontalDistance(current, centre) <
           courtyardDoorOpenSensorDistance
@@ -5193,22 +6219,35 @@ export function createThirdFloorCare({
     };
 
     const nurseSeatSidePoint = (nurseIndex: number) => {
-        const seat = wardNurseSeatPoints[nurseIndex];
-        // All three nurses face local -Z at the desk, so +X is the character's
-        // right. The innermost nurse now leaves through this side as requested.
-        return new THREE.Vector3(seat.x + 0.72, 0, seat.z);
+        const angle = wardNurseStationAngles[nurseIndex];
+        // Each nurse first backs into the open centre of the ring. The shorter
+        // radial step keeps the body behind the low worktop instead of
+        // intersecting its inner edge.
+        return new THREE.Vector3(
+          wardNurseStationCentre.x + 0.54 * Math.cos(angle),
+          0,
+          wardNurseStationCentre.z + 0.54 * Math.sin(angle),
+        );
       },
-      nurseSeatAislePoint = (nurseIndex: number) => {
-        const sidePoint = nurseSeatSidePoint(nurseIndex);
-        return new THREE.Vector3(sidePoint.x, 0, -5.46);
-      },
-      // The inspecting nurse waits inside the station, exits through its open
-      // right side and walks around the counter before approaching the outside
-      // face of the first cart. Every nurse first steps around their own chair
-      // into the widened front aisle, so seated colleagues no longer block the
-      // cross-station segment and work rotation never requires changing seats.
-      nurseInspectionPrepPoint = new THREE.Vector3(3.08, 0, -5.46),
-      nurseCartDeparturePoint = new THREE.Vector3(-3.72, 0, -4.34),
+      nurseStationCentralPassagePoint = new THREE.Vector3(
+        wardNurseStationCentre.x,
+        0,
+        wardNurseStationCentre.z,
+      ),
+      // The inspecting nurse waits in the north opening before approaching
+      // the outside face of the first cart. Approach from the cart's west
+      // (left) side so the first push heading does not reverse at pickup.
+      // Keep the attached cart's service lane clear of the ring's north edge.
+      // At z=-6.2 the cart clearance envelope grazed the desk's outer arc;
+      // the additional 35 cm makes the entire horizontal departure segment
+      // unambiguously exterior to the counter.
+      nurseInspectionPrepPoint = new THREE.Vector3(-1, 0, -6.55),
+      // With no cart attached, the nurse uses one straight centreline from
+      // the ring's centre through the north opening. The desk is deliberately
+      // ignored during this transfer; the cart never enters this segment.
+      nurseStationNorthExitPoint = new THREE.Vector3(0, 0, -5.95),
+      nurseStationNorthServicePoint = new THREE.Vector3(0, 0, -6.55),
+      nurseCartDeparturePoint = new THREE.Vector3(-3.6, 0, -7.95),
       nurseCartDepartureDirection = nurseCartDeparturePoint
         .clone()
         .sub(outerWardMedicalCartHome)
@@ -5216,7 +6255,7 @@ export function createThirdFloorCare({
         .normalize(),
       nurseCartPickupPoint = outerWardMedicalCartHome
         .clone()
-        .addScaledVector(nurseCartDepartureDirection, -wardNurseCartDistance)
+        .addScaledVector(nurseCartDepartureDirection, wardNurseCartDistance)
         .setY(0),
       nurseCartReturnDropPoint = outerWardMedicalCartHome
         .clone()
@@ -5237,57 +6276,167 @@ export function createThirdFloorCare({
         .clone()
         .add(new THREE.Vector3(-0.49, 0, 0))
         .setY(0),
-      // The cart rack sits northwest of the counter. Keep every transfer
-      // through this surveyed service lane, then blend into the eastbound
-      // public lane only after clearing the west side of the station.
-      nurseStationServiceExit = new THREE.Vector3(-4.72, 0, -4.34),
-      nurseStationServiceCorner = new THREE.Vector3(-5.42, 0, -3.42),
-      // Rooms 2 and 3 leave the west service corner through one continuous
-      // forward arc. The old north-gate/south-gate dogleg forced the nurse
-      // and cart to stop, rotate 90 degrees twice, then accelerate again.
-      // Every successive heading change below stays under 30 degrees, and
-      // the points remain north of the courtyard glazing with cart clearance.
-      nurseStationEastboundArc = [
-        new THREE.Vector3(-5.74, 0, -3.19),
-        new THREE.Vector3(-5.95, 0, -2.9),
-        new THREE.Vector3(-6.03, 0, -2.66),
-        new THREE.Vector3(-6.01, 0, -2.47),
-        new THREE.Vector3(-5.93, 0, -2.34),
-        new THREE.Vector3(-5.84, 0, -2.27),
-        new THREE.Vector3(-5.69, 0, -2.23),
-        new THREE.Vector3(-5.19, 0, wardNurseLaneZ(true)),
-      ],
-      // Ward 1 uses a shallow multi-point arc after cart pickup. These points
-      // are intentionally not exact stop points, allowing normal look-ahead
-      // to blend the old abrupt left-corner heading change.
-      nurseWardOneCurveStart = new THREE.Vector3(-4.56, 0, -3.98),
-      nurseWardOneCurveMiddle = new THREE.Vector3(-4.78, 0, -3.58),
-      nurseWardOneCurveEnd = new THREE.Vector3(-5.18, 0, -3.34),
-      // Leaving Ward 1 requires almost reversing the doorway heading before
-      // reaching the cart rack. Use a one-way six-point arc whose successive
-      // turns remain below 30 degrees, rather than the former single corner
-      // that made the nurse/cart rig circle while trying to realign.
-      nurseWardOneReturnCurve = [
-        new THREE.Vector3(-6.98, 0, -2.65),
-        new THREE.Vector3(-6.58, 0, -2.55),
-        new THREE.Vector3(-6.18, 0, -2.65),
-        new THREE.Vector3(-5.88, 0, -2.93),
-        new THREE.Vector3(-5.72, 0, -3.32),
-        new THREE.Vector3(-5.72, 0, -3.82),
-      ],
+      // Once the cart is parked, the nurse leaves the cart row through this
+      // single clearance point. The old route inserted the inspection prep
+      // point again, creating a short reverse/forward hook beside the rack
+      // and occasionally steering the cart nose into the rear wall.
+      nurseCartRowClearancePoint = new THREE.Vector3(-3.45, 0, -7.05),
+      // The north service lane stays between the rear wall and the parked
+      // carts. Nurses and attached carts use it for every ward transfer;
+      // they no longer merge into the glass-side public walkway.
+      // Keep the service line clear of the medication robot parked at z=-7.62
+      // while remaining well north of the public corridor and station.
+      nurseNorthWallLaneZ = -6.55,
+      // Opposing nurse/cart traffic keeps a small right-hand offset on the
+      // narrow service lane. The offset is intentionally conservative so the
+      // attached cart still clears the rear wall and parked-cart row.
+      nurseNorthWallDirectionalLaneOffset = 0.18,
+      nurseNorthWallStationPoint = new THREE.Vector3(
+        -1,
+        0,
+        nurseNorthWallLaneZ,
+      ),
+      // After pickup, first back out of the cart row on the same x-axis used
+      // to approach the rack. Turning directly toward the room branch made
+      // the attached cart sweep back through the rack and the station edge.
+      nurseCartPickupExitPoint = new THREE.Vector3(
+        nurseCartPickupPoint.x,
+        0,
+        nurseNorthWallLaneZ,
+      ),
+      nurseNorthWallRoomRoute = (
+        slot: WardBedSlot,
+        towardRoom: boolean,
+      ) => {
+        const outside = roomOutsidePoint(slot).clone().setY(0),
+          roomTravelEastbound = slot.room !== 1,
+          travelEastbound = towardRoom
+            ? roomTravelEastbound
+            : !roomTravelEastbound,
+          serviceLaneZ =
+            nurseNorthWallLaneZ +
+            (travelEastbound
+              ? nurseNorthWallDirectionalLaneOffset
+              : -nurseNorthWallDirectionalLaneOffset),
+          // The service line is room-specific. A single horizontal segment
+          // from the station to Ward 3 (or its mirror toward Ward 1) cuts
+          // through the neighbouring ward shell before it reaches the outer
+          // branch. Use the surveyed exterior polyline instead.
+          // Ward 2's front wall reaches farther west at the north service
+          // line than the other rooms.  x=5.7 put the return waypoint inside
+          // that wall's clearance envelope, and x=4.8 still left the cart
+          // nose grazing the wall while it turned onto the lane.  Keep the
+          // whole attached rig outside the shell while retaining the same
+          // north-wall approach.
+          serviceLaneX =
+            slot.room === 1 ? -5.7 : slot.room === 3 ? 10.1 : 4.4,
+          // Give the attached cart one straight, door-normal release step
+          // before the nurse turns toward the north service lane. Without
+          // this point the cart nose cuts across the front-wall envelope at
+          // the first corner and briefly reports a blocked path.
+          doorReleasePoint = outside
+            .clone()
+            .addScaledVector(slot.out, -0.55)
+            .setY(0),
+          branchPoint = new THREE.Vector3(
+            serviceLaneX,
+            0,
+            outside.z + (outside.z > nurseNorthWallLaneZ ? -0.92 : 0.92),
+          ),
+          // Leave the north opening on a straight service line first.  The
+          // former station-to-branch diagonal made the attached cart sweep
+          // across the ring desk's outer arc before the nurse reached the
+          // surveyed ward corridor.  This corner is intentionally shared by
+          // the outbound and reversed return route, so the cart turns only
+          // after the full rig is outside the station clearance envelope.
+          stationLanePoint = new THREE.Vector3(
+            slot.room === 1 ? -4.18 : slot.room === 3 ? 4.18 : serviceLaneX,
+            0,
+            serviceLaneZ,
+          ),
+          directionalStationPoint = new THREE.Vector3(
+            nurseNorthWallStationPoint.x,
+            0,
+            serviceLaneZ,
+          ),
+          exteriorRoute =
+            slot.room === 3
+              ? [
+                  directionalStationPoint,
+                  stationLanePoint,
+                  ...wardThreePublicCorridorLane(towardRoom),
+                  branchPoint,
+                  doorReleasePoint,
+                  outside,
+                ]
+              : slot.room === 1
+                ? [
+                    directionalStationPoint,
+                    stationLanePoint,
+                    new THREE.Vector3(-4.18, 0, -2.68),
+                    new THREE.Vector3(-5.18, 0, -2.68),
+                    new THREE.Vector3(-7.02, 0, -2.1),
+                    new THREE.Vector3(-8.3, 0, 0.08),
+                    new THREE.Vector3(-9.8, 0, 2.42),
+                    branchPoint,
+                    doorReleasePoint,
+                    outside,
+                  ]
+                : [
+                    directionalStationPoint,
+                    stationLanePoint,
+                    branchPoint,
+                    doorReleasePoint,
+                    outside,
+                  ],
+          route = compactNurseCartRoute(exteriorRoute);
+        if (!towardRoom && slot.room === 1) {
+          // The west-side approach points are needed only to enter Ward 1.
+          // Reversing that entire approach on the way out made the nurse
+          // walk back toward the elevator side before turning around again.
+          // From the outside door, join the surveyed branch directly and
+          // continue along the short north service return.
+          return compactNurseCartRoute([
+            outside,
+            branchPoint,
+            new THREE.Vector3(-5.18, 0, -2.68),
+            new THREE.Vector3(-4.18, 0, -2.68),
+            stationLanePoint,
+            directionalStationPoint,
+          ]);
+        }
+        return towardRoom
+          ? route
+          : compactNurseCartRoute(
+              route.slice().reverse().map((point) => point.clone()),
+            );
+      },
       nurseStationToCartRoute = (nurseIndex: number) => [
         nurseSeatSidePoint(nurseIndex),
-        nurseSeatAislePoint(nurseIndex),
+        nurseStationCentralPassagePoint.clone(),
+        nurseStationNorthExitPoint.clone(),
+        nurseStationNorthServicePoint.clone(),
         nurseInspectionPrepPoint.clone(),
-        new THREE.Vector3(3.66, 0, -5.46),
-        new THREE.Vector3(4.08, 0, -4.24),
-        new THREE.Vector3(-3.38, 0, -3.84),
-        new THREE.Vector3(-4.28, 0, -3.64),
-        new THREE.Vector3(-5.12, 0, -3.88),
-        new THREE.Vector3(-5.42, 0, -4.34),
+        // Continue west along the north service lane before approaching the
+        // rack. The three carts occupy the north-wall row; approaching the
+        // first cart through the gap between them repeatedly made the nurse
+        // yield to a parked cart or the medication robot.
+        new THREE.Vector3(-2.6, 0, nurseNorthWallLaneZ),
         nurseCartPickupPoint.clone(),
       ],
-      nurseCartToStationRoute = (nurseIndex: number, fromRoom: number) => [
+      nurseCartToStationRoute = (nurseIndex: number, fromRoom: number) =>
+        compactNurseCartRoute([
+        // The corridor route already ends on the returning nurse's right
+        // lane. Continue directly west to the cart rack from that point;
+        // re-entering the centreline at x=-1 and then moving west again made
+        // the nurse visibly shuttle back and forth north of the station.
+        new THREE.Vector3(
+          -3.45,
+          0,
+          fromRoom === 1
+            ? nurseNorthWallLaneZ + nurseNorthWallDirectionalLaneOffset
+            : nurseNorthWallLaneZ - nurseNorthWallDirectionalLaneOffset,
+        ),
         (fromRoom === 1
           ? nurseCartReturnStagingPointWest
           : nurseCartReturnStagingPoint
@@ -5296,13 +6445,49 @@ export function createThirdFloorCare({
           ? nurseCartReturnDropPointWest
           : nurseCartReturnDropPoint
         ).clone(),
-        new THREE.Vector3(-2.72, 0, -3.96),
-        new THREE.Vector3(4.18, 0, -4.16),
-        new THREE.Vector3(3.82, 0, -5.46),
-        nurseInspectionPrepPoint.clone(),
-        nurseSeatAislePoint(nurseIndex),
+        nurseCartRowClearancePoint.clone(),
+        nurseNorthWallStationPoint.clone(),
+        // The cart is already returned to the rack. The nurse still returns
+        // through the same north opening on the same straight centreline.
+        nurseStationNorthServicePoint.clone(),
+        nurseStationNorthExitPoint.clone(),
+        nurseStationCentralPassagePoint.clone(),
         nurseSeatSidePoint(nurseIndex),
-      ];
+        ]),
+      // The desk shape is authored in the XY plane and then laid onto XZ by a
+      // -90° X rotation before the station's +60° Y rotation. Account for
+      // both transforms so the north opening remains the actual clear gap.
+      wardNurseStationDeskSectorAngles = wardNurseStationAngles.map(
+        (angle) => -(angle + Math.PI / 3),
+      ),
+      wardNurseStationDeskIntersects = (
+        point: THREE.Vector3,
+        clearance: number,
+      ) => {
+        const relative = point.clone().sub(wardNurseStationCentre).setY(0),
+          radius = relative.length();
+        if (radius < 0.001) return false;
+        const innerRadius = 1.42 * thirdFloorContentScale,
+          outerRadius = 2.82 * thirdFloorContentScale,
+          angle = Math.atan2(relative.z, relative.x),
+          angularMargin = Math.asin(
+            THREE.MathUtils.clamp(clearance / radius, 0, 0.92),
+          ),
+          angleDistance = (left: number, right: number) => {
+            let delta = Math.abs(left - right) % (Math.PI * 2);
+            if (delta > Math.PI) delta = Math.PI * 2 - delta;
+            return delta;
+          };
+        return (
+          radius >= innerRadius - clearance &&
+          radius <= outerRadius + clearance &&
+          wardNurseStationDeskSectorAngles.some(
+            (sectorAngle) =>
+              angleDistance(angle, sectorAngle) <
+              1.36 / 2 + angularMargin,
+          )
+        );
+      };
     let inspectionNurseIndex = initialInspectionNurseIndex,
       inspectionLastPatient = -1,
       inspectionPhase:
@@ -5505,19 +6690,45 @@ export function createThirdFloorCare({
         return true;
       },
       recoverStalledPatient = (actor: InpatientActor) => {
-        const priorityActorGap = patientDoorHandoffPriorityGap(actor);
-        if (
-          patientNurseExitDoorHandoffIsActive(actor) &&
-          (priorityActorGap === undefined || priorityActorGap <= 2)
-        ) {
-          // A valid nurse-exit handoff is intentionally stationary while the
-          // returning nurse occupies the opposite pocket. Do not reset the
-          // patient's route while the nurse is still near the door; doing so
-          // would remove the side point and recreate the doorway entanglement.
-          actor.motionStallTime = 0;
-          actor.motionWatchPosition.copy(actor.walker.group.position);
-          actor.blockedTime = 0;
-          return;
+        const actorUserData = actor.walker.group.userData,
+          exitHandoffNurseIndex = Number(
+            actorUserData.nurseExitDoorHandoffNurseIndex ?? -1,
+          ),
+          exitHandoffNurse =
+            exitHandoffNurseIndex >= 0
+              ? wardNurses[exitHandoffNurseIndex]
+              : undefined,
+          activeExitHandoff = patientNurseExitDoorHandoffIsActive(actor),
+          // Capture the direction before clearing handoff markers. This
+          // watchdog is also used for a patient that is genuinely leaving a
+          // ward, and that task must resume outward instead of being replaced
+          // by a bed-return route at the same doorway.
+          stalledAtWardExit =
+            actor.state === "walking" &&
+            patientIsPhysicallyExitingWardDoor(actor, actor.slot),
+          actorIndex = Number(actorUserData.inpatientIndex ?? -1);
+        if (activeExitHandoff) {
+          // A side-pocket wait is only valid while the paired nurse is making
+          // progress. If both positions stay unchanged long enough, release
+          // the exact pair instead of preserving a permanent doorway deadlock.
+          clearPatientNurseExitDoorHandoff(actor);
+          actorUserData.nurseExitDoorHandoffReleasedNurseIndex =
+            exitHandoffNurseIndex >= 0 ? exitHandoffNurseIndex : undefined;
+          if (
+            exitHandoffNurse &&
+            exitHandoffNurse.doorExitHandoffPatient === actorIndex
+          ) {
+            clearNurseExitDoorHandoff(exitHandoffNurse);
+            exitHandoffNurse.navigationOverride = Math.max(
+              exitHandoffNurse.navigationOverride,
+              1.35,
+            );
+            exitHandoffNurse.blockedTime = 0;
+            exitHandoffNurse.motionStallTime = 0;
+            exitHandoffNurse.motionWatchPosition.copy(
+              exitHandoffNurse.walker.group.position,
+            );
+          }
         }
         actor.walker.group.userData.waitingForCourtyardDoor = false;
         clearPatientNurseDoorHandoff(actor);
@@ -5528,7 +6739,9 @@ export function createThirdFloorCare({
         }
         const actorKey = `p:${actor.walker.group.userData.inpatientIndex}`,
           activeCourtyardDoor =
-            courtyardDoorCentres[actor.assignedCourtyardDoor ?? 0],
+            courtyardDoorCentres[
+              actor.assignedCourtyardDoor ?? (actor.slot.room === 1 ? 1 : 2)
+            ],
           nearActiveDoor = wardDoorCentres.some(
             (centre) =>
               actorHorizontalDistance(actor.walker.group.position, centre) <
@@ -5549,6 +6762,43 @@ export function createThirdFloorCare({
           );
           doorQueue.directions.delete(actorKey);
         });
+        if (
+          stalledAtWardExit &&
+          actor.state === "walking" &&
+          actor.route[actor.waypoint] &&
+          !patientWardPositionIsBlocked(actor)
+        ) {
+          const current = actor.walker.group.position.clone().setY(0),
+            relative = current.clone().sub(actor.slot.doorCentre).setY(0),
+            depth = relative.dot(actor.slot.out),
+            remainingRoute = actor.route.slice(actor.waypoint),
+            routeHasDoor = remainingRoute.some(
+              (point) =>
+                actorHorizontalDistance(point, actor.slot.doorCentre) < 0.16,
+            ),
+            resumedRoute = compactThirdFloorRoute([
+              current,
+              ...(depth > -0.72 && !routeHasDoor
+                ? [actor.slot.doorCentre.clone().setY(0)]
+                : []),
+              ...remainingRoute,
+            ]);
+          // Keep this route one-way through the already assigned door. A
+          // short queue bypass prevents the just-cleared reservation from
+          // immediately recreating the same doorway wait, while the normal
+          // wall/actor collision checks still protect the crossing.
+          if (resumedRoute.length > 1) {
+            requestWardDoorOpen(actor.slot.doorIndex);
+            startPatientWalk(actor, resumedRoute, actor.arrival);
+            actor.doorPassOverride = 2.4;
+            actor.motionStallTime = 0;
+            actor.motionWatchPosition.copy(current);
+            actor.blockedTime = 0;
+            actor.courtyardTrafficWait = 0;
+            releaseCourtyardRoundaboutForActor(actorKey);
+            return;
+          }
+        }
         if (
           actor.state === "walking" &&
           patientWardPositionIsBlocked(actor) &&
@@ -5572,11 +6822,35 @@ export function createThirdFloorCare({
         }
         if (actor.state === "walking" && actor.route[actor.waypoint]) {
           releaseCourtyardRoundaboutForActor(actorKey);
+          const current = actor.walker.group.position.clone().setY(0),
+            currentTarget = actor.route[actor.waypoint],
+            skipReachedTarget =
+              !!currentTarget &&
+              actorHorizontalDistance(current, currentTarget) < 0.48,
+            remainingRoute = actor.route.slice(
+              actor.waypoint + (skipReachedTarget ? 1 : 0),
+            ),
+            resumedRoute = compactThirdFloorRoute([current, ...remainingRoute]),
+            routeRecoveryAttempt = actor.avoidanceAttempt + 1;
+          // A watchdog timeout is not a reason to abandon the patient's
+          // destination. First discard stale wait markers and resume the
+          // existing route from the live position. If the body already
+          // reached the current waypoint, skip that waypoint so a tiny
+          // threshold/turning mismatch cannot restart the same deadlock.
+          if (resumedRoute.length > 1 && routeRecoveryAttempt <= 2) {
+            startPatientWalk(actor, resumedRoute, actor.arrival);
+            actor.avoidanceAttempt = routeRecoveryAttempt;
+            actor.doorPassOverride = nearActiveDoor ? 2.4 : 1.2;
+            actor.motionStallTime = 0;
+            actor.motionWatchPosition.copy(current);
+            actor.blockedTime = 0;
+            actor.courtyardTrafficWait = 0;
+            return;
+          }
           actor.doorPassOverride = nearActiveDoor ? 2.4 : 0;
-          // Any walking task that has genuinely timed out is rebuilt as a
-          // fresh bed-return task. This removes every stale side-pocket,
-          // doorway or courtyard waypoint in one operation; merely changing a
-          // waiting flag was not enough to make the visible actor move again.
+          // If the same route still cannot make progress after two clean
+          // resumes, fall back to the existing bed-return safety route rather
+          // than leaving the visible patient stopped forever.
           beginPatientHomeRoute(
             actor,
             actor.inspectionReserved ? "waitingCheck" : "bedRest",
@@ -5619,50 +6893,23 @@ export function createThirdFloorCare({
             actorHorizontalDistance(point, route[index - 1]) > 0.04,
         ),
       nurseCorridorFromStation = (slot: WardBedSlot) => {
-        const eastbound = slot.room !== 1;
-        return slot.room === 1
-          ? [
-              nurseStationServiceExit.clone(),
-              nurseWardOneCurveStart.clone(),
-              nurseWardOneCurveMiddle.clone(),
-              nurseWardOneCurveEnd.clone(),
-              new THREE.Vector3(-5.74, 0, wardCorridorLaneZ(false)),
-            ]
-          : compactThirdFloorRoute([
-              nurseStationServiceExit.clone(),
-              nurseStationServiceCorner.clone(),
-              ...nurseStationEastboundArc.map((point) => point.clone()),
-              ...nurseRoomCorridorPath(slot, eastbound).slice().reverse(),
-            ]);
+        return compactNurseCartRoute([
+          nurseCartPickupPoint.clone(),
+          nurseCartPickupExitPoint.clone(),
+          ...nurseNorthWallRoomRoute(slot, true),
+        ]);
       },
       nurseCorridorToStation = (slot: WardBedSlot) => {
-        // Ward 1 enters the cart rack from its west side. Rooms 2 and 3 use
-        // the protected north service lane and enter from the east.
-        return slot.room === 1
-          ? nurseWardOneReturnCurve.map((point) => point.clone())
-          : nurseRoomCorridorPath(slot, false);
+        return nurseNorthWallRoomRoute(slot, false);
       },
       nurseCorridorBetweenRooms = (
         fromSlot: WardBedSlot,
         toSlot: WardBedSlot,
       ) => {
         if (fromSlot.room === toSlot.room) return [];
-        const eastbound = toSlot.room > fromSlot.room,
-          fromRoute = nurseRoomCorridorPath(fromSlot, eastbound),
-          toRoute = nurseRoomCorridorPath(toSlot, eastbound);
-        if (fromSlot.room === 2 && toSlot.room === 3)
-          return compactThirdFloorRoute([
-            fromRoute[0],
-            ...toRoute.slice(0, -1).reverse(),
-          ]);
-        if (fromSlot.room === 3 && toSlot.room === 2)
-          return compactThirdFloorRoute([
-            ...fromRoute.slice(0, -1),
-            toRoute[0],
-          ]);
-        return compactThirdFloorRoute([
-          ...fromRoute,
-          ...toRoute.slice().reverse(),
+        return compactNurseCartRoute([
+          ...nurseNorthWallRoomRoute(fromSlot, false),
+          ...nurseNorthWallRoomRoute(toSlot, true).slice(1),
         ]);
       },
       // The final three points stay within the compact bedside lane: at exactly
@@ -5761,12 +7008,12 @@ export function createThirdFloorCare({
         toSlot: WardBedSlot,
       ) =>
         fromSlot.room === toSlot.room
-          ? compactThirdFloorRoute([
+          ? compactNurseCartRoute([
               inspectionBedsideEntryPoint(fromSlot),
               inspectionBedsideEntryPoint(toSlot),
               inspectionBedsidePoint(toSlot),
             ])
-          : compactThirdFloorRoute([
+          : compactNurseCartRoute([
               inspectionBedsideEntryPoint(fromSlot),
               roomInsidePoint(fromSlot),
               fromSlot.doorCentre.clone().setY(0),
@@ -5780,7 +7027,49 @@ export function createThirdFloorCare({
             ]),
       medicationRobotStationInside = new THREE.Vector3(3.72, 0, -6.28),
       medicationRobotStationExit = new THREE.Vector3(4.08, 0, -5.34),
-      medicationRobotCorridorJoin = new THREE.Vector3(4.18, 0, wardNurseCorridorZ),
+      // Keep the cabinet on the east outer shoulder while it leaves or
+      // returns to its home. This prevents a short diagonal from entering
+      // the nursing-station ring before joining the north service lane.
+      medicationRobotOuterStationShoulder = new THREE.Vector3(4.95, 0, -5.92),
+      // Ward 2's robot uses the west/lower-x side of the north-south merge,
+      // which is the robot's right-hand lane. This keeps it separate from
+      // the nurse/cart branch around x=4.4.
+      medicationRobotWardTwoRightLaneX = 3.3,
+      medicationRobotWardTwoEastTurnShoulder = new THREE.Vector3(
+        medicationRobotWardTwoRightLaneX,
+        0,
+        -2.32,
+      ),
+      medicationRobotWardTwoNorthboundShoulder = new THREE.Vector3(
+        medicationRobotWardTwoRightLaneX,
+        0,
+        -5.92,
+      ),
+      medicationRobotWardTwoLaunchWestPoint = new THREE.Vector3(
+        medicationRobotWardTwoRightLaneX,
+        0,
+        -7.62,
+      ),
+      medicationRobotWardTwoStationMerge = new THREE.Vector3(
+        medicationRobotWardTwoRightLaneX,
+        0,
+        -5.92,
+      ),
+      medicationRobotWardTwoEastboundLaneEntry = new THREE.Vector3(
+        medicationRobotWardTwoRightLaneX,
+        0,
+        -1.72,
+      ),
+      medicationRobotWardTwoWestboundLaneEntry = new THREE.Vector3(
+        medicationRobotWardTwoRightLaneX,
+        0,
+        -3.64,
+      ),
+      medicationRobotCorridorJoin = new THREE.Vector3(
+        4.18,
+        0,
+        medicationRobotCorridorLaneZ(false),
+      ),
       // Eastbound trips used to rotate at z=-1.94, almost directly beside the
       // north-east glazing. Move the actual turn north first, then merge onto
       // the right-hand lane only after the complete cabinet has faced east.
@@ -5797,39 +7086,38 @@ export function createThirdFloorCare({
           .setY(0),
       medicationRobotCorridorFromStation = (slot: WardBedSlot) => {
         const eastbound = slot.room !== 1,
-          laneZ = wardCorridorLaneZ(eastbound),
-          corridorJoin = new THREE.Vector3(
-            medicationRobotCorridorJoin.x,
-            0,
-            laneZ,
-          );
+          // The lane is selected from the actual travel direction. Ward 1 is
+          // west of the station, so its outbound trip is westbound and must
+          // use the north/right lane rather than the eastbound south lane.
+          laneZ = medicationRobotCorridorLaneZ(eastbound),
+          glassWallBypassZ = 1.12;
         if (slot.room === 1)
           return [
-            corridorJoin,
-            new THREE.Vector3(0, 0, laneZ),
+            // Ward 1 is west of the station. The direct join at x=4.18
+            // cuts through the east desk sector, so follow the clear strip
+            // beside the courtyard glass before turning into the west room.
+            new THREE.Vector3(4.95, 0, glassWallBypassZ),
+            new THREE.Vector3(-4.95, 0, glassWallBypassZ),
             new THREE.Vector3(-4.18, 0, laneZ),
             new THREE.Vector3(-5.74, 0, laneZ),
           ];
-        if (slot.room === 2)
+        if (slot.room === 2) {
+          const outside = roomOutsidePoint(slot),
+            outboundDoorApproach = outside
+              .clone()
+              .addScaledVector(wardDoorViewRight(slot), 0.82)
+              .setY(0);
           return [
-            medicationRobotEastTurnShoulder.clone(),
+            medicationRobotWardTwoNorthboundShoulder.clone(),
+            medicationRobotWardTwoEastTurnShoulder.clone(),
+            medicationRobotWardTwoEastboundLaneEntry.clone(),
             new THREE.Vector3(5.04, 0, laneZ),
-            // Stay on the eastbound right-hand lane until the robot reaches
-            // the Ward 2 turn. Do not drift toward the old shared centreline.
             new THREE.Vector3(5.74, 0, laneZ),
+            outboundDoorApproach,
+            outside,
           ];
-        const centreline = [
-          new THREE.Vector3(medicationRobotCorridorJoin.x, 0, -2.68),
-          new THREE.Vector3(5.18, 0, -2.68),
-          new THREE.Vector3(7.02, 0, -2.1),
-          new THREE.Vector3(8.3, 0, 0.08),
-          new THREE.Vector3(9.8, 0, 2.42),
-        ];
-        const eastLane = directionalRightLaneRoute(
-          centreline,
-          true,
-          0.6,
-        );
+        }
+        const eastLane = wardThreePublicCorridorLane(true, 0.78);
         return [
           medicationRobotEastTurnShoulder.clone(),
           // Skip the old first point beside the glazing. The second surveyed
@@ -5839,7 +7127,7 @@ export function createThirdFloorCare({
       },
       medicationRobotCorridorToStation = (slot: WardBedSlot) => {
         const eastbound = slot.room === 1,
-          laneZ = wardCorridorLaneZ(eastbound),
+          laneZ = medicationRobotCorridorLaneZ(eastbound),
           corridorJoin = new THREE.Vector3(
             medicationRobotCorridorJoin.x,
             0,
@@ -5849,48 +7137,93 @@ export function createThirdFloorCare({
           return [
             new THREE.Vector3(-5.74, 0, laneZ),
             new THREE.Vector3(-4.18, 0, laneZ),
-            new THREE.Vector3(0, 0, laneZ),
-            corridorJoin,
+            // Return through the same glass-side bypass. A west-to-east
+            // segment through the ring would recreate the station deadlock.
+            new THREE.Vector3(-4.95, 0, 1.12),
+            new THREE.Vector3(4.95, 0, 1.12),
           ];
-        if (slot.room === 2)
-          return [new THREE.Vector3(5.74, 0, laneZ), corridorJoin];
-        const centreline = [
-          new THREE.Vector3(9.8, 0, 2.42),
-          new THREE.Vector3(8.3, 0, 0.08),
-          new THREE.Vector3(7.02, 0, -2.1),
-          new THREE.Vector3(5.18, 0, -2.68),
-          new THREE.Vector3(medicationRobotCorridorJoin.x, 0, -2.68),
-        ];
-        return directionalRightLaneRoute(centreline, true, 0.74);
+        if (slot.room === 2) {
+          const outside = roomOutsidePoint(slot),
+            inboundDoorApproach = outside
+              .clone()
+              .addScaledVector(wardDoorViewRight(slot), -0.82)
+              .setY(0);
+          return [
+            outside,
+            inboundDoorApproach,
+            new THREE.Vector3(5.74, 0, laneZ),
+            medicationRobotWardTwoWestboundLaneEntry.clone(),
+            medicationRobotWardTwoStationMerge.clone(),
+          ];
+        }
+        return wardThreePublicCorridorLane(false, 0.78).reverse();
+      },
+      medicationRobotCorridorBetweenRooms = (
+        fromSlot: WardBedSlot,
+        toSlot: WardBedSlot,
+      ) => {
+        // A robot crossing between wards must not inherit the nurse/cart
+        // route. That route intentionally visits the north service station
+        // points and contains extra branch corners for the wider cart. Use
+        // the robot's already surveyed outer-corridor joins instead, with one
+        // station shoulder as the only shared transition. This removes the
+        // old side-pocket -> service-lane -> service-lane detour and prevents
+        // a hook-back at the nursing station edge.
+        const release =
+            medicationRoomHandoff === fromSlot.room
+              ? [medicationRobotHandoffSafePoint(fromSlot)]
+              : [],
+          toRoom = medicationRobotCorridorFromStation(toSlot),
+          fromRoom = medicationRobotCorridorToStation(fromSlot);
+        return compactMedicationRobotRoute([
+          ...release,
+          ...fromRoom,
+          medicationRobotOuterStationShoulder.clone(),
+          ...toRoom,
+        ]);
       },
       medicationRobotRouteFromHome = (slot: WardBedSlot) =>
-        compactThirdFloorRoute([
-          medicationRobotStationInside.clone(),
-          medicationRobotStationExit.clone(),
-          ...medicationRobotCorridorFromStation(slot),
-          roomOutsidePoint(slot),
-          slot.doorCentre.clone().setY(0),
-          roomInsidePoint(slot),
-          medicationRobotBedsideEntryPoint(slot),
-          medicationRobotBedsidePoint(slot),
-        ]),
+        slot.room === 2
+          ? compactMedicationRobotRoute([
+              medicationRobotWardTwoLaunchWestPoint.clone(),
+              medicationRobotWardTwoNorthboundShoulder.clone(),
+              medicationRobotWardTwoEastboundLaneEntry.clone(),
+              new THREE.Vector3(5.04, 0, -1.72),
+              new THREE.Vector3(5.74, 0, -1.72),
+              roomOutsidePoint(slot),
+              slot.doorCentre.clone().setY(0),
+              roomInsidePoint(slot),
+              medicationRobotBedsideEntryPoint(slot),
+              medicationRobotBedsidePoint(slot),
+            ])
+          : compactMedicationRobotRoute([
+              // The robot starts outside the station. Keep every other ward
+              // trip on the east outer shoulder so it never cuts through the
+              // ring or catches on the station's southeast edge.
+              medicationRobotOuterStationShoulder.clone(),
+              ...medicationRobotCorridorFromStation(slot),
+              roomOutsidePoint(slot),
+              slot.doorCentre.clone().setY(0),
+              roomInsidePoint(slot),
+              medicationRobotBedsideEntryPoint(slot),
+              medicationRobotBedsidePoint(slot),
+            ]),
       medicationRobotRouteBetweenBeds = (
         fromSlot: WardBedSlot,
         toSlot: WardBedSlot,
       ) =>
         fromSlot.room === toSlot.room
-          ? compactThirdFloorRoute([
+          ? compactMedicationRobotRoute([
               medicationRobotBedsideEntryPoint(fromSlot),
               medicationRobotBedsideEntryPoint(toSlot),
               medicationRobotBedsidePoint(toSlot),
             ])
-          : compactThirdFloorRoute([
+          : compactMedicationRobotRoute([
               medicationRobotBedsideEntryPoint(fromSlot),
               roomInsidePoint(fromSlot),
               fromSlot.doorCentre.clone().setY(0),
               roomOutsidePoint(fromSlot),
-              medicationRobotHandoffSafePoint(fromSlot),
-              ...nurseCorridorBetweenRooms(fromSlot, toSlot),
+              ...medicationRobotCorridorBetweenRooms(fromSlot, toSlot),
               roomOutsidePoint(toSlot),
               toSlot.doorCentre.clone().setY(0),
               roomInsidePoint(toSlot),
@@ -5898,17 +7231,29 @@ export function createThirdFloorCare({
               medicationRobotBedsidePoint(toSlot),
             ]),
       medicationRobotRouteHome = (slot: WardBedSlot) =>
-        compactThirdFloorRoute([
-          medicationRobotBedsideEntryPoint(slot),
-          roomInsidePoint(slot),
-          slot.doorCentre.clone().setY(0),
-          roomOutsidePoint(slot),
-          medicationRobotHandoffSafePoint(slot),
-          ...medicationRobotCorridorToStation(slot),
-          medicationRobotStationExit.clone(),
-          medicationRobotStationInside.clone(),
-          medicationRobotHome.clone(),
-        ]),
+        compactMedicationRobotRoute(
+          slot.room === 2
+            ? [
+                medicationRobotBedsideEntryPoint(slot),
+                roomInsidePoint(slot),
+                slot.doorCentre.clone().setY(0),
+                roomOutsidePoint(slot),
+                medicationRobotHandoffSafePoint(slot),
+                ...medicationRobotCorridorToStation(slot),
+                medicationRobotWardTwoLaunchWestPoint.clone(),
+                medicationRobotHome.clone(),
+              ]
+            : [
+                medicationRobotBedsideEntryPoint(slot),
+                roomInsidePoint(slot),
+                slot.doorCentre.clone().setY(0),
+                roomOutsidePoint(slot),
+                medicationRobotHandoffSafePoint(slot),
+                ...medicationRobotCorridorToStation(slot),
+                medicationRobotOuterStationShoulder.clone(),
+                medicationRobotHome.clone(),
+              ],
+        ),
       pointIsInsideWardRoom = (point: THREE.Vector3, room: number) => {
         const slot = wardBedSlots.find((candidate) => candidate.room === room);
         if (!slot) return false;
@@ -5956,6 +7301,144 @@ export function createThirdFloorCare({
             .setY(0)
             .dot(slot.out) > 0.48,
         );
+      },
+      medicationRobotRoutePointIsProtected = (point: THREE.Vector3) =>
+        // Keep every room-side and doorway point. These anchors are part of
+        // the medication handoff protocol and keep the robot from cutting
+        // diagonally across beds or through a ward wall.
+        [1, 2, 3].some((room) => pointIsInsideWardRoom(point, room)) ||
+        wardBedSlots.some(
+          (slot) =>
+            actorHorizontalDistance(point, slot.doorCentre) < 1.72 ||
+            pointIsInWardDoorPassage(point, slot),
+        ) ||
+        [
+          medicationRobotOuterStationShoulder,
+          medicationRobotWardTwoLaunchWestPoint,
+          medicationRobotWardTwoNorthboundShoulder,
+          medicationRobotWardTwoEastTurnShoulder,
+          medicationRobotWardTwoEastboundLaneEntry,
+          medicationRobotWardTwoWestboundLaneEntry,
+          medicationRobotWardTwoStationMerge,
+        ].some((anchor) => actorHorizontalDistance(point, anchor) < 0.12) ||
+        wardThreePublicCorridorLanePointIsProtected(point),
+      // The robot route compressor must not remove a public-corridor lane
+      // point and replace two parallel-lane segments with a diagonal. The
+      // robot's glass-side horizontal bypass remains outside this guard.
+      publicWardCorridorLanePointIsProtected = (point: THREE.Vector3) => {
+        if (point.x <= -6.25 || point.x >= 6.25) return false;
+        return [
+          wardCorridorLaneZ(true),
+          wardCorridorLaneZ(false),
+          medicationRobotCorridorLaneZ(true),
+          medicationRobotCorridorLaneZ(false),
+        ].some((laneZ) => Math.abs(point.z - laneZ) < 0.08);
+      },
+      compactMedicationRobotRoute = (points: THREE.Vector3[]) => {
+        const compact = compactThirdFloorRoute(points);
+        if (compact.length <= 2) return compact;
+        const simplified = [compact[0]];
+        for (let index = 1; index < compact.length - 1; index++) {
+          const previous = simplified[simplified.length - 1],
+            next = compact[index + 1];
+          if (
+            medicationRobotRoutePointIsProtected(compact[index]) ||
+            publicWardCorridorLanePointIsProtected(compact[index]) ||
+            !medicationRobotFixedSegmentIsClear(previous, next)
+          )
+            simplified.push(compact[index]);
+        }
+        simplified.push(compact[compact.length - 1]);
+        return compactThirdFloorRoute(simplified);
+      },
+      wardThreePublicCorridorLanePointIsProtected = (
+        point: THREE.Vector3,
+      ) =>
+        [0.74, 0.78].some((offset) =>
+          [
+            wardThreePublicCorridorLane(true, offset),
+            wardThreePublicCorridorLane(false, offset),
+          ].some((lane) =>
+            lane.some((anchor) => actorHorizontalDistance(point, anchor) < 0.14),
+          ),
+        ),
+      nurseCartRoutePointIsProtected = (point: THREE.Vector3) =>
+        // Room, doorway, station-opening, pickup and drop-off points are
+        // state-transition anchors. Never remove them from an attached-cart
+        // route, even when a diagonal would appear geometrically shorter.
+        [1, 2, 3].some((room) => pointIsInsideWardRoom(point, room)) ||
+        wardBedSlots.some(
+          (slot) =>
+            actorHorizontalDistance(point, slot.doorCentre) < 1.72 ||
+            pointIsInWardDoorPassage(point, slot),
+        ) ||
+        wardThreePublicCorridorLanePointIsProtected(point) ||
+        [
+          nurseCartPickupPoint,
+          nurseCartPickupExitPoint,
+          nurseCartReturnDropPoint,
+          nurseCartReturnDropPointWest,
+          nurseCartReturnStagingPoint,
+          nurseCartReturnStagingPointWest,
+          nurseCartRowClearancePoint,
+          nurseNorthWallStationPoint,
+          nurseInspectionPrepPoint,
+          nurseStationCentralPassagePoint,
+          nurseStationNorthExitPoint,
+          nurseStationNorthServicePoint,
+        ].some((anchor) => actorHorizontalDistance(point, anchor) < 0.12) ||
+        // Keep the narrow north service lane as a surveyed lane rather than
+        // allowing a diagonal shortcut across the parked-cart row.
+        (point.z <=
+          nurseNorthWallLaneZ + nurseNorthWallDirectionalLaneOffset + 0.08 &&
+          point.z >=
+            nurseNorthWallLaneZ - nurseNorthWallDirectionalLaneOffset - 0.08),
+      nurseCartFixedSegmentIsClear = (
+        from: THREE.Vector3,
+        to: THREE.Vector3,
+      ) => {
+        // Check the nurse and the cart together. The cart is projected along
+        // the segment's tangent, matching the runtime attached-cart pose.
+        const distance = actorHorizontalDistance(from, to),
+          samples = Math.max(1, Math.ceil(distance / 0.12));
+        let previous = from.clone();
+        for (let index = 1; index <= samples; index++) {
+          const sample = from.clone().lerp(to, index / samples).setY(0),
+            direction = sample.clone().sub(previous).setY(0);
+          if (direction.lengthSq() < 0.0001) continue;
+          direction.normalize();
+          const projectedCart = sample
+            .clone()
+            .addScaledVector(direction, wardNurseCartDistance)
+            .setY(0);
+          if (
+            wardNurseStationDeskIntersects(sample, 0.34) ||
+            wardNurseStationDeskIntersects(projectedCart, 0.62) ||
+            !pointClearsWardShell(sample, 0.54) ||
+            !pointClearsWardShell(projectedCart, 0.64) ||
+            !isNurseClearOfCourtyardGlass(sample, 0.72) ||
+            !isNurseClearOfCourtyardGlass(projectedCart, 0.95)
+          )
+            return false;
+          previous = sample;
+        }
+        return true;
+      },
+      compactNurseCartRoute = (points: THREE.Vector3[]) => {
+        const compact = compactThirdFloorRoute(points);
+        if (compact.length <= 2) return compact;
+        const simplified = [compact[0]];
+        for (let index = 1; index < compact.length - 1; index++) {
+          const previous = simplified[simplified.length - 1],
+            next = compact[index + 1];
+          if (
+            nurseCartRoutePointIsProtected(compact[index]) ||
+            !nurseCartFixedSegmentIsClear(previous, next)
+          )
+            simplified.push(compact[index]);
+        }
+        simplified.push(compact[compact.length - 1]);
+        return compactThirdFloorRoute(simplified);
       },
       // A multi-room inspection route begins by leaving the room that was
       // just checked. Keep that room as the active transition until both the
@@ -6036,6 +7519,85 @@ export function createThirdFloorCare({
         // door, the patient must immediately resume its own route.
         return routeStillApproachesDoor || nurseDistance <= 3.35;
       },
+      patientNurseDoorHandoffAllowsStep = (
+        actor: InpatientActor,
+        point: THREE.Vector3,
+        ivPoint: THREE.Vector3,
+      ) => {
+        // This is deliberately narrower than a general collision bypass. It
+        // applies only to the exact patient/nurse pair already negotiated by
+        // configurePatientNurseDoorHandoff, and only while the patient is
+        // making measurable progress toward its own opposite-side pocket.
+        const userData = actor.walker.group.userData,
+          waitPoint = userData.nurseDoorHandoffWaitPoint as
+            | THREE.Vector3
+            | undefined,
+          nurseIndex = Number(userData.nurseDoorHandoffNurseIndex ?? -1),
+          approachSide = userData.nurseDoorHandoffApproachSide as
+            | -1
+            | 1
+            | undefined,
+          nurse = nurseIndex >= 0 ? wardNurses[nurseIndex] : undefined;
+        if (
+          actor.state !== "walking" ||
+          !waitPoint ||
+          !nurse ||
+          approachSide === undefined ||
+          !patientNurseDoorHandoffIsActive(actor)
+        )
+          return false;
+
+        const current = actor.walker.group.position,
+          currentIv = actor.slot.ivStand.position,
+          bodyProgress =
+            actorHorizontalDistance(point, waitPoint) + 0.018 <
+            actorHorizontalDistance(current, waitPoint),
+          ivProgress =
+            actorHorizontalDistance(ivPoint, waitPoint) + 0.018 <
+            actorHorizontalDistance(currentIv, waitPoint),
+          toWait = waitPoint.clone().sub(current).setY(0),
+          step = point.clone().sub(current).setY(0),
+          movingTowardWait =
+            toWait.lengthSq() > 0.001 &&
+            step.lengthSq() > 0.0001 &&
+            step.normalize().dot(toWait.normalize()) > 0.2,
+          nurseSafe = wardDoorSideSafePoint(actor.slot, approachSide),
+          nurseAtSafe =
+            actorHorizontalDistance(nurse.walker.group.position, nurseSafe) <
+            0.42,
+          nurseApproachesSafe = routeWindowApproachesPoint(
+            nurse.route,
+            nurse.waypoint,
+            nurseSafe,
+            2.35,
+          );
+        if (
+          (!bodyProgress && !ivProgress) ||
+          !movingTowardWait ||
+          (!nurseAtSafe && !nurseApproachesSafe)
+        )
+          return false;
+
+        // Never use the exception to move through the nurse or the cart. The
+        // patient must keep or increase its separation while it moves toward
+        // the opposite pocket; the fixed wall and IV sweep tests still run
+        // after this actor-pair decision.
+        const currentGap = Math.min(
+            actorHorizontalDistance(current, nurse.walker.group.position),
+            actorHorizontalDistance(currentIv, nurse.walker.group.position),
+            nurse.cartAttached
+              ? actorHorizontalDistance(current, nurse.cart.position)
+              : Number.POSITIVE_INFINITY,
+          ),
+          nextGap = Math.min(
+            actorHorizontalDistance(point, nurse.walker.group.position),
+            actorHorizontalDistance(ivPoint, nurse.walker.group.position),
+            nurse.cartAttached
+              ? actorHorizontalDistance(point, nurse.cart.position)
+              : Number.POSITIVE_INFINITY,
+          );
+        return nextGap + 0.02 >= currentGap;
+      },
       patientNurseExitDoorHandoffIsActive = (actor: InpatientActor) => {
         const userData = actor.walker.group.userData,
           waitPoint = userData.nurseExitDoorHandoffWaitPoint as
@@ -6074,6 +7636,34 @@ export function createThirdFloorCare({
         !!waitPoint &&
         actorHorizontalDistance(actor.walker.group.position, waitPoint) < 0.26 &&
         !pointIsInWardDoorPassage(actor.walker.group.position, actor.slot),
+      // The IV stand trails the body and can remain a few centimetres outside
+      // the exact marker even after the patient is visibly parked in the side
+      // pocket. Treat that surveyed pose as yielded as well; otherwise the
+      // robot keeps waiting at the centre line although the doorway is clear.
+      patientAtMedicationRobotSidePocket = (
+        actor: InpatientActor,
+        waitPoint?: THREE.Vector3,
+      ) => {
+        if (!waitPoint || actor.state !== "walking") return false;
+        const body = actor.walker.group.position,
+          iv = actor.slot.ivStand.position,
+          bodyRelative = body.clone().sub(actor.slot.doorCentre).setY(0),
+          ivRelative = iv.clone().sub(actor.slot.doorCentre).setY(0);
+        return (
+          // The IV stand follows the patient's left palm and can trail the
+          // visual body by more than one metre while the body is turning into
+          // the pocket. Require it to be outside the actual door passage, but
+          // do not make the robot wait for an overly tight marker tolerance;
+          // that tolerance could leave the patient and cabinet waiting on one
+          // another indefinitely.
+          actorHorizontalDistance(body, waitPoint) < 0.72 &&
+          actorHorizontalDistance(iv, waitPoint) < 1.38 &&
+          bodyRelative.dot(actor.slot.out) < -0.16 &&
+          ivRelative.dot(actor.slot.out) < -0.04 &&
+          !pointIsInWardDoorPassage(body, actor.slot) &&
+          !pointIsInWardDoorPassage(iv, actor.slot)
+        );
+      },
       nurseExitHandoffPatientCanYieldAtDoor = (
         patient: InpatientActor,
         nurse: WardNurseActor,
@@ -6128,6 +7718,11 @@ export function createThirdFloorCare({
           (patientAtWardDoorSideWait(actor, robotWaitPoint) &&
             (userData.waitingForMedicationRobotDoor === true ||
               medicationRobotDoorPassThroughActive(actor))) ||
+          (patientAtMedicationRobotSidePocket(actor, robotWaitPoint) &&
+            (userData.waitingForMedicationRobotDoor === true ||
+              medicationRobotDoorPassThroughActive(actor) ||
+              medicationRobot.doorInboundPatient ===
+                Number(userData.inpatientIndex ?? -1))) ||
           (patientAtWardDoorSideWait(actor, nurseExitWaitPoint) &&
             patientNurseExitDoorHandoffIsActive(actor))
         );
@@ -6139,7 +7734,9 @@ export function createThirdFloorCare({
           if (
             patient.state !== "walking" ||
             patient.slot.room !== room ||
-            patientHasCompletedWardDoorWait(patient)
+            patientHasCompletedWardDoorWait(patient) ||
+            patient.walker.group.userData
+              .medicationRobotDoorHandoffReleased === true
           )
             return false;
           if (!patientIsPhysicallyExitingWardDoor(patient, slot)) return false;
@@ -6172,7 +7769,9 @@ export function createThirdFloorCare({
           !slot ||
           actor === targetPatient ||
           actor.slot.room !== slot.room ||
-          patientHasCompletedWardDoorWait(actor)
+          patientHasCompletedWardDoorWait(actor) ||
+          actor.walker.group.userData.medicationRobotDoorHandoffReleased ===
+            true
         )
           return undefined;
         const robotRelative = medicationRobot.group.position
@@ -6398,6 +7997,14 @@ export function createThirdFloorCare({
               !inspectionTripVisited.has(index) &&
               !patient.inspectionReserved &&
               !patient.medicationReserved &&
+              // Do not dispatch a nurse into the same ward while the
+              // medication robot owns that ward's doorway. Waiting for the
+              // robot to finish prevents a repeat of the nurse/cart versus
+              // robot doorway yield loop observed in QA.
+              !(
+                medicationRobot.mode !== "home" &&
+                medicationRobotTargetRoom() === patient.slot.room
+              ) &&
               ["bedRest", "bedEat"].includes(patient.state),
           )
           .sort((a, b) => {
@@ -6622,6 +8229,13 @@ export function createThirdFloorCare({
         clearNurseExitDoorHandoff(nurse);
         nurse.cart.position.copy(nurse.cartHome);
         nurse.cart.rotation.y = -Math.PI / 2;
+        // The final transfer waypoint is just inside the station. Snap the
+        // nurse onto the assigned chair before station mode resumes so the
+        // return never leaves a standing frame beside the seat.
+        const seat = wardNurseSeatPoints[nurse.index];
+        nurse.walker.group.position.copy(seat);
+        setWardWalkerSeated(nurse.walker, wardNurseSeatYaws[nurse.index], 0.14);
+        if (nurse.walker.chart) nurse.walker.chart.visible = false;
         nurse.cartAttached = false;
         nurse.mode = "station";
         nurse.route = [];
@@ -6696,19 +8310,30 @@ export function createThirdFloorCare({
           : medicationRobotDistanceToNurse(nurse);
       },
       medicationRobotIntersectsNursingStation = (point: THREE.Vector3) =>
-        [
-          // Front counter, left return and the short right-rear return. These
-          // bounds include the robot's body radius, not only each mesh centre.
-          { minX: -3.7, maxX: 3.7, minZ: -5.58, maxZ: -4.12 },
-          { minX: -3.7, maxX: -2.0, minZ: -7.75, maxZ: -4.54 },
-          { minX: 2.0, maxX: 3.68, minZ: -7.75, maxZ: -6.02 },
-        ].some(
-          (zone) =>
-            point.x > zone.minX &&
-            point.x < zone.maxX &&
-            point.z > zone.minZ &&
-            point.z < zone.maxZ,
-        ),
+        (() => {
+          // Match the actual three-sector ring instead of the old rectangular
+          // counter envelope. This keeps the robot out of desk solids while
+          // allowing it to pass through the north opening when required.
+          const relative = point
+              .clone()
+              .sub(wardNurseStationCentre)
+              .setY(0),
+            radius = relative.length(),
+            angle = Math.atan2(relative.z, relative.x),
+            angleDistance = (left: number, right: number) => {
+              let delta = Math.abs(left - right) % (Math.PI * 2);
+              if (delta > Math.PI) delta = Math.PI * 2 - delta;
+              return delta;
+            };
+          return (
+            radius > 0.72 &&
+            radius < 3.18 &&
+            wardNurseStationAngles.some(
+              (sectorAngle) =>
+                angleDistance(angle, sectorAngle + Math.PI / 3) < 1.36 / 2,
+            )
+          );
+        })(),
       medicationRobotPointIsClear = (point: THREE.Vector3) => {
         if (medicationRobotIntersectsNursingStation(point)) return false;
         // Room interiors are legitimate destinations. Everywhere else the
@@ -6751,6 +8376,24 @@ export function createThirdFloorCare({
         // This prevents a valid room interior from accidentally authorising a
         // shortcut through its surrounding wall.
         return Math.abs(depth) < 1.42 && lateral < 1.06;
+      },
+      medicationRobotFixedSegmentIsClear = (
+        from: THREE.Vector3,
+        to: THREE.Vector3,
+      ) => {
+        // Route simplification is evaluated against fixed geometry only.
+        // Dynamic patients and nurses are handled by the existing yielding
+        // system at runtime and must not make the static route unstable.
+        const distance = actorHorizontalDistance(from, to),
+          samples = Math.max(1, Math.ceil(distance / 0.12));
+        let previous = from.clone();
+        for (let index = 1; index <= samples; index++) {
+          const sample = from.clone().lerp(to, index / samples).setY(0);
+          if (!medicationRobotTransitionIsClear(previous, sample))
+            return false;
+          previous = sample;
+        }
+        return true;
       },
       medicationRobotNorthCrossingData = (): {
         direction: -1 | 1;
@@ -6991,31 +8634,44 @@ export function createThirdFloorCare({
         // with the world X axis.
         return true;
       },
-      medicationRobotActorObstacles = (ignoredPatientIndex = -1) => [
-        ...wardNurses.map((nurse) => ({
-          point: nurse.walker.group.position,
-          clearance: medicationRobotSamePathCollisionDistance,
-          actorDirection: medicationRobotLiveActorDirection(
-            nurse.route,
-            nurse.waypoint,
-            nurse.walker.group.position,
-          ),
-        })),
-        ...thirdFloorMedicalCarts.map((cart) => {
+      medicationRobotActorObstacles = (
+        ignoredPatientIndex = -1,
+        ignoredNurseIndex = -1,
+      ) => [
+        ...wardNurses.flatMap((nurse) =>
+          nurse.index === ignoredNurseIndex
+            ? []
+            : [
+                {
+                  point: nurse.walker.group.position,
+                  clearance: medicationRobotSamePathCollisionDistance,
+                  actorDirection: medicationRobotLiveActorDirection(
+                    nurse.route,
+                    nurse.waypoint,
+                    nurse.walker.group.position,
+                  ),
+                },
+              ],
+        ),
+        ...thirdFloorMedicalCarts.flatMap((cart) => {
           const owner = wardNurses.find(
             (nurse) => nurse.cart === cart && nurse.cartAttached,
           );
-          return {
-            point: cart.position,
-            clearance: medicationRobotSamePathCollisionDistance,
-            actorDirection: owner
-              ? medicationRobotLiveActorDirection(
-                  owner.route,
-                  owner.waypoint,
-                  owner.walker.group.position,
-                )
-              : undefined,
-          };
+          return owner?.index === ignoredNurseIndex
+            ? []
+            : [
+                {
+                  point: cart.position,
+                  clearance: medicationRobotSamePathCollisionDistance,
+                  actorDirection: owner
+                    ? medicationRobotLiveActorDirection(
+                        owner.route,
+                        owner.waypoint,
+                        owner.walker.group.position,
+                      )
+                    : undefined,
+                },
+              ];
         }),
         ...inpatientPatients.flatMap((patient, index) => {
           if (index === ignoredPatientIndex) return [];
@@ -7053,6 +8709,7 @@ export function createThirdFloorCare({
         to: THREE.Vector3,
         escaping = false,
         ignoredPatientIndex = -1,
+        ignoredNurseIndex = -1,
       ) => {
         // After a complete two-second safety-point wait, resume the original
         // route through actor proxies. This is deliberately limited to actor
@@ -7063,11 +8720,38 @@ export function createThirdFloorCare({
         if (robotDirection.lengthSq() > 0.001) robotDirection.normalize();
         const northCrossingPassPatientIndex =
             medicationRobotNorthCrossingPassPatientIndex(from, to),
+          entryPatientIndex = medicationRobot.doorEntryPatient,
+          entryRoom = medicationRobot.doorEntryRoom,
+          entrySlot =
+            entryRoom !== undefined
+              ? wardBedSlots.find((slot) => slot.room === entryRoom)
+              : undefined,
+          entryWaitPoint = medicationRobot.doorEntryWaitPoint,
+          // While the cabinet is travelling to the opposite doorway pocket,
+          // the exact entering patient is expected to remain near the door.
+          // Treating that patient as a full obstacle prevents the cabinet
+          // from reaching the pocket in the first place. Ignore only this
+          // exact pair while the proposed step moves closer to the pocket and
+          // remains outside the room and door passage; fixed geometry and all
+          // other actors stay authoritative.
+          entryPatientCanYieldStep =
+            entryPatientIndex !== undefined &&
+            !!entrySlot &&
+            !!entryWaitPoint &&
+            !pointIsInsideWardRoom(to, entrySlot.room) &&
+            !pointIsInWardDoorPassage(to, entrySlot) &&
+            actorHorizontalDistance(to, entryWaitPoint) <
+              actorHorizontalDistance(from, entryWaitPoint) - 0.003,
           effectiveIgnoredPatientIndex =
             northCrossingPassPatientIndex >= 0
               ? northCrossingPassPatientIndex
-              : ignoredPatientIndex;
-        return medicationRobotActorObstacles(effectiveIgnoredPatientIndex).some(
+              : entryPatientCanYieldStep
+                ? entryPatientIndex
+                : ignoredPatientIndex;
+        return medicationRobotActorObstacles(
+          effectiveIgnoredPatientIndex,
+          ignoredNurseIndex,
+        ).some(
           ({ point, clearance, actorDirection }) => {
             // Only an actor in the robot's forward sweep can request a
             // backward yield. A person or cart already behind the cabinet may
@@ -7521,6 +9205,7 @@ export function createThirdFloorCare({
         medicationRobot.actorYieldDoorRoom = undefined;
         medicationRobot.actorYieldNurse = undefined;
         medicationRobot.actorYieldCart = undefined;
+        medicationRobot.actorYieldEmergencyRetreat = undefined;
         medicationRobot.actorYieldRecoveryRoute = undefined;
         medicationRobot.actorYieldWaitTime = 0;
         medicationRobot.actorYieldPassThroughTime = 0;
@@ -7530,6 +9215,7 @@ export function createThirdFloorCare({
         to: THREE.Vector3,
         escaping = false,
         ignoredPatientIndex = -1,
+        ignoredNurseIndex = -1,
       ) => {
         const distance = actorHorizontalDistance(from, to),
           samples = Math.max(1, Math.ceil(distance / 0.12));
@@ -7543,12 +9229,81 @@ export function createThirdFloorCare({
               sample,
               escaping,
               ignoredPatientIndex,
+              ignoredNurseIndex,
             )
           )
             return true;
           previous = sample;
         }
         return false;
+      },
+      medicationRobotEmergencyRetreatPoint = (
+        current: THREE.Vector3,
+        nurseIndex: number,
+      ) => {
+        // Prefer a previously completed route point.  Unlike a fresh safety
+        // point search this deliberately ignores only the exact nurse/cart
+        // pair that caused the mutual wait, so the cabinet can get out of a
+        // doorway pocket without ever bypassing a wall, glass panel, counter,
+        // another person, or another cart.
+        const candidates = [
+          ...Array.from({ length: 5 }, (_, offset) =>
+            medicationRobot.route[medicationRobot.waypoint - 1 - offset],
+          ).filter((point): point is THREE.Vector3 => !!point),
+          ...[
+            new THREE.Vector3(-0.58, 0, 0),
+            new THREE.Vector3(0.58, 0, 0),
+            new THREE.Vector3(0, 0, -0.58),
+            new THREE.Vector3(0, 0, 0.58),
+          ].map((offset) => current.clone().add(offset)),
+        ];
+        for (const candidate of candidates) {
+          const point = candidate.clone().setY(0);
+          if (
+            actorHorizontalDistance(current, point) < 0.32 ||
+            medicationRobotActorSegmentIsBlocked(
+              current,
+              point,
+              true,
+              -1,
+              nurseIndex,
+            ) ||
+            medicationRobotActorStepIsBlocked(
+              point,
+              point,
+              true,
+              -1,
+              nurseIndex,
+            )
+          )
+            continue;
+          return point;
+        }
+        return undefined;
+      },
+      forceMedicationRobotRetreatFromNurse = (nurse: WardNurseActor) => {
+        if (
+          medicationRobot.mode === "home" ||
+          medicationRobotHandoffCollisionDisabled() ||
+          medicationRobotDistanceToNurse(nurse) > 1.18
+        )
+          return false;
+        const retreatPoint = medicationRobotEmergencyRetreatPoint(
+          medicationRobot.group.position,
+          nurse.index,
+        );
+        if (!retreatPoint) return false;
+        clearMedicationRobotYieldState();
+        medicationRobot.actorYieldSafetyPoint = retreatPoint;
+        medicationRobot.actorYieldNurse = nurse.index;
+        medicationRobot.actorYieldEmergencyRetreat = true;
+        medicationRobot.actorYieldWaitTime = 0;
+        medicationRobot.actorYieldPassThroughTime = 0;
+        medicationRobot.motionStallTime = 0;
+        medicationRobot.motionWatchPosition.copy(
+          medicationRobot.group.position,
+        );
+        return true;
       },
       medicationRobotRouteBacktrackPoint = (current: THREE.Vector3) => {
         // Every completed route point is a location the robot already reached
@@ -7845,11 +9600,18 @@ export function createThirdFloorCare({
           !robotRouteApproachesDoor
         )
           return -1;
+        if (
+          medicationRobot.doorHandoffRecoveryRoom === slot.room &&
+          medicationRobot.doorHandoffRecoveryTime > 0
+        )
+          return -1;
         return inpatientPatients.findIndex((patient) => {
           if (
             patient.slot.room !== slot.room ||
             !patientIsPhysicallyExitingWardDoor(patient, slot) ||
-            patientHasCompletedWardDoorWait(patient)
+            patientHasCompletedWardDoorWait(patient) ||
+            patient.walker.group.userData
+              .medicationRobotDoorHandoffReleased === true
           )
             return false;
           if (
@@ -8132,12 +9894,22 @@ export function createThirdFloorCare({
           medicationRobotHandoffSafePoint(slot),
         ) < 0.12,
       // During a same-room doorway handoff the exiting robot has passage
-      // priority and is non-blocking. Collision returns only after the nurse
-      // and attached cart have entered and the handoff flag is cleared.
-      medicationRobotHandoffCollisionDisabled = () =>
-        medicationRoomHandoff !== undefined &&
-        medicationRobot.previousSlot?.room === medicationRoomHandoff &&
-        !medicationRobotDoorHasPendingExitPatient(medicationRoomHandoff),
+      // priority only after it has actually cleared the threshold and parked
+      // at the opposite safe point. The previous flag was enabled as soon as
+      // the handoff was configured, allowing the nurse/cart to overlap the
+      // still-moving robot at the doorway.
+      medicationRobotHandoffCollisionDisabled = () => {
+        if (
+          medicationRoomHandoff === undefined ||
+          medicationRobot.previousSlot?.room !== medicationRoomHandoff ||
+          medicationRobotDoorHasPendingExitPatient(medicationRoomHandoff)
+        )
+          return false;
+        const slot = wardBedSlots.find(
+          (candidate) => candidate.room === medicationRoomHandoff,
+        );
+        return !!slot && medicationRobotHasReachedHandoffSafePoint(slot);
+      },
       nurseAndCartHaveEnteredRoom = (
         nurse: WardNurseActor,
         slot: WardBedSlot,
@@ -8192,6 +9964,7 @@ export function createThirdFloorCare({
         medicationRobot.actorYieldDoorRoom = undefined;
         medicationRobot.actorYieldNurse = undefined;
         medicationRobot.actorYieldCart = undefined;
+        medicationRobot.actorYieldEmergencyRetreat = undefined;
         medicationRobot.actorYieldRecoveryRoute = undefined;
         medicationRobot.actorYieldWaitTime = 0;
         medicationRobot.actorYieldPassThroughTime = 0;
@@ -8206,6 +9979,7 @@ export function createThirdFloorCare({
         medicationRobot.doorPassThroughRoom = undefined;
         medicationRobot.doorInboundPatient = undefined;
         medicationRobot.doorInboundRoom = undefined;
+        medicationRobot.doorHandoffWaitTime = 0;
         medicationRobot.northCourtyardPassDirection = undefined;
         return true;
       },
@@ -8259,6 +10033,7 @@ export function createThirdFloorCare({
         medicationRobot.actorYieldDoorRoom = undefined;
         medicationRobot.actorYieldNurse = undefined;
         medicationRobot.actorYieldCart = undefined;
+        medicationRobot.actorYieldEmergencyRetreat = undefined;
         medicationRobot.actorYieldRecoveryRoute = undefined;
         medicationRobot.actorYieldWaitTime = 0;
         medicationRobot.actorYieldPassThroughTime = 0;
@@ -8273,6 +10048,7 @@ export function createThirdFloorCare({
         medicationRobot.doorPassThroughRoom = undefined;
         medicationRobot.doorInboundPatient = undefined;
         medicationRobot.doorInboundRoom = undefined;
+        medicationRobot.doorHandoffWaitTime = 0;
         medicationRobot.northCourtyardPassDirection = undefined;
         return true;
       },
@@ -8280,7 +10056,7 @@ export function createThirdFloorCare({
         clearMedicationRobotDoorPassThrough();
         clearMedicationRobotWaitPose();
         medicationRobot.group.position.copy(medicationRobot.home);
-        medicationRobot.group.rotation.y = Math.PI;
+        medicationRobot.servingTargetYaw = undefined;
         medicationRobot.motionStallTime = 0;
         medicationRobot.motionWatchPosition.copy(medicationRobot.home);
         medicationRobot.mode = "home";
@@ -8305,6 +10081,7 @@ export function createThirdFloorCare({
         medicationRobot.actorYieldDoorRoom = undefined;
         medicationRobot.actorYieldNurse = undefined;
         medicationRobot.actorYieldCart = undefined;
+        medicationRobot.actorYieldEmergencyRetreat = undefined;
         medicationRobot.actorYieldRecoveryRoute = undefined;
         medicationRobot.actorYieldWaitTime = 0;
         medicationRobot.actorYieldPassThroughTime = 0;
@@ -8315,6 +10092,7 @@ export function createThirdFloorCare({
         medicationRobot.doorPassThroughRoom = undefined;
         medicationRobot.doorInboundPatient = undefined;
         medicationRobot.doorInboundRoom = undefined;
+        medicationRobot.doorHandoffWaitTime = 0;
         medicationRobot.northCourtyardPassDirection = undefined;
         if (
           medicationTripClosed &&
@@ -8327,7 +10105,7 @@ export function createThirdFloorCare({
           medicationTripCompleted = 0;
         }
       },
-      recoverStalledMedicationRobot = () => {
+      recoverStalledMedicationRobot = (forceExplicitWaitRecovery = false) => {
         const current = medicationRobot.group.position.clone().setY(0),
           targetPatient =
             medicationRobot.targetPatient !== undefined
@@ -8376,7 +10154,7 @@ export function createThirdFloorCare({
               current,
               medicationRobot.actorYieldSafetyPoint,
             ) < 0.24;
-        if (sameDirectionExitWait) {
+        if (sameDirectionExitWait && !forceExplicitWaitRecovery) {
           // A patient ahead of the cabinet owns a same-direction room exit.
           // Preserve the cabinet's current wait pose until the patient has
           // cleared the threshold; rebuilding the route here reclassifies the
@@ -8388,6 +10166,7 @@ export function createThirdFloorCare({
           return true;
         }
         if (
+          !forceExplicitWaitRecovery &&
           pendingInboundDoorPatient?.state === "walking" &&
           pendingInboundDoorRoom !== undefined &&
           !patientHasCompletedWardDoorWait(pendingInboundDoorPatient)
@@ -8402,6 +10181,7 @@ export function createThirdFloorCare({
           return true;
         }
         if (
+          !forceExplicitWaitRecovery &&
           activeDoorYieldIsInbound &&
           activeDoorYieldPatient?.state === "walking" &&
           !patientHasCompletedWardDoorWait(activeDoorYieldPatient)
@@ -8436,11 +10216,10 @@ export function createThirdFloorCare({
           currentDoorPassThroughRoom = medicationRobot.doorPassThroughRoom;
 
         // A valid doorway handoff is an intentional stationary state, not a
-        // stale navigation task. If the two-second watchdog fires while the
-        // robot is already parked at the doorway, keep the handoff and its
-        // captured pose intact. Rebuilding the route here used to clear the
-        // pose and make the cabinet turn again before re-entering the same
-        // wait state.
+        // stale navigation task. Preserve its captured pose for one watchdog
+        // window, but allow the forced path below to clear a handoff that has
+        // remained unchanged for the full timeout. Without that upper bound,
+        // a three-way doorway wait could keep resetting the watchdog forever.
         const validNurseRoomWait = (() => {
             const room = medicationRobot.waitingForNurseRoom,
               waitPoint = medicationRobot.nurseRoomWaitPoint;
@@ -8507,9 +10286,10 @@ export function createThirdFloorCare({
             );
           })();
         if (
-          validNurseRoomWait ||
-          validPatientEntryWait ||
-          validRoomHandoffWait
+          !forceExplicitWaitRecovery &&
+          (validNurseRoomWait ||
+            validPatientEntryWait ||
+            validRoomHandoffWait)
         ) {
           holdMedicationRobotWaitPose();
           medicationRobot.motionStallTime = 0;
@@ -8541,6 +10321,7 @@ export function createThirdFloorCare({
         medicationRobot.doorEntryWaitPoint = undefined;
         medicationRobot.doorInboundPatient = undefined;
         medicationRobot.doorInboundRoom = undefined;
+        medicationRobot.doorHandoffWaitTime = 0;
         medicationRobot.doorPassThroughPatient =
           currentDoorPassThroughPatient;
         medicationRobot.doorPassThroughRoom = currentDoorPassThroughRoom;
@@ -8604,9 +10385,6 @@ export function createThirdFloorCare({
           currentDoorPassThroughPatient === undefined
             ? medicationRobotRecoveryPassThroughDuration
             : 0;
-        const nextTarget = medicationRobot.route[medicationRobot.waypoint];
-        if (nextTarget && actorHorizontalDistance(current, nextTarget) > 0.08)
-          medicationRobot.group.rotation.y = thirdFloorYaw(current, nextTarget);
         return true;
       },
       updateMedicationPatient = (
@@ -8876,7 +10654,51 @@ export function createThirdFloorCare({
       },
       updateMedicationRobot = (dt: number, t: number) => {
         if (medicationRobot.waitPoseYaw !== undefined)
-          medicationRobot.group.rotation.set(0, medicationRobot.waitPoseYaw, 0);
+          turnMedicationRobotToward(medicationRobot.waitPoseYaw, dt, 4.2);
+        if (medicationRobot.doorHandoffRecoveryTime > 0) {
+          medicationRobot.doorHandoffRecoveryTime = Math.max(
+            0,
+            medicationRobot.doorHandoffRecoveryTime - dt,
+          );
+          if (medicationRobot.doorHandoffRecoveryTime === 0)
+            medicationRobot.doorHandoffRecoveryRoom = undefined;
+        }
+        if (
+          medicationRobot.doorEntryPatient !== undefined &&
+          medicationRobot.doorEntryRoom !== undefined &&
+          medicationRobot.doorEntryWaitPoint &&
+          actorHorizontalDistance(
+            medicationRobot.group.position,
+            medicationRobot.doorEntryWaitPoint,
+          ) < 0.24
+        ) {
+          if (
+            medicationRobot.doorEntryStallRoom !==
+            medicationRobot.doorEntryRoom
+          ) {
+            medicationRobot.doorEntryStallRoom =
+              medicationRobot.doorEntryRoom;
+            medicationRobot.doorEntryStallTime = 0;
+          }
+          medicationRobot.doorEntryStallTime += dt;
+        } else {
+          medicationRobot.doorEntryStallRoom = undefined;
+          medicationRobot.doorEntryStallTime = 0;
+        }
+        if (medicationRobot.doorInboundRoom !== undefined) {
+          if (
+            medicationRobot.doorHandoffStallRoom !==
+            medicationRobot.doorInboundRoom
+          ) {
+            medicationRobot.doorHandoffStallRoom =
+              medicationRobot.doorInboundRoom;
+            medicationRobot.doorHandoffStallTime = 0;
+          }
+          medicationRobot.doorHandoffStallTime += dt;
+        } else if (medicationRobot.doorPassThroughPatient === undefined) {
+          medicationRobot.doorHandoffStallRoom = undefined;
+          medicationRobot.doorHandoffStallTime = 0;
+        }
         medicationRobot.actorYieldPassThroughTime = Math.max(
           0,
           medicationRobot.actorYieldPassThroughTime - dt,
@@ -8913,6 +10735,7 @@ export function createThirdFloorCare({
             if (medicationRobot.doorInboundPatient === medicationRobot.doorPassThroughPatient) {
               medicationRobot.doorInboundPatient = undefined;
               medicationRobot.doorInboundRoom = undefined;
+              medicationRobot.doorHandoffWaitTime = 0;
             }
             clearMedicationRobotDoorPassThrough();
           }
@@ -8995,7 +10818,7 @@ export function createThirdFloorCare({
           clearMedicationRobotDoorPassThrough();
           clearMedicationRobotWaitPose();
           medicationRobot.group.position.copy(medicationRobot.home);
-          medicationRobot.group.rotation.y = Math.PI;
+          turnMedicationRobotToward(Math.PI, dt, 4.2);
           medicationRobot.motionStallTime = 0;
           medicationRobot.motionWatchPosition.copy(medicationRobot.home);
           medicationRobot.waitingForNurseRoom = undefined;
@@ -9013,6 +10836,7 @@ export function createThirdFloorCare({
           medicationRobot.actorYieldDoorRoom = undefined;
           medicationRobot.actorYieldNurse = undefined;
           medicationRobot.actorYieldCart = undefined;
+          medicationRobot.actorYieldEmergencyRetreat = undefined;
           medicationRobot.actorYieldRecoveryRoute = undefined;
           medicationRobot.actorYieldWaitTime = 0;
           medicationRobot.actorYieldPassThroughTime = 0;
@@ -9023,7 +10847,9 @@ export function createThirdFloorCare({
           medicationRobot.doorPassThroughRoom = undefined;
           medicationRobot.doorInboundPatient = undefined;
           medicationRobot.doorInboundRoom = undefined;
+          medicationRobot.doorHandoffWaitTime = 0;
           medicationRobot.northCourtyardPassDirection = undefined;
+          medicationRobot.servingTargetYaw = undefined;
           tryStartNextMedicationTarget();
           return;
         }
@@ -9032,6 +10858,16 @@ export function createThirdFloorCare({
             medicationRobot.targetPatient !== undefined
               ? inpatientPatients[medicationRobot.targetPatient]
               : undefined;
+          if (medicationRobot.servingTargetYaw !== undefined) {
+            const servingTurnReady = turnMedicationRobotToward(
+              medicationRobot.servingTargetYaw,
+              dt,
+              3.8,
+            );
+            if (!servingTurnReady) return;
+            medicationRobot.servingTargetYaw = undefined;
+            if (patient) startMedicationPatientInteraction(patient);
+          }
           if (patient?.medicationReserved) return;
           // Keep the robot parked until the dispensing door has fully closed.
           if (medicationRobot.doorOpenAmount > 0.025) return;
@@ -9046,6 +10882,29 @@ export function createThirdFloorCare({
           // to the station after every completed serving when no patient is
           // immediately ready; a later queued patient can start from home.
           beginMedicationRobotReturn();
+          return;
+        }
+
+        if (
+          medicationRobot.doorEntryPatient !== undefined &&
+          medicationRobot.doorEntryStallTime >=
+            medicationRobotDoorHandoffForceResumeDelay
+        ) {
+          // This is the opposite-side wait used while an entering patient
+          // clears the doorway. It has its own timer because the generic
+          // watchdog intentionally ignores explicit door waits.
+          releaseMedicationRobotDoorEntryHandoff();
+          return;
+        }
+        if (
+          medicationRobot.doorInboundPatient !== undefined &&
+          medicationRobot.doorHandoffStallTime >=
+            medicationRobotDoorHandoffForceResumeDelay
+        ) {
+          // This check runs before the generic movement watchdog. It is
+          // intentionally room-scoped rather than patient-scoped, so a queue
+          // of exiting patients cannot keep resetting the doorway timeout.
+          releaseMedicationRobotDoorHandoff();
           return;
         }
 
@@ -9078,7 +10937,20 @@ export function createThirdFloorCare({
             ? medicationRobotExplicitWaitRecoveryThreshold
             : medicationRobotNoMovementReassignThreshold;
           if (medicationRobot.motionStallTime >= robotStallLimit) {
-            if (recoverStalledMedicationRobot()) return;
+            if (
+              recoverStalledMedicationRobot(
+                robotHasExplicitWait &&
+                  medicationRobot.motionStallTime >=
+                    medicationRobotExplicitWaitRecoveryThreshold &&
+                  // Doorway handoffs have their own bounded timer below.
+                  // Let that timer reach its release path instead of letting
+                  // the generic watchdog clear the pair first and allowing
+                  // the same patient to be selected again on the next frame.
+                  medicationRobot.doorInboundPatient === undefined &&
+                  medicationRobot.doorEntryPatient === undefined,
+              )
+            )
+              return;
             medicationRobot.motionStallTime = 0;
             medicationRobot.motionWatchPosition.copy(
               medicationRobot.group.position,
@@ -9153,6 +11025,7 @@ export function createThirdFloorCare({
           medicationRobot.actorYieldDoorRoom = undefined;
           medicationRobot.actorYieldNurse = undefined;
           medicationRobot.actorYieldCart = undefined;
+          medicationRobot.actorYieldEmergencyRetreat = undefined;
           medicationRobot.actorYieldWaitTime = 0;
           medicationRobot.actorYieldPassThroughTime = 0;
         } else if (
@@ -9203,7 +11076,7 @@ export function createThirdFloorCare({
             medicationRobotBedsidePoint(patient.slot),
           );
           clearMedicationRobotWaitPose();
-          medicationRobot.group.rotation.y = thirdFloorYaw(
+          medicationRobot.servingTargetYaw = thirdFloorYaw(
             medicationRobot.group.position,
             patient.walker.group.position,
           );
@@ -9219,7 +11092,6 @@ export function createThirdFloorCare({
                 },
               }),
             );
-          startMedicationPatientInteraction(patient);
           return;
         }
 
@@ -9249,7 +11121,16 @@ export function createThirdFloorCare({
               clearPatientMedicationRobotDoorWait(inboundDoorPatient);
             medicationRobot.doorInboundPatient = undefined;
             medicationRobot.doorInboundRoom = undefined;
+            medicationRobot.doorHandoffWaitTime = 0;
           } else if (!patientHasCompletedWardDoorWait(inboundDoorPatient)) {
+            medicationRobot.doorHandoffWaitTime += dt;
+            if (
+              medicationRobot.doorHandoffWaitTime >=
+              medicationRobotDoorHandoffForceResumeDelay
+            ) {
+              releaseMedicationRobotDoorHandoff();
+              return;
+            }
             // Keep the cabinet at the doorway while the exiting patient moves
             // into the reserved side pocket. This is a stationary handoff,
             // not a backward retreat, so the cabinet never abandons the room
@@ -9266,6 +11147,7 @@ export function createThirdFloorCare({
               medicationRobot.doorInboundPatient;
             medicationRobot.doorPassThroughRoom =
               medicationRobot.doorInboundRoom;
+            medicationRobot.doorHandoffWaitTime = 0;
           }
         }
         // A patient that has yielded to a departing robot must be allowed to
@@ -9418,6 +11300,7 @@ export function createThirdFloorCare({
               medicationRobot.actorYieldDoorRoom = undefined;
               medicationRobot.actorYieldNurse = undefined;
               medicationRobot.actorYieldCart = undefined;
+              medicationRobot.actorYieldEmergencyRetreat = undefined;
               medicationRobot.actorYieldRecoveryRoute = undefined;
               medicationRobot.actorYieldWaitTime = 0;
               medicationRobot.actorYieldPassThroughTime = 0;
@@ -9447,7 +11330,15 @@ export function createThirdFloorCare({
                 ? inpatientPatients[medicationRobot.actorYieldPatient]
                 : undefined;
             if (
-              medicationRobotActorSegmentIsBlocked(current, proposed, true)
+              medicationRobotActorSegmentIsBlocked(
+                current,
+                proposed,
+                true,
+                -1,
+                medicationRobot.actorYieldEmergencyRetreat
+                  ? medicationRobot.actorYieldNurse ?? -1
+                  : -1,
+              )
             ) {
               if (
                 doorPatientWaitingAtSide?.state === "walking" &&
@@ -9849,6 +11740,11 @@ export function createThirdFloorCare({
               ? Number(exitingPatient.walker.group.userData.inpatientIndex ?? -1)
               : -1;
           if (exitingPatient && yieldSlot && patientIndex >= 0) {
+            // Keep the timeout attached to the robot's stationary doorway
+            // attempt, not to whichever exiting patient happened to be
+            // selected this frame. Several patients can be near one door;
+            // resetting here lets them alternate forever without reaching
+            // the bounded recovery path.
             configurePatientMedicationRobotDoorExit(
               exitingPatient,
               yieldSlot,
@@ -10071,6 +11967,7 @@ export function createThirdFloorCare({
             medicationRobot.actorYieldDoorRoom = undefined;
             medicationRobot.actorYieldNurse = undefined;
             medicationRobot.actorYieldCart = undefined;
+            medicationRobot.actorYieldEmergencyRetreat = undefined;
             medicationRobot.actorYieldRecoveryRoute = undefined;
             medicationRobot.actorYieldWaitTime = 0;
             medicationRobot.actorYieldPassThroughTime = 0;
@@ -10144,9 +12041,12 @@ export function createThirdFloorCare({
             Math.cos(targetYaw - medicationRobot.group.rotation.y),
           );
         clearMedicationRobotWaitPose();
-        medicationRobot.group.rotation.y +=
-          THREE.MathUtils.clamp(yawDelta, -dt * 3.5, dt * 3.5);
-        if (Math.abs(yawDelta) > 0.32) return;
+        const robotFacingReady = turnMedicationRobotToward(
+          targetYaw,
+          dt,
+          4.2,
+        );
+        if (!robotFacingReady || Math.abs(yawDelta) > 0.32) return;
         medicationRobot.actorYieldWaitTime = 0;
         current.copy(proposed);
         medicationRobot.motionStallTime = 0;
@@ -10239,9 +12139,14 @@ export function createThirdFloorCare({
         let nearest: InpatientActor | undefined,
           nearestGap = Number.POSITIVE_INFINITY;
         inpatientPatients.forEach((patient) => {
+          const releasedNurseIndex = Number(
+            patient.walker.group.userData
+              .nurseExitDoorHandoffReleasedNurseIndex ?? -1,
+          );
           if (
             patient.state !== "walking" ||
             patient.slot.room !== slot.room ||
+            releasedNurseIndex === nurse.index ||
             !patientRouteIsEnteringOwnWardDoor(patient) ||
             patientHasCompletedWardDoorWait(patient)
           )
@@ -10532,6 +12437,9 @@ export function createThirdFloorCare({
         nurse.reverseWaypoint = nurse.route.length - 1;
         nurse.cartParked = false;
         nurse.navigationOverride = Math.max(nurse.navigationOverride, 2.4);
+        nurse.doorEntryHandoffPatient = undefined;
+        nurse.doorEntryHandoffRoom = undefined;
+        nurse.doorEntryHandoffWaitTime = 0;
         nurse.walker.group.userData.wardEntryCommittedRoom = slot.room;
         nurse.walker.group.userData.glassDetourUntilWaypoint = undefined;
         nurse.walker.group.userData.blockedByCourtyardGlass = false;
@@ -10587,35 +12495,44 @@ export function createThirdFloorCare({
             )
           )
             clearNurseExitDoorHandoff(nurse);
-          else if (nurseExitDoorHandoffIsAtSafe(nurse)) {
-            const patientMoved =
-              actorHorizontalDistance(
-                exitHandoffPatient.walker.group.position,
-                exitHandoffPatient.motionWatchPosition,
-              ) > patientActualMovementEpsilon;
-            if (patientMoved) nurse.doorExitHandoffWaitTime = 0;
-            else nurse.doorExitHandoffWaitTime += dt;
+          else {
+            // Count the complete handoff lifetime, not only the frames in
+            // which the nurse has already reached the opposite pocket. If a
+            // patient or cart cannot reach its side point because another
+            // doorway reservation is stale, the old code kept resetting the
+            // pair indefinitely and both actors remained parked forever.
+            nurse.doorExitHandoffWaitTime += dt;
             if (
               nurse.doorExitHandoffWaitTime >=
-              nurseNoMovementReassignThreshold
+              nurseDoorHandoffForceResumeDelay
             ) {
-              // Break a true paired doorway deadlock from the nurse side. A
-              // patient that is still changing coordinates gets the full
-              // handoff; only a patient that has stopped for two seconds lets
-              // the nurse release the pair and rebuild the route.
+              clearPatientNurseExitDoorHandoff(exitHandoffPatient);
+              exitHandoffPatient.walker.group.userData
+                .nurseExitDoorHandoffReleasedNurseIndex = nurse.index;
+              exitHandoffPatient.doorPassOverride = Math.max(
+                exitHandoffPatient.doorPassOverride,
+                2.4,
+              );
               clearNurseExitDoorHandoff(nurse);
               nurse.navigationOverride = Math.max(
                 nurse.navigationOverride,
                 1.35,
               );
               nurse.blockedTime = 0;
-            } else {
+              nurse.motionStallTime = 0;
+              nurse.motionWatchPosition.copy(nurse.walker.group.position);
+            } else if (nurseExitDoorHandoffIsAtSafe(nurse)) {
               // This is a deliberate opposite-side wait. Keep the nurse/cart
               // fixed until the entering patient and IV stand have cleared the
-              // doorway; the next frame then advances the existing route.
+              // doorway; the finite timeout above handles a stale pair.
               stopWardNurseWalk(nurse);
               if (nurse.cartAttached) {
-                nurse.cart.rotation.y = nurse.walker.group.rotation.y;
+                turnNurseCartToward(
+                  nurse.cart,
+                  nurse.walker.group.rotation.y,
+                  dt,
+                  2.7,
+                );
                 placeWardNursePalmsOnCart(nurse);
               }
               nurse.blockedTime = 0;
@@ -10734,6 +12651,23 @@ export function createThirdFloorCare({
             nurseDistanceToTargetDoor <= 3.2
               ? patientForNurseDoorHandoff(nurse, handoffSlot)
               : undefined;
+        if (patientDoorHandoff && handoffSlot) {
+          const patientIndex = Number(
+            patientDoorHandoff.walker.group.userData.inpatientIndex ?? -1,
+          );
+          if (
+            nurse.doorEntryHandoffPatient !== patientIndex ||
+            nurse.doorEntryHandoffRoom !== handoffSlot.room
+          ) {
+            nurse.doorEntryHandoffPatient = patientIndex;
+            nurse.doorEntryHandoffRoom = handoffSlot.room;
+            nurse.doorEntryHandoffWaitTime = 0;
+          } else nurse.doorEntryHandoffWaitTime += dt;
+        } else {
+          nurse.doorEntryHandoffPatient = undefined;
+          nurse.doorEntryHandoffRoom = undefined;
+          nurse.doorEntryHandoffWaitTime = 0;
+        }
         if (
           handoffSlot &&
           medicationRoomHandoff === handoffSlot.room &&
@@ -10770,6 +12704,41 @@ export function createThirdFloorCare({
                 nurse.walker.group.position,
                 nurseSafe,
               ) < 0.12;
+          if (
+            nurse.doorEntryHandoffWaitTime >=
+              nurseDoorHandoffForceResumeDelay &&
+            !patientAtSafe
+          ) {
+            // If the exact pair has not made progress, release both sides of
+            // this doorway instead of allowing a permanent mutual wait. The
+            // patient keeps its existing outward route with a short recovery
+            // window, while the nurse gets a fresh route from its live
+            // position. Normal ward-shell and IV collision checks remain in
+            // force on every resumed step.
+            clearPatientNurseDoorHandoff(patientDoorHandoff);
+            patientDoorHandoff.walker.group.userData
+              .nurseDoorHandoffQueueReleasedNurseIndex = nurse.index;
+            patientDoorHandoff.doorPassOverride = Math.max(
+              patientDoorHandoff.doorPassOverride,
+              3.2,
+            );
+            patientDoorHandoff.blockedTime = 0;
+            patientDoorHandoff.motionStallTime = 0;
+            patientDoorHandoff.motionWatchPosition.copy(
+              patientDoorHandoff.walker.group.position,
+            );
+            nurse.doorEntryHandoffPatient = undefined;
+            nurse.doorEntryHandoffRoom = undefined;
+            nurse.doorEntryHandoffWaitTime = 0;
+            nurse.navigationOverride = Math.max(
+              nurse.navigationOverride,
+              1.35,
+            );
+            nurse.blockedTime = 0;
+            nurse.motionStallTime = 0;
+            nurse.motionWatchPosition.copy(nurse.walker.group.position);
+            if (reassignNurseMovementTask(nurse)) return;
+          }
           if (nurseRouteChanged) {
             stopWardNurseWalk(nurse);
             return;
@@ -10959,10 +12928,34 @@ export function createThirdFloorCare({
             nurseCartReturnStagingPoint,
             nurseCartReturnStagingPointWest,
           ].some((point) => actorHorizontalDistance(target, point) < 0.08),
+          // The first return leg leaves the surveyed bedside lane with the
+          // cart still parked in front of the nurse. Do not blend this leg
+          // with the following room-interior waypoint: the look-ahead turn
+          // can cut diagonally across the bed/IV clearance and report a false
+          // wall or furniture block even though the straight release lane is
+          // clear. Once this point is reached, the normal door alignment
+          // waypoints take over again.
+          returningBedsideReleaseWaypoint =
+            nurse.mode === "returning" && nurse.waypoint === 0,
           stationServiceWaypoint = [
-            nurseStationServiceExit,
-            nurseStationServiceCorner,
+            nurseNorthWallStationPoint,
+            new THREE.Vector3(-3.45, 0, nurseNorthWallLaneZ),
           ].some((point) => actorHorizontalDistance(target, point) < 0.08),
+          cartPickupExitWaypoint =
+            actorHorizontalDistance(target, nurseCartPickupExitPoint) < 0.08,
+          stationDeskBypassWaypoint = [
+            nurseStationCentralPassagePoint,
+            nurseStationNorthExitPoint,
+            nurseStationNorthServicePoint,
+          ].some((point) => actorHorizontalDistance(target, point) < 0.08),
+          noCartNorthExitTransfer =
+            !nurse.cartAttached &&
+            nurse.mode !== "station" &&
+            (stationDeskBypassWaypoint ||
+              (actorHorizontalDistance(current, wardNurseStationCentre) <
+                2.2 &&
+                actorHorizontalDistance(target, wardNurseStationCentre) <
+                  3.2)),
           glassDetourUntilWaypoint = Number(
             nurse.walker.group.userData.glassDetourUntilWaypoint ?? -1,
           ),
@@ -10999,19 +12992,42 @@ export function createThirdFloorCare({
               target,
               nurseMedicationHandoffSafePoint(handoffSlot),
             ) < 0.08,
+          cartTurnNeedsExact =
+            sharpCartTurnWaypoint &&
+            (wardDoorWaypoint ||
+              wardDoorAlignmentWaypoint ||
+              wardDoorSideSafeWaypoint ||
+              handoffSafeWaypoint ||
+              returnDropWaypoint ||
+              returnStagingWaypoint ||
+              returningBedsideReleaseWaypoint ||
+              stationServiceWaypoint ||
+              cartPickupExitWaypoint ||
+              stationDeskBypassWaypoint ||
+              wardThreeDirectionalLaneWaypoint ||
+              glassDetourWaypoint ||
+              !pointClearsWardShell(target, 0.9) ||
+              (nextRoutePoint !== undefined &&
+                !pointClearsWardShell(nextRoutePoint, 0.9)) ||
+              !isNurseClearOfCourtyardGlass(target, 0.95) ||
+              (nextRoutePoint !== undefined &&
+                !isNurseClearOfCourtyardGlass(nextRoutePoint, 0.95))),
           exactWaypoint =
             nurse.waypoint === nurse.cartAttachWaypoint ||
             nurse.waypoint === nurse.reverseWaypoint ||
             wardDoorAlignmentWaypoint ||
             wardDoorSideSafeWaypoint ||
             handoffSafeWaypoint ||
-            sharpCartTurnWaypoint ||
+            cartTurnNeedsExact ||
             returnDropWaypoint ||
             returnStagingWaypoint ||
+            returningBedsideReleaseWaypoint ||
             stationServiceWaypoint ||
+            cartPickupExitWaypoint ||
+            stationDeskBypassWaypoint ||
             wardThreeDirectionalLaneWaypoint ||
             glassDetourWaypoint,
-          waypointThreshold = exactWaypoint ? 0.1 : 0.22;
+          waypointThreshold = exactWaypoint ? 0.1 : 0.08;
         if (distance < waypointThreshold) {
           stopWardNurseWalk(nurse);
           if (exactWaypoint) {
@@ -11022,12 +13038,21 @@ export function createThirdFloorCare({
             nurse.waypoint === nurse.cartAttachWaypoint &&
             nurse.mode === "outbound"
           ) {
-            const nextTarget = nurse.route[nurse.waypoint + 1],
-              pickupYaw = nextTarget
-                ? thirdFloorYaw(current, nextTarget)
-                : nurse.walker.group.rotation.y;
+            const pickupForward = nurseCartDepartureDirection
+                .clone()
+                .multiplyScalar(-1)
+                .setY(0),
+              // Face across the cart from its west/left side. Place the cart
+              // in front of that heading before the normal route takes over.
+              pickupYaw = thirdFloorYaw(
+                current,
+                current.clone().add(pickupForward),
+              );
             setWardWalkerStanding(nurse.walker, pickupYaw);
-            nurse.cart.position.copy(nurse.cartHome);
+            nurse.cart.position
+              .copy(current)
+              .addScaledVector(pickupForward, wardNurseCartDistance)
+              .setY(0);
             nurse.cart.rotation.y = pickupYaw;
             nurse.cartAttached = true;
             nurse.cartParked = false;
@@ -11059,7 +13084,11 @@ export function createThirdFloorCare({
                 current,
                 nurse.route,
                 nurse.waypoint,
-                wardDoorWaypoint ? 0.28 : 0.68,
+                wardDoorWaypoint
+                  ? 0.28
+                  : nurse.cartAttached
+                    ? 1.15
+                    : 0.92,
               ),
           followPatient = nurse.cartAttached
             ? findWardNurseFollowPatient(
@@ -11168,7 +13197,12 @@ export function createThirdFloorCare({
           // side wall toward the next ward.
           nurse.walker.legs.forEach((leg) => leg.rotation.set(0, 0, 0));
           if (nurse.cartAttached) {
-            nurse.cart.rotation.y = nurse.walker.group.rotation.y;
+            turnNurseCartToward(
+              nurse.cart,
+              nurse.walker.group.rotation.y,
+              dt,
+              2.7,
+            );
             placeWardNursePalmsOnCart(nurse);
           }
           nurse.blockedTime = Math.min(nurse.blockedTime + dt, 3);
@@ -11215,7 +13249,12 @@ export function createThirdFloorCare({
           // is while the patient continues toward Ward 1. It is intentionally
           // not a collision wait, so the patient can always open the gap.
           nurse.walker.legs.forEach((leg) => leg.rotation.set(0, 0, 0));
-          nurse.cart.rotation.y = nurse.walker.group.rotation.y;
+          turnNurseCartToward(
+            nurse.cart,
+            nurse.walker.group.rotation.y,
+            dt,
+            2.7,
+          );
           placeWardNursePalmsOnCart(nurse);
           nurse.motionWatchPosition.copy(current);
           nurse.blockedTime = 0;
@@ -11269,6 +13308,29 @@ export function createThirdFloorCare({
             insertNurseCourtyardGlassDetour(nurse)
           )
             nurse.motionStallTime = 0;
+          stopWardNurseWalk(nurse);
+          return;
+        }
+        const nurseHitsStationDesk =
+            !noCartNorthExitTransfer &&
+            wardNurseStationDeskIntersects(proposed, 0.34),
+          cartHitsStationDesk =
+            nurse.cartAttached &&
+            !nurse.cartParked &&
+            wardNurseStationDeskIntersects(proposedCart, 0.62);
+        if (nurseHitsStationDesk || cartHitsStationDesk) {
+          // A stale route or a smoothed corner must never be allowed to
+          // visually enter the circular counter. Rebuild from the current
+          // position after a short grace period so the surveyed north curve
+          // takes over instead of leaving the actor parked at the desk edge.
+          nurse.blockedTime += dt;
+          if (
+            nurse.blockedTime >= 0.35 &&
+            reassignNurseMovementTask(nurse)
+          ) {
+            stopWardNurseWalk(nurse);
+            return;
+          }
           stopWardNurseWalk(nurse);
           return;
         }
@@ -11387,31 +13449,20 @@ export function createThirdFloorCare({
                 ) < 0.82)
             );
           });
-        const blockedByNurseOrCart =
-          wardNurses.some(
-            (other) =>
-              other !== nurse &&
-              (actorHorizontalDistance(
-                proposed,
-                other.walker.group.position,
-              ) < 0.78 ||
-                (nurse.cartAttached &&
-                  actorHorizontalDistance(
-                    proposedCart,
-                    other.walker.group.position,
-                  ) < 0.86)),
-          ) ||
-          thirdFloorMedicalCarts.some(
-            (cart) =>
-              cart !== nurse.cart &&
-              (actorHorizontalDistance(proposed, cart.position) < 0.82 ||
-                (nurse.cartAttached &&
-                  actorHorizontalDistance(proposedCart, cart.position) <
-                    0.9)),
-          ) ||
-          (medicationRobot.mode !== "home" &&
+        const stationTransfer =
+            ((nurse.mode === "outbound" &&
+              !nurse.cartAttached &&
+              nurse.cartAttachWaypoint >= 0 &&
+              nurse.waypoint < nurse.cartAttachWaypoint) ||
+              // All returning nurses use the same centre passage after the
+              // cart is dropped. Without this clearance the two seated
+              // coworkers are treated as a solid wall at the station.
+              nurse.mode === "returning") &&
+            actorHorizontalDistance(current, wardNurseStationCentre) < 2.05 &&
+            actorHorizontalDistance(target, wardNurseStationCentre) < 2.05,
+          robotBlocksNurse =
+            medicationRobot.mode !== "home" &&
             !medicationRobotHandoffCollisionDisabled() &&
-            !medicationRobotIsInPublicCorridor() &&
             (actorHorizontalDistance(
               proposed,
               medicationRobot.group.position,
@@ -11420,7 +13471,35 @@ export function createThirdFloorCare({
                 actorHorizontalDistance(
                   proposedCart,
                   medicationRobot.group.position,
-                ) < 0.96)));
+                ) < 0.96)),
+          blockedByNurseOrCart =
+            !noCartNorthExitTransfer &&
+            (wardNurses.some((other) => {
+              if (other === nurse) return false;
+              // The two seated coworkers are the sides of the station's
+              // central transfer lane. Use the real body clearance here;
+              // applying the public-corridor radius deadlocks a nurse between
+              // the chairs before the cart is even attached.
+              const nurseClearance = stationTransfer ? 0.56 : 0.78;
+              return (
+                actorHorizontalDistance(proposed, other.walker.group.position) <
+                  nurseClearance ||
+                (nurse.cartAttached &&
+                  actorHorizontalDistance(
+                    proposedCart,
+                    other.walker.group.position,
+                  ) < 0.86)
+              );
+            }) ||
+              thirdFloorMedicalCarts.some(
+                (cart) =>
+                  cart !== nurse.cart &&
+                  (actorHorizontalDistance(proposed, cart.position) < 0.82 ||
+                    (nurse.cartAttached &&
+                      actorHorizontalDistance(proposedCart, cart.position) <
+                        0.9)),
+              ) ||
+              (robotBlocksNurse && !noCartNorthExitTransfer));
         if (
           blockedByNurseOrCart ||
           (blockedByActor && nurse.navigationOverride <= 0)
@@ -11430,6 +13509,22 @@ export function createThirdFloorCare({
           // side-step that can make the cart overshoot, spin, or enter glass.
           stopWardNurseWalk(nurse);
           nurse.blockedTime = Math.min(nurse.blockedTime + dt, 3);
+          if (
+            robotBlocksNurse &&
+            nurse.blockedTime >= medicationRobotNurseDeadlockThreshold
+          ) {
+            // The nurse has priority in a doorway/traffic pocket.  Ask the
+            // cabinet to retreat through a verified previous route point;
+            // the exact nurse and attached cart are ignored only for this
+            // retreat segment, while all fixed geometry and other actors stay
+            // solid.  This breaks the rotate-in-place mutual wait without a
+            // visible teleport or a broad collision bypass.
+            if (forceMedicationRobotRetreatFromNurse(nurse)) {
+              nurse.blockedTime = 0;
+              nurse.motionStallTime = 0;
+              nurse.motionWatchPosition.copy(current);
+            }
+          }
           return;
         }
         // Do not rotate the nurse until every door and actor check has passed.
@@ -11448,16 +13543,18 @@ export function createThirdFloorCare({
                 .clone()
                 .addScaledVector(turnFacing, wardNurseCartDistance)
                 .setY(0);
-            nurse.cart.position.lerp(
+            moveNurseCartWithInertia(
+              nurse,
               cartTurnTarget,
-              1 - Math.exp(-dt * 14),
+              targetYaw,
+              dt,
+              false,
             );
-            nurse.cart.rotation.y = nurse.walker.group.rotation.y;
             placeWardNursePalmsOnCart(nurse);
           }
           return;
         }
-        nurse.walker.group.rotation.set(0, targetYaw, 0);
+        if (exactWaypoint) nurse.walker.group.rotation.set(0, targetYaw, 0);
         nurse.blockedTime = 0;
         nurse.walker.group.userData.blockedByCourtyardGlass = false;
         current.copy(proposed);
@@ -11475,8 +13572,7 @@ export function createThirdFloorCare({
             .clone()
             .addScaledVector(modelForward, wardNurseCartDistance)
             .setY(0);
-          nurse.cart.position.lerp(cartTarget, 1 - Math.exp(-dt * 14));
-          nurse.cart.rotation.y = yaw;
+          moveNurseCartWithInertia(nurse, cartTarget, yaw, dt, true);
           placeWardNursePalmsOnCart(nurse);
         }
         const doorSlot = nurseActiveTransitSlot(nurse) ?? inspectionPatient?.slot;
@@ -11518,30 +13614,10 @@ export function createThirdFloorCare({
                   )
                 : Number.POSITIVE_INFINITY,
                 ) < 3.18;
-        const wardOneReturnArcActive =
-          nurse.mode === "returning" &&
-          activeWardSlot?.room === 1 &&
-          [
-            roomOutsidePoint(activeWardSlot),
-            ...nurseWardOneReturnCurve,
-            nurseCartReturnStagingPointWest,
-            nurseCartReturnDropPointWest,
-          ].some((point) => actorHorizontalDistance(target, point) < 0.12);
-        const stationEastboundArcActive =
-          nurse.mode === "outbound" &&
-          activeWardSlot !== undefined &&
-          activeWardSlot.room !== 1 &&
-          ([
-              nurseStationServiceExit,
-              nurseStationServiceCorner,
-              ...nurseStationEastboundArc,
-            ].some((point) => actorHorizontalDistance(target, point) < 0.12) ||
-            // The final arc point hands directly to the long eastbound lane
-            // target at x=0. Keep ownership of that last straight release
-            // until the whole nurse/cart rig has cleared the west corner.
-            (current.x < -4.18 &&
-              Math.abs(target.z - wardNurseLaneZ(true)) < 0.08 &&
-              target.x >= -0.08));
+        const northServiceLaneActive =
+          target.z <= nurseNorthWallLaneZ + 0.16 &&
+          target.z >= -8.05 &&
+          (nurse.cartAttached || nurse.mode === "returning");
         // Ward-door entry is a surveyed straight passage. A short door-open
         // or traffic wait here must never be reclassified as courtyard-glass
         // obstruction and receive a detour back toward the service corridor.
@@ -11549,8 +13625,7 @@ export function createThirdFloorCare({
         // replaced by a generic glass-edge recovery that sends it in circles.
         if (
           approachingWardDoor ||
-          wardOneReturnArcActive ||
-          stationEastboundArcActive
+          northServiceLaneActive
         )
           return false;
         const activeDetourUntil = Number(
@@ -11712,9 +13787,24 @@ export function createThirdFloorCare({
             nurse.mode === "outbound"
               ? nurseStationToCartRoute(nurse.index)
               : [],
+          // Once the cart is attached, recovery must never rebuild from the
+          // pickup approach. That route contains the rack point behind the
+          // nurse; choosing its nearest point after a short block sent the
+          // whole rig back to the rack, then forward again, producing the
+          // observed back-and-forth loop. Rebuild attached outbound trips
+          // from the surveyed departure point instead.
+          attachedOutboundRoute =
+            nurse.mode === "outbound" && nurse.cartAttached
+              ? compactThirdFloorRoute([
+                  nurseCartPickupExitPoint.clone(),
+                  ...nurseNorthWallRoomRoute(targetSlot, true),
+                ])
+              : [],
           taskRoute =
             nurse.mode === "outbound"
-              ? (inspectionPreviousSlot
+              ? (nurse.cartAttached
+                  ? attachedOutboundRoute
+                  : inspectionPreviousSlot
                   ? inspectionRouteBetweenBeds(
                       inspectionPreviousSlot,
                       targetSlot,
@@ -11746,7 +13836,19 @@ export function createThirdFloorCare({
             nearestIndex = index;
           }
         });
-        const remainingRoute = cleanTaskRoute.slice(nearestIndex + 1);
+        // Do not skip the nearest surveyed corner unless the live nurse has
+        // actually reached it.  During recovery the current position can be
+        // closer to a later corner while still sitting on the incoming leg;
+        // dropping that corner creates a new diagonal directly to the next
+        // point, which lets the attached cart sweep through the ring desk or
+        // a ward wall.  Keep the corner as an explicit obligation until the
+        // nurse/cart pair is within the normal waypoint threshold.
+        const nearestPoint = cleanTaskRoute[nearestIndex],
+          nearestReached =
+            !!nearestPoint && actorHorizontalDistance(current, nearestPoint) < 0.22,
+          remainingRoute = cleanTaskRoute.slice(
+            nearestReached ? nearestIndex + 1 : nearestIndex,
+          );
         nurse.route = compactThirdFloorRoute([
           current.clone().setY(0),
           ...remainingRoute,
@@ -11806,7 +13908,7 @@ export function createThirdFloorCare({
       },
       trafficReasonForRobot = () => {
         if (medicationRobot.doorInboundPatient !== undefined)
-          return "門口等待病患移至側邊";
+          return `門口等待病患 ${medicationRobot.doorInboundPatient + 1} 移至側邊`;
         if (medicationRobot.doorEntryPatient !== undefined)
           return "門側等待病患進入";
         if (medicationRobot.actorYieldSafetyPoint)
@@ -11946,6 +14048,17 @@ export function createThirdFloorCare({
           0,
           actor.postInspectionCooldown - dt,
         );
+        if (
+          actor.walker.group.userData.medicationRobotDoorHandoffReleased ===
+            true &&
+          (actor.state !== "walking" ||
+            actorHorizontalDistance(
+              actor.walker.group.position,
+              actor.slot.doorCentre,
+            ) > 2.45)
+        )
+          actor.walker.group.userData.medicationRobotDoorHandoffReleased =
+            undefined;
         const nurseDoorWaitPoint = actor.walker.group.userData
           .nurseDoorHandoffWaitPoint as THREE.Vector3 | undefined;
         if (
@@ -11981,18 +14094,11 @@ export function createThirdFloorCare({
                 actor.walker.group.position,
                 actor.motionWatchPosition,
               ) > actualMovementThreshold;
-          // Door waiting is armed only after the robot/nurse is more than two
-          // metres away. Before that, the patient is intentionally stationary
-          // at the side pocket. Once armed, use actual coordinate movement
-          // rather than a waiting flag or waypoint change as the evidence of
-          // progress.
+          // A nearby robot/nurse can make a patient wait briefly at a side
+          // pocket, but the wait still has to show real coordinate progress.
+          // Do not reset the watchdog solely because a handoff flag is active;
+          // that would turn a paired doorway deadlock into an infinite wait.
           if (actualPositionChanged) {
-            actor.motionWatchPosition.copy(actor.walker.group.position);
-            actor.motionStallTime = 0;
-          } else if (
-            hasDoorHandoffWait &&
-            doorPriorityGap! <= medicationRobotYieldReleaseDistance
-          ) {
             actor.motionWatchPosition.copy(actor.walker.group.position);
             actor.motionStallTime = 0;
           } else actor.motionStallTime += dt;
@@ -12220,7 +14326,6 @@ export function createThirdFloorCare({
         }
         actor.timer = Math.max(0, actor.timer - dt);
         if (actor.state === "walking") {
-          if (invitePassingPatientToNeighbourSeat(actor, t)) return;
           moveInpatient(actor, dt, t);
           return;
         }
@@ -12614,21 +14719,19 @@ export function createThirdFloorCare({
           if (nurse.walker.chart) nurse.walker.chart.visible = false;
         } else if (job === "computer") {
           nurse.walker.group.position.copy(target);
-          setWardWalkerSeated(nurse.walker, 0, 0.14);
-          nurse.walker.arms[0].rotation.x = 0.86 + Math.sin(t * 5.4) * 0.09;
-          nurse.walker.arms[1].rotation.x = 0.86 - Math.sin(t * 5.4) * 0.09;
-          nurse.walker.headRig.rotation.x = 0.08;
+          setWardWalkerSeated(nurse.walker, wardNurseSeatYaws[nurse.index], 0.14);
+          animateWardNurseComputer(nurse, t);
           if (nurse.walker.chart) nurse.walker.chart.visible = false;
         } else if (job === "chart") {
           nurse.walker.group.position.copy(target);
-          setWardWalkerSeated(nurse.walker, 0, 0.14);
+          setWardWalkerSeated(nurse.walker, wardNurseSeatYaws[nurse.index], 0.14);
           if (nurse.walker.chart) nurse.walker.chart.visible = true;
           nurse.walker.arms[0].rotation.x = 0.74;
           nurse.walker.arms[1].rotation.x = 0.74;
           nurse.walker.headRig.rotation.x = 0.16 + Math.sin(t * 1.9) * 0.04;
         } else {
           nurse.walker.group.position.copy(target);
-          setWardWalkerSeated(nurse.walker, 0, 0.14);
+          setWardWalkerSeated(nurse.walker, wardNurseSeatYaws[nurse.index], 0.14);
           if (nurse.walker.chart) nurse.walker.chart.visible = false;
         }
       });

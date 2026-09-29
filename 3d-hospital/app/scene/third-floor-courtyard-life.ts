@@ -29,9 +29,9 @@ export function createThirdFloorCourtyardLife({
   makeBird,
   makeButterfly,
 }: ThirdFloorCourtyardLifeContext) {
-  // Three actors allow each courtyard visit to contain either two or three
-  // birds. They remain parented to 3F so every coordinate is courtyard-local.
-  const courtyardBirds = Array.from({ length: 3 }, () => makeBird());
+  // Keep exactly two birds in the courtyard. They remain parented to 3F so
+  // every coordinate is courtyard-local.
+  const courtyardBirds = Array.from({ length: 2 }, () => makeBird());
   courtyardBirds.forEach((bird) => {
     bird.group.scale.setScalar(0.82);
     bird.group.userData.floor = 3;
@@ -44,10 +44,10 @@ export function createThirdFloorCourtyardLife({
     courtyardButterflyRoutes = [
       new THREE.CatmullRomCurve3(
         [
-          new THREE.Vector3(-5.2, 1.22, 0.45),
-          new THREE.Vector3(-2.4, 1.52, 1.35),
-          new THREE.Vector3(-2.75, 1.34, 5.7),
-          new THREE.Vector3(-6, 1.48, 6.25),
+          new THREE.Vector3(-5.2, 1.22, 3.05),
+          new THREE.Vector3(-3.05, 1.52, 3.28),
+          new THREE.Vector3(-3.45, 1.34, 6.05),
+          new THREE.Vector3(-5.65, 1.48, 6.72),
         ],
         true,
         "catmullrom",
@@ -55,10 +55,10 @@ export function createThirdFloorCourtyardLife({
       ),
       new THREE.CatmullRomCurve3(
         [
-          new THREE.Vector3(5.35, 1.38, 0.55),
-          new THREE.Vector3(2.25, 1.64, 1.2),
-          new THREE.Vector3(2.65, 1.28, 5.65),
-          new THREE.Vector3(6.2, 1.55, 6.35),
+          new THREE.Vector3(5.35, 1.38, 3.18),
+          new THREE.Vector3(3.05, 1.64, 3.48),
+          new THREE.Vector3(3.55, 1.28, 6.02),
+          new THREE.Vector3(5.95, 1.55, 6.82),
         ],
         true,
         "catmullrom",
@@ -66,11 +66,11 @@ export function createThirdFloorCourtyardLife({
       ),
       new THREE.CatmullRomCurve3(
         [
-          new THREE.Vector3(-4.4, 1.18, 5.85),
-          new THREE.Vector3(-1.8, 1.58, 4.55),
-          new THREE.Vector3(1.9, 1.36, 2.4),
-          new THREE.Vector3(4.75, 1.62, 5.95),
-          new THREE.Vector3(0.2, 1.42, 6.9),
+          new THREE.Vector3(-4.35, 1.18, 6.55),
+          new THREE.Vector3(-2.15, 1.58, 4.82),
+          new THREE.Vector3(1.85, 1.36, 3.18),
+          new THREE.Vector3(4.65, 1.62, 5.78),
+          new THREE.Vector3(0.2, 1.42, 6.92),
         ],
         true,
         "catmullrom",
@@ -82,15 +82,16 @@ export function createThirdFloorCourtyardLife({
     thirdFloor.add(butterfly.group);
   });
 
+  const faceDirection = (from: THREE.Vector3, to: THREE.Vector3) =>
+    Math.atan2(-(to.z - from.z), to.x - from.x);
+
   const updateThirdFloorCourtyardLife = (t: number) => {
     courtyardBirds.forEach((bird, index) => {
       const cycleLength = 38,
         cycle = Math.floor(t / cycleLength),
         phase = t % cycleLength,
-        activeCount = 2 + (cycle % 2),
-        localPhase = phase - index * 2.4,
-        faceDirection = (from: THREE.Vector3, to: THREE.Vector3) =>
-          Math.atan2(-(to.z - from.z), to.x - from.x);
+        activeCount = 2,
+        localPhase = phase - index * 2.4;
       bird.note.visible = false;
       if (index >= activeCount || localPhase < 4 || localPhase > 31.5) {
         bird.group.visible = false;

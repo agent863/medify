@@ -42,11 +42,13 @@ type Props = {
   content: SiteContentConfig;
   onReady: () => void;
   onTalk: (role: Role, interaction?: CharacterInteraction) => void;
+  onQrCode: (qrId: QrId) => void;
   onPatientFocus: (interaction: CharacterInteraction | null) => void;
   patientFocusClearRequest: number;
   onKnock: (room: number) => void;
   onPatientCount: (count: number) => void;
   onElevatorOpen: () => void;
+  onWardVideoOpen: (currentTime?: number) => void;
   onThirdFloorTrafficSnapshot?: (snapshot: ThirdFloorTrafficSnapshot) => void;
   activeFloor: 1 | 2 | 3;
   elevatorOpen: boolean;
@@ -271,6 +273,13 @@ function canvasTexture(main: string, sub = "") {
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
+function medifyLogoTexture() {
+  // Use the supplied full Medify artwork so the ward TVs match the reference
+  // logo exactly instead of relying on browser-dependent font rendering.
+  const texture = new THREE.TextureLoader().load("/medify-logo.png");
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
 function elevatorFloorNumberTexture(label: string, active = false) {
   const c = document.createElement("canvas");
   c.width = 256;
@@ -424,6 +433,47 @@ function qrTexture(label: string, value: string) {
   for (let gy = 0; gy < n; gy++)
     for (let gx = 0; gx < n; gx++)
       if (code.modules.get(gx, gy)) x.fillRect(ox + gx * s, oy + gy * s, s, s);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function qrSparkTexture() {
+  const c = document.createElement("canvas");
+  c.width = 256;
+  c.height = 256;
+  const x = c.getContext("2d")!;
+  x.fillStyle = "#ffffff";
+  x.beginPath();
+  x.moveTo(128, 2);
+  x.bezierCurveTo(130, 72, 158, 112, 254, 128);
+  x.bezierCurveTo(158, 144, 130, 184, 128, 254);
+  x.bezierCurveTo(126, 184, 98, 144, 2, 128);
+  x.bezierCurveTo(98, 112, 126, 72, 128, 2);
+  x.fill();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function qrEdgeGlowTexture() {
+  const c = document.createElement("canvas");
+  c.width = 192;
+  c.height = 192;
+  const x = c.getContext("2d")!;
+  const glow = x.createRadialGradient(
+    c.width / 2,
+    c.height / 2,
+    0,
+    c.width / 2,
+    c.height / 2,
+    c.height / 2,
+  );
+  glow.addColorStop(0, "rgba(255,240,177,1)");
+  glow.addColorStop(0.12, "rgba(255,220,112,.96)");
+  glow.addColorStop(0.34, "rgba(255,194,67,.72)");
+  glow.addColorStop(0.62, "rgba(255,194,67,.26)");
+  glow.addColorStop(1, "rgba(255,194,67,0)");
+  x.fillStyle = glow;
+  x.fillRect(0, 0, c.width, c.height);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
@@ -600,6 +650,7 @@ function smallPlant(scene: THREE.Scene, x: number, z: number, s = 1, y = 0.14) {
   scene.add(g);
   return g;
 }
+
 function chair(
   scene: THREE.Scene | THREE.Group,
   x: number,
@@ -1162,11 +1213,13 @@ export default function HospitalScene({
   content,
   onReady,
   onTalk,
+  onQrCode,
   onPatientFocus,
   patientFocusClearRequest,
   onKnock,
   onPatientCount,
   onElevatorOpen,
+  onWardVideoOpen,
   onThirdFloorTrafficSnapshot,
   activeFloor,
   elevatorOpen,
@@ -1205,7 +1258,6 @@ export default function HospitalScene({
     if (!mount.current) return;
     const host = mount.current,
       scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf7f8f7);
     const camera = new THREE.PerspectiveCamera(
       host.clientWidth <= 760 ? 42 : 35,
       host.clientWidth / host.clientHeight,
@@ -1217,6 +1269,7 @@ export default function HospitalScene({
     try {
       renderer = new THREE.WebGLRenderer({
         antialias: true,
+        alpha: true,
         powerPreference: "high-performance",
       });
     } catch {
@@ -1225,15 +1278,19 @@ export default function HospitalScene({
       window.requestAnimationFrame(onReady);
       return;
     }
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    // Restore the original high-resolution framebuffer. The browser still
+    // caps this at 2x, which keeps Retina output crisp without creating an
+    // unbounded render target on high-DPI displays.
+    const defaultPixelRatio = Math.min(devicePixelRatio, 2);
+    renderer.setPixelRatio(defaultPixelRatio);
     renderer.setSize(host.clientWidth, host.clientHeight);
+    renderer.setClearColor(0x000000, 0);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
     host.appendChild(renderer.domElement);
-    scene.background = new THREE.Color(0xedf7f9);
     const controls = new OrbitControls(camera, renderer.domElement);
     cameraRef.current = camera;
     controlsRef.current = controls;
@@ -1312,7 +1369,12 @@ export default function HospitalScene({
       sun = new THREE.DirectionalLight(0xfffbf3, 4.2);
     sun.position.set(12, 20, 15);
     sun.castShadow = true;
+    // Use the same high-quality directional shadow path for animated people
+    // and architectural objects. Bias values reduce acne without separating
+    // the character shadows from the surfaces they land on.
     sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.bias = -0.00025;
+    sun.shadow.normalBias = 0.018;
     sun.shadow.camera.left = -18;
     sun.shadow.camera.right = 18;
     sun.shadow.camera.top = 18;
@@ -1406,11 +1468,39 @@ export default function HospitalScene({
 
     const doors: Door[] = [],
       interactive: THREE.Object3D[] = [],
+      qrGlowTargets = new Map<
+        QrId,
+        {
+          stars: {
+            sprite: THREE.Sprite;
+            phase: number;
+            baseScale: number;
+          }[];
+          edge?: {
+            runners: THREE.Mesh<
+              THREE.PlaneGeometry,
+              THREE.MeshBasicMaterial
+            >[];
+            path: THREE.Vector3[];
+            segmentLengths: number[];
+            totalLength: number;
+          };
+          hovered: boolean;
+        }
+      >(),
+      wardTvDisplays: {
+        group: THREE.Object3D;
+        screenMaterial: THREE.MeshBasicMaterial;
+        fallbackTexture: THREE.Texture;
+      }[] = [],
       callScreens: {
         room: number;
         texture: THREE.CanvasTexture;
         patientNo?: string;
       }[] = [];
+    let wardTvVideo: HTMLVideoElement | null = null,
+      wardTvVideoTexture: THREE.VideoTexture | null = null,
+      wardTvSource = "";
     const paintCallScreen = (
       texture: THREE.CanvasTexture,
       room: number,
@@ -1574,38 +1664,20 @@ export default function HospitalScene({
         material(BLUE, 0.58),
       );
       door.position.set(0, 0, 0);
-      door.castShadow = true;
+      door.castShadow = false;
       p.add(door);
       const panel = new THREE.Mesh(
         roundedPanelGeometry(1.58, 2.56, 0.055, 0.36),
         material(0x49b9c3, 0.62),
       );
       panel.position.set(0, 0.13, 0.026 * lobbyFace);
-      panel.castShadow = true;
+      panel.castShadow = false;
       p.add(panel);
-      const qrMaterial = new THREE.MeshBasicMaterial({
-        map: qrTexture(
-          `ROOM ${room}`,
-          `${window.location.origin}/qr/clinic-door-${room}`,
-        ),
-        side: THREE.DoubleSide,
-        transparent: false,
-        depthTest: true,
-        polygonOffset: true,
-        polygonOffsetFactor: -4,
-        polygonOffsetUnits: -4,
-      });
-      const qr = new THREE.Mesh(new THREE.PlaneGeometry(0.48, 0.6), qrMaterial);
-      qr.position.set(0, 1.22, 0.066 * lobbyFace);
-      qr.rotation.y = lobbyFace < 0 ? Math.PI : 0;
-      qr.renderOrder = 12;
-      qr.userData = { interactive: "qr", qrId: `clinic-door-${room}` };
-      p.add(qr);
       p.userData = { interactive: "door", room };
       panel.userData = { hitRoot: p };
       door.userData = { hitRoot: p };
       scene.add(p);
-      interactive.push(panel, door, qr);
+      interactive.push(panel, door);
       const closedPosition = p.position.clone(),
         // Local +X follows the fan wall toward the hospital exit. The small
         // clinic-side offset lets the leaf visually disappear into the wall
@@ -2394,7 +2466,7 @@ export default function HospitalScene({
         // than through the shared box() helper, so opt them into the shadow
         // pipeline explicitly.  This keeps the moving OR leaves grounded and
         // lets their shadows slide naturally across the floor and doorway.
-        leaf.castShadow = true;
+        leaf.castShadow = false;
         leaf.receiveShadow = true;
         secondFloor.add(leaf);
         if (kind === "operating")
@@ -2616,7 +2688,8 @@ export default function HospitalScene({
           roughness: 0.28,
         }),
       );
-      fluidBag.position.set(0.2, 1.82, 0);
+      // Keep the stand itself fixed; place the IV bag on its left side.
+      fluidBag.position.set(-0.2, 1.82, 0);
       ivStand.add(fluidBag);
       ivStand.position.copy(
         bedCentre
@@ -3327,7 +3400,6 @@ export default function HospitalScene({
       accent: number,
       wallOptions: {
         omitSide?: -1 | 1;
-        positiveSideOffsetX?: number;
       } = {},
     ) => {
       const roomFloor = box(depth, 0.1, width, 0xe8f1f2),
@@ -3335,7 +3407,10 @@ export default function HospitalScene({
         // A wide single hospital door replaces the former paired leaves.
         doorOpening = 1.55;
       roomFloor.position.copy(doorCentre.clone().addScaledVector(out, depth / 2));
-      roomFloor.position.y = 0.06;
+      // The room slab is 10 cm thick. Its top must meet the third-floor
+      // corridor surface at y=0.02; the former centre y=0.06 left the slab
+      // top at y=0.11 and hid the IV stand wheels inside every ward.
+      roomFloor.position.y = -0.03;
       roomFloor.rotation.y = wallAngle;
       backWall.position.copy(doorCentre.clone().addScaledVector(out, depth));
       backWall.position.y = 1.41;
@@ -3346,61 +3421,16 @@ export default function HospitalScene({
         // west wall releases the bedside-cabinet clearance without opening the
         // two rooms to one another.
         if (side === wallOptions.omitSide) return;
-        const sideOffsetX =
-            side === 1 ? wallOptions.positiveSideOffsetX ?? 0 : 0,
-          // A negative world-X offset also pulls the wall's door-side end
-          // beyond the front wall. Clip only that overhang and advance the
-          // shortened wall by half the trimmed distance so its front edge
-          // finishes flush with the door-side wall plane.
-          doorSideOverhang = Math.max(0, -sideOffsetX * out.x),
-          sideWallLength = Math.max(0.4, depth - doorSideOverhang),
-          sideWall = box(sideWallLength, 2.4, 0.26, CREAM);
+        const sideWall = box(depth, 2.4, 0.26, CREAM);
         sideWall.position.copy(
           doorCentre
             .clone()
-            .addScaledVector(out, depth / 2 + doorSideOverhang / 2)
+            .addScaledVector(out, depth / 2)
             .addScaledVector(tan, (side * width) / 2),
         );
-        sideWall.position.x += sideOffsetX;
         sideWall.position.y = 1.2;
         sideWall.rotation.y = wallAngle;
         thirdFloor.add(sideWall);
-
-        if (side === 1 && sideOffsetX < 0) {
-          // Moving the Ward 2 / Ward 3 partition west also separates its deep
-          // end from Ward 2's north wall. Bridge the two real endpoints with a
-          // full-height cap instead of leaving a diagonal daylight gap between
-          // the rooms.
-          const nominalNorthCorner = doorCentre
-              .clone()
-              .addScaledVector(out, depth)
-              .addScaledVector(tan, width / 2),
-            shiftedNorthCorner = nominalNorthCorner
-              .clone()
-              .add(new THREE.Vector3(sideOffsetX, 0, 0)),
-            sealDirection = nominalNorthCorner
-              .clone()
-              .sub(shiftedNorthCorner)
-              .setY(0),
-            northSeal = box(
-              sealDirection.length() + 0.5,
-              2.82,
-              0.34,
-              CREAM,
-            );
-          northSeal.position
-            .copy(nominalNorthCorner)
-            .add(shiftedNorthCorner)
-            .multiplyScalar(0.5);
-          northSeal.position.y = 1.41;
-          northSeal.rotation.y = Math.atan2(
-            -sealDirection.z,
-            sealDirection.x,
-          );
-          northSeal.castShadow = true;
-          northSeal.receiveShadow = true;
-          thirdFloor.add(northSeal);
-        }
       });
 
       const frameOffset = doorOpening / 2 + 0.18;
@@ -3476,9 +3506,9 @@ export default function HospitalScene({
         1.68,
         leafDirection * leafWidth * 0.56,
       );
-      leaf.castShadow = true;
+      leaf.castShadow = false;
       leaf.receiveShadow = true;
-      visionPanel.castShadow = true;
+      visionPanel.castShadow = false;
       pivot.add(leaf, visionPanel);
       const handle = cyl(0.045, 0.16, 0x647b84, 12);
       handle.rotation.z = Math.PI / 2;
@@ -3525,6 +3555,67 @@ export default function HospitalScene({
       sign.receiveShadow = true;
       shrinkThirdFloorContent(sign);
       thirdFloor.add(sign);
+
+      // Each requested ward gets a wall-mounted screen on the same front wall
+      // as the doorway. Placement below is expressed from the room interior:
+      // the screen is moved 80 cm to the viewer's left and 80 cm upward.
+      // Ward 1 consequently crosses to the opposite side of the doorway,
+      // while Ward 2 remains on its existing side and shifts farther left.
+      if (title === "病房 1" || title === "病房 2") {
+        const tvFallbackTexture = medifyLogoTexture(),
+          tvScreenMaterial = new THREE.MeshBasicMaterial({
+            map: tvFallbackTexture,
+            side: THREE.DoubleSide,
+          });
+        const tv = new THREE.Group(),
+          tvFrame = new THREE.Mesh(
+            new RoundedBoxGeometry(2.36, 1.48, 0.1, 6, 0.05),
+            material(0x29495d, 0.18),
+          ),
+          tvScreen = new THREE.Mesh(
+            // Keep the visible display at an exact 16:9 ratio.
+            new THREE.PlaneGeometry(2.16, 2.16 * (9 / 16)),
+            tvScreenMaterial,
+          ),
+          tvMount = box(0.42, 0.12, 0.18, 0x7895a0),
+          // Looking from inside toward the doorway wall, this vector is the
+          // viewer's left for both mirrored ward footprints.
+          viewLeft = tan.clone().multiplyScalar(Math.sign(doorCentre.x) || 1),
+          leftWallOffset = doorOpening / 2 + 0.45 + 2.36 / 2 + 0.8,
+          wallCentre = doorCentre
+            .clone()
+            .addScaledVector(viewLeft, leftWallOffset),
+          screenNormal = out.clone(),
+          frontWallYaw = Math.atan2(screenNormal.x, screenNormal.z);
+        tvFrame.position.z = -0.005;
+        tvScreen.position.z = 0.058;
+        tvMount.position.set(0, -0.82, 0);
+        tv.add(tvFrame, tvScreen, tvMount);
+        // Move the whole assembly into the room from the front-wall surface
+        // by more than the wall thickness plus the frame/mount depth. This
+        // keeps the back of the TV out of the wall instead of merely hiding
+        // the intersection from the front camera.
+        tv.position.copy(wallCentre).addScaledVector(screenNormal, 0.3);
+        tv.position.y = 1.66 + 0.8;
+        tv.rotation.y = frontWallYaw;
+        tv.userData = { interactive: "wardTv", floor: 3 };
+        [tvFrame, tvScreen].forEach((object) => {
+          object.userData.hitRoot = tv;
+          object.userData.floor = 3;
+          interactive.push(object);
+        });
+        wardTvDisplays.push({
+          group: tv,
+          screenMaterial: tvScreenMaterial,
+          fallbackTexture: tvFallbackTexture,
+        });
+        tv.traverse((object) => {
+          object.castShadow = false;
+          object.receiveShadow = false;
+        });
+        shrinkThirdFloorContent(tv);
+        thirdFloor.add(tv);
+      }
 
       const bedYaw = Math.atan2(-out.z, out.x),
         bedSide = new THREE.Vector3(
@@ -3677,7 +3768,9 @@ export default function HospitalScene({
             roughness: 0.28,
           }),
         );
-        bag.position.set(0.16, 1.76, 0);
+        // The pole remains in its original position while the bag hangs on
+        // the patient's left side of the stand.
+        bag.position.set(-0.16, 1.76, 0);
         ivStand.add(bag);
         ivStand.position.copy(
           bedCentre
@@ -3786,9 +3879,6 @@ export default function HospitalScene({
       7.35,
       3,
       0x6ba9c8,
-      // v220: move the Ward 2 / Ward 3 shared partition another 0.8 m west
-      // from its v215 position (1.3 m west in total).
-      { positiveSideOffsetX: -1.3 },
     );
     addWardRoom(
       "病房 3",
@@ -3804,73 +3894,105 @@ export default function HospitalScene({
       { omitSide: -1 },
     );
 
-    // The 3F nursing station is vertically aligned with the large 2F waiting
-    // information screen. Its right side remains open so future nurse actors
-    // can walk behind the counter without crossing furniture or carts.
+    // The 3F nursing station is a three-section ring with three clear radial
+    // openings. It sits between the rear service wall and the courtyard glass;
+    // the north opening is the shared nurse/cart transfer lane. The larger
+    // diameter leaves a comfortable clear area behind the seated nurses.
+    const nursingStationCentre = new THREE.Vector3(0, 0, -3.125),
+      // The south-west desk is the visual "left upper" section. These centres
+      // leave one opening centred exactly on north (-Math.PI / 2).
+      nursingStationSectorAngles = [
+        -Math.PI / 6,
+        Math.PI / 2,
+        (Math.PI * 7) / 6,
+      ],
+      nursingStationInnerRadius = 1.42,
+      nursingStationBandRadius = 2.05,
+      nursingStationOuterRadius = 2.82,
+      // Keep a generous opening between each desk section.
+      nursingStationSectorLength = 1.36,
+      // Rotate only the desk/folder assembly. Workstations, QR stands and
+      // seated nurses remain world-anchored as requested.
+      nursingStationDeskRotation = Math.PI / 3;
     const nursingStationFloor = new THREE.Mesh(
-      new RoundedBoxGeometry(8.6, 0.07, 3.25, 10, 0.28),
+      new THREE.CylinderGeometry(2.62, 2.62, 0.07, 48),
       material(0xe6f0ee, 0.68),
     );
-    nursingStationFloor.position.set(0, 0.075, -6.65);
+    nursingStationFloor.position.copy(nursingStationCentre).setY(0.075);
     nursingStationFloor.receiveShadow = true;
     thirdFloor.add(nursingStationFloor);
 
-    const nursingStation = new THREE.Group(),
-      stationFrontDepth = 0.82 * 0.7,
-      stationFrontTopDepth = 0.98 * 0.7,
-      // Keep the courtyard-facing edge fixed while reducing the counter depth.
-      // All recovered space therefore becomes usable aisle inside the station.
-      stationFrontShift = (0.82 - stationFrontDepth) / 2,
-      stationFrontTopShift = (0.98 - stationFrontTopDepth) / 2,
-      stationFront = new THREE.Mesh(
-        new RoundedBoxGeometry(7.15, 1.02, stationFrontDepth, 10, 0.2),
-        material(0x91bdc8, 0.58),
-      ),
-      stationFrontTop = new THREE.Mesh(
-        new RoundedBoxGeometry(
-          7.35,
-          0.14,
-          stationFrontTopDepth,
-          10,
-          0.16,
+    const nursingStation = new THREE.Group();
+    const makeStationSectorGeometry = (
+      innerRadius: number,
+      outerRadius: number,
+      start: number,
+      length: number,
+      depth: number,
+    ) => {
+      const shape = new THREE.Shape(),
+        steps = 18;
+      for (let index = 0; index <= steps; index++) {
+        const angle = start + (length * index) / steps;
+        const point = new THREE.Vector2(
+          outerRadius * Math.cos(angle),
+          outerRadius * Math.sin(angle),
+        );
+        if (index === 0) shape.moveTo(point.x, point.y);
+        else shape.lineTo(point.x, point.y);
+      }
+      for (let index = steps; index >= 0; index--) {
+        const angle = start + (length * index) / steps;
+        shape.lineTo(
+          innerRadius * Math.cos(angle),
+          innerRadius * Math.sin(angle),
+        );
+      }
+      shape.closePath();
+      return new THREE.ExtrudeGeometry(shape, {
+        depth,
+        bevelEnabled: true,
+        bevelSize: 0.035,
+        bevelThickness: 0.035,
+        bevelSegments: 3,
+      });
+    };
+    const addStationSector = (angle: number, index: number) => {
+      const sector = new THREE.Group(),
+        start = angle - nursingStationSectorLength / 2,
+        lowDesk = new THREE.Mesh(
+          makeStationSectorGeometry(
+            nursingStationInnerRadius,
+            nursingStationBandRadius,
+            start,
+            nursingStationSectorLength,
+            0.13,
+          ),
+          material(0xece3d1, 0.48),
         ),
-        material(0xece3d1, 0.48),
-      ),
-      stationLeftReturn = new THREE.Mesh(
-        new RoundedBoxGeometry(0.82, 1.02, 2.5, 9, 0.18),
-        material(0x84b3c2, 0.58),
-      ),
-      stationLeftTop = new THREE.Mesh(
-        new RoundedBoxGeometry(0.98, 0.14, 2.62, 9, 0.15),
-        material(0xece3d1, 0.48),
-      ),
-      stationRightRear = new THREE.Mesh(
-        new RoundedBoxGeometry(0.82, 1.02, 0.86, 8, 0.17),
-        material(0x84b3c2, 0.58),
-      ),
-      stationRightRearTop = new THREE.Mesh(
-        new RoundedBoxGeometry(0.98, 0.14, 0.98, 8, 0.14),
-        material(0xece3d1, 0.48),
-      );
-    stationFront.position.set(0, 0.57, stationFrontShift);
-    stationFrontTop.position.set(0, 1.12, stationFrontTopShift);
-    stationLeftReturn.position.set(-3.17, 0.57, -1.34);
-    stationLeftTop.position.set(-3.17, 1.12, -1.34);
-    stationRightRear.position.set(3.17, 0.57, -2.14);
-    stationRightRearTop.position.set(3.17, 1.12, -2.14);
-    [
-      stationFront,
-      stationFrontTop,
-      stationLeftReturn,
-      stationLeftTop,
-      stationRightRear,
-      stationRightRearTop,
-    ].forEach((part) => {
-      part.castShadow = true;
-      part.receiveShadow = true;
-      nursingStation.add(part);
-    });
-    nursingStation.position.set(0, 0, -4.95);
+        highDesk = new THREE.Mesh(
+          makeStationSectorGeometry(
+            nursingStationBandRadius,
+            nursingStationOuterRadius,
+            start,
+            nursingStationSectorLength,
+            0.92,
+          ),
+          material([0x84b3c2, 0x91bdc8, 0x78aead][index], 0.58),
+        );
+      lowDesk.position.y = 0.8;
+      highDesk.position.y = 0.34;
+      [lowDesk, highDesk].forEach((part) => {
+        part.rotation.x = -Math.PI / 2;
+        part.castShadow = true;
+        part.receiveShadow = true;
+        sector.add(part);
+      });
+      nursingStation.add(sector);
+    };
+    nursingStationSectorAngles.forEach(addStationSector);
+    nursingStation.position.copy(nursingStationCentre);
+    nursingStation.rotation.y = nursingStationDeskRotation;
     shrinkThirdFloorContent(nursingStation);
     thirdFloor.add(nursingStation);
 
@@ -3909,92 +4031,246 @@ export default function HospitalScene({
     shrinkThirdFloorContent(nursingStationSign);
     thirdFloor.add(nursingStationSign);
 
-    const addStationWorkplace = (x: number, folderColor: number) => {
+    // Treat the three QR stands as one rigid assembly. Its origin is the
+    // nursing-station centre, which is also the centroid of the three equally
+    // spaced stands; rotating this group therefore changes neither their
+    // spacing nor their individual facing relative to one another.
+    const nursingStationQrGroup = new THREE.Group();
+    nursingStationQrGroup.position.copy(nursingStationCentre);
+    nursingStationQrGroup.rotation.y = -THREE.MathUtils.degToRad(40);
+    thirdFloor.add(nursingStationQrGroup);
+
+    const addStationWorkplace = (angle: number, index: number) => {
       const workplace = new THREE.Group(),
-        desk = new THREE.Mesh(
-          new RoundedBoxGeometry(1.86, 0.12, 0.78, 7, 0.09),
-          material(0xd9e6e4, 0.62),
-        ),
+        inwardYaw = -Math.PI / 2 - angle,
+        computerRadius = 1.72,
         monitor = new THREE.Mesh(
-          new RoundedBoxGeometry(1.06, 0.68, 0.12, 7, 0.08),
+          new RoundedBoxGeometry(0.82, 0.56, 0.1, 7, 0.07),
           material(0x355c70, 0.38),
         ),
         screen = new THREE.Mesh(
-          new THREE.PlaneGeometry(0.88, 0.5),
+          new THREE.PlaneGeometry(0.68, 0.38),
           new THREE.MeshBasicMaterial({ color: 0x8dd8df }),
         );
-      desk.position.y = 0.78;
-      monitor.position.set(0, 1.25, 0.02);
-      screen.position.set(0, 1.25, 0.086);
-      workplace.add(desk, monitor, screen);
-      put(workplace, box(0.88, 0.045, 0.34, 0x708990), 0, 0.88, 0.2);
-      [-0.24, 0, 0.24].forEach((folderX, index) => {
-        const folder = box(0.17, 0.38 + index * 0.05, 0.06, folderColor);
-        folder.position.set(folderX + 0.55, 1.02, -0.18);
-        folder.rotation.z = (index - 1) * 0.08;
-        workplace.add(folder);
-      });
-      [0, 0.035, 0.07].forEach((height, index) => {
-        const paper = box(0.48, 0.018, 0.34, index === 1 ? 0xd5ebee : 0xffffff);
-        paper.position.set(-0.58, 0.86 + height, -0.08);
-        paper.rotation.y = -0.08 + index * 0.05;
-        workplace.add(paper);
-      });
-      const chair = new THREE.Group();
-      put(chair, new THREE.Mesh(
-        new RoundedBoxGeometry(0.62, 0.13, 0.6, 6, 0.12),
-        material(0x72a6b5, 0.58),
-      ), 0, 0.54, 0);
-      put(chair, new THREE.Mesh(
-        new RoundedBoxGeometry(0.62, 0.72, 0.13, 6, 0.12),
-        material(0x72a6b5, 0.58),
-      ), 0, 0.86, -0.25);
-      put(chair, cyl(0.05, 0.46, 0x667a82, 10), 0, 0.27, 0);
-      put(chair, box(0.76, 0.06, 0.06, 0x667a82), 0, 0.06, 0);
-      chair.position.set(0, 0, 0.92);
-      // The chair back faces away from the desk so the seated orientation is
-      // directed toward the keyboard and monitor.
-      chair.rotation.y = Math.PI;
-      workplace.add(chair);
-      workplace.position.set(x, 0, -7.18);
-      shrinkThirdFloorContent(workplace);
-      thirdFloor.add(workplace);
-    };
-    addStationWorkplace(-2.15, 0x5d9fc0);
-    addStationWorkplace(0, 0x72b8a8);
-    addStationWorkplace(2.15, 0xe2b66e);
-
-    const stationDocumentShelf = new THREE.Group();
-    put(
-      stationDocumentShelf,
-      new THREE.Mesh(
-        new RoundedBoxGeometry(1.4, 1.45, 0.38, 7, 0.09),
-        material(0xe4ece9, 0.64),
-      ),
-      0,
-      0.82,
-      0,
-    );
-    [0.42, 0.82, 1.22].forEach((y) =>
-      put(stationDocumentShelf, box(1.24, 0.045, 0.34, 0x89a1a6), 0, y, 0),
-    );
-    [-0.42, 0, 0.42].forEach((x, index) =>
-      [0.61, 1.01, 1.41].forEach((y, row) =>
-        put(
-          stationDocumentShelf,
-          box(0.25, 0.3, 0.27, (index + row) % 2 ? 0x6faac1 : 0xe0b56e),
-          x,
-          y,
-          0.03,
+      // The computer sits on the lower inner surface and faces the seated
+      // nurse. Its height is intentionally aligned with a seated operator's
+      // eye line, not the raised outer counter.
+      monitor.position.set(0, 1.24, 0);
+      screen.position.set(0, 1.24, 0.06);
+      workplace.add(monitor, screen);
+      put(workplace, box(0.64, 0.045, 0.28, 0x708990), 0, 0.88, 0.14);
+      put(workplace, box(0.52, 0.035, 0.22, 0xf5f1e9), 0, 0.89, -0.18);
+      // Keep the files beside the fixed computer instead of attaching them
+      // to the independently rotating desk geometry.
+      put(workplace, box(0.18, 0.24, 0.14, 0x5d9fc0), -0.5, 0.98, 0.04);
+      put(workplace, box(0.18, 0.2, 0.14, 0x72b8a8), -0.5, 1.1, 0.04);
+      // The keyboard sits on the low work surface, directly in front of the
+      // screen and on the nurse-facing side of the monitor.
+      put(
+        workplace,
+        new THREE.Mesh(
+          new RoundedBoxGeometry(0.58, 0.045, 0.24, 5, 0.025),
+          material(0x526a73, 0.62),
         ),
-      ),
-    );
-    stationDocumentShelf.position.set(-4.18, 0, -7.55);
-    shrinkThirdFloorContent(stationDocumentShelf);
-    thirdFloor.add(stationDocumentShelf);
+        0,
+        1.0,
+        0.29,
+      );
+      [0.22, 0.29, 0.36].forEach((z) =>
+        put(workplace, box(0.46, 0.018, 0.025, 0xdbe9e8), 0, 1.03, z),
+      );
+      const chair = new THREE.Group();
+      put(
+        chair,
+        new THREE.Mesh(
+          new RoundedBoxGeometry(0.58, 0.13, 0.56, 6, 0.12),
+          material(0x72a6b5, 0.58),
+        ),
+        0,
+        0.54,
+        0,
+      );
+      put(
+        chair,
+        new THREE.Mesh(
+          new RoundedBoxGeometry(0.58, 0.68, 0.12, 6, 0.12),
+          material(0x72a6b5, 0.58),
+        ),
+        0,
+        0.84,
+        -0.22,
+      );
+      put(chair, cyl(0.045, 0.44, 0x667a82, 10), 0, 0.27, 0);
+      put(chair, box(0.72, 0.055, 0.055, 0x667a82), 0, 0.06, 0);
+      chair.rotation.y = Math.PI;
+      // Pull the chair further into the clear inner area so the nurse's body
+      // never intersects the low desk edge after the ring is enlarged.
+      // Align the chair seat centre with the nurse's corrected seat point;
+      // the small outward shift removes the visible half-embedded torso.
+      chair.position.set(0, 0, 0.88);
+      workplace.add(chair);
+      workplace.position.set(
+        computerRadius * Math.cos(angle),
+        0,
+        computerRadius * Math.sin(angle),
+      );
+      workplace.rotation.y = inwardYaw;
+      shrinkThirdFloorContent(workplace);
+      workplace.position.add(nursingStationCentre);
+      thirdFloor.add(workplace);
+
+      const qrStand = new THREE.Group(),
+        qrBase = box(0.34, 0.08, 0.28, 0x6f8791),
+        qrFace = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.3, 0.38),
+          new THREE.MeshBasicMaterial({
+            map: qrTexture(
+              `NURSE ${index + 1}`,
+              `${window.location.origin}/qr/third-floor-nurse-${index + 1}`,
+            ),
+            side: THREE.DoubleSide,
+            transparent: true,
+          }),
+        );
+      qrFace.position.set(0, 0.28, 0);
+      qrFace.rotation.y = Math.PI;
+      qrFace.userData = {
+        interactive: "qr",
+        qrId: `third-floor-nurse-${index + 1}`,
+        floor: 3,
+      };
+      interactive.push(qrFace);
+      qrStand.add(qrBase, qrFace);
+      const sparkTexture = qrSparkTexture();
+      const isSouthQr = index === 1;
+      const stars = isSouthQr
+        ? []
+        : [
+          { x: -0.27, y: 0.57, size: 0.075, phase: 0.2 },
+          { x: 0.26, y: 0.56, size: 0.052, phase: 1.4 },
+          { x: -0.34, y: 0.27, size: 0.046, phase: 2.3 },
+          { x: 0.35, y: 0.25, size: 0.067, phase: 3.1 },
+      ].map(({ x, y, size, phase }) => {
+        const sprite = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: sparkTexture,
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0,
+            depthTest: true,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+          }),
+        );
+        const closeX = x * 0.72,
+          closeY = 0.28 + (y - 0.28) * 0.72,
+          doubledSize = size * 2;
+        sprite.position.set(closeX, closeY, -0.018);
+        sprite.scale.set(doubledSize * 0.38, doubledSize * 0.38, 1);
+        sprite.renderOrder = 0;
+        qrStand.add(sprite);
+        return { sprite, phase, baseScale: doubledSize };
+      });
+      let edge:
+        | {
+            line: THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial>;
+            runners: THREE.Mesh<
+              THREE.PlaneGeometry,
+              THREE.MeshBasicMaterial
+            >[];
+            path: THREE.Vector3[];
+            segmentLengths: number[];
+            totalLength: number;
+          }
+        | undefined;
+      if (isSouthQr) {
+        // Use a dense sequence of radial halos. Their partial overlap creates
+        // a connected-looking trail without drawing a hard outline or capsule.
+        const path: THREE.Vector3[] = [],
+          left = -0.18,
+          right = 0.18,
+          bottom = 0.05,
+          top = 0.51,
+          radius = 0.045,
+          addArc = (cx: number, cy: number, start: number, end: number) => {
+            for (let step = 0; step < 5; step++) {
+              const angle = start + ((end - start) * step) / 4;
+              path.push(
+                new THREE.Vector3(
+                  cx + Math.cos(angle) * radius,
+                  cy + Math.sin(angle) * radius,
+                  -0.032,
+                ),
+              );
+            }
+          };
+        path.push(new THREE.Vector3(left + radius, bottom, -0.032));
+        path.push(new THREE.Vector3(right - radius, bottom, -0.032));
+        addArc(right - radius, bottom + radius, -Math.PI / 2, 0);
+        path.push(new THREE.Vector3(right, top - radius, -0.032));
+        addArc(right - radius, top - radius, 0, Math.PI / 2);
+        path.push(new THREE.Vector3(left + radius, top, -0.032));
+        addArc(left + radius, top - radius, Math.PI / 2, Math.PI);
+        path.push(new THREE.Vector3(left, bottom + radius, -0.032));
+        addArc(left + radius, bottom + radius, Math.PI, Math.PI * 1.5);
+        const edgeGlowTexture = qrEdgeGlowTexture();
+        const segmentLengths = path.map((point, index) =>
+            point.distanceTo(path[(index + 1) % path.length]),
+          ),
+          totalLength = segmentLengths.reduce((sum, length) => sum + length, 0),
+          runners = Array.from({ length: 24 }, (_, index) => ({
+            // Each halo keeps a fixed size for the whole animation. The
+            // spatial taper is front-large/back-small; there is no breathing
+            // scale animation.
+            size: 0.18 - index * 0.0048,
+            opacity: 0.82 * Math.pow(0.88, index),
+          })).map(({ size, opacity }) => {
+            const runner = new THREE.Mesh(
+              new THREE.PlaneGeometry(size, size),
+              new THREE.MeshBasicMaterial({
+                map: edgeGlowTexture,
+                color: 0xffc243,
+                transparent: true,
+                opacity,
+                depthTest: true,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending,
+                side: THREE.DoubleSide,
+              }),
+            );
+            runner.userData.haloOpacity = opacity;
+            runner.renderOrder = 1;
+            qrStand.add(runner);
+            return runner;
+          });
+        edge = {
+          runners,
+          path,
+          segmentLengths,
+          totalLength,
+        };
+      }
+      qrGlowTargets.set(`third-floor-nurse-${index + 1}`, {
+        stars,
+        edge,
+        hovered: false,
+      });
+      const qrAngle = angle + nursingStationDeskRotation;
+      qrStand.position.set(
+        2.34 * Math.cos(qrAngle),
+        1.17,
+        2.34 * Math.sin(qrAngle),
+      );
+      // The whole QR assembly rotates as one rigid group, so each stand keeps
+      // its original orientation relative to the other two stands.
+      qrStand.rotation.y = -Math.PI / 2 - qrAngle;
+      shrinkThirdFloorContent(qrStand);
+      nursingStationQrGroup.add(qrStand);
+    };
+    nursingStationSectorAngles.forEach(addStationWorkplace);
 
     const thirdFloorMedicalCarts: THREE.Group[] = [];
-    const addMedicalCart = (z: number, accent: number) => {
+    const addMedicalCart = (x: number, z: number, accent: number) => {
       const cart = new THREE.Group(),
         cartBody = new THREE.Mesh(
           new RoundedBoxGeometry(0.82, 0.95, 0.74, 7, 0.1),
@@ -4039,7 +4315,7 @@ export default function HospitalScene({
       tablet.position.set(0, 1.26, -0.2);
       tablet.rotation.x = -0.12;
       cart.add(tablet);
-      cart.position.set(-4.45, 0, z);
+      cart.position.set(x, 0, z);
       // Park the carts facing the opposite direction beside the nursing
       // station, matching the requested 180-degree display turn. A nurse
       // still sets the live heading when attaching and pushing a cart.
@@ -4049,9 +4325,11 @@ export default function HospitalScene({
       thirdFloorMedicalCarts.push(cart);
       return cart;
     };
-    addMedicalCart(-4.65, 0x6ba9c8);
-    addMedicalCart(-5.95, 0x73b9af);
-    addMedicalCart(-7.25, 0xe2b66e);
+    // Park the three carts in one compact row against the north wall, clear
+    // of the ring and of the central north transfer opening.
+    addMedicalCart(-1.8, -7.95, 0x6ba9c8);
+    addMedicalCart(0, -7.95, 0x73b9af);
+    addMedicalCart(1.8, -7.95, 0xe2b66e);
 
     // The annotated plan defines the courtyard as a broad trapezoid enclosed
     // by full-height glazing. Four large planted zones occupy the green areas,
@@ -4098,8 +4376,38 @@ export default function HospitalScene({
       return outline;
     };
     const courtyardDoorOpening = 2.66,
-      courtyardNorthWest = new THREE.Vector3(-5.56, 0, -1.08),
-      courtyardNorthEast = new THREE.Vector3(5.56, 0, -1.08),
+      courtyardSemicircleRadius = 1.75,
+      courtyardNorthWallZ = 2.23,
+      courtyardCircleCenterZ = 6.3,
+      // Keep the circular promenade at the same usable scale as the main
+      // 2.54 m straight lane so its east/west exits do not pinch inward.
+      courtyardCirclePathRadius = 1.52,
+      // The lower planting edge is a concentric circular segment: it shares
+      // the upper flowerbed's centre and ends at the south edge of the east-
+      // west promenade. This widens both side entries without shifting the
+      // lower planting area's outer boundary.
+      courtyardLowerPlantingArcCenterZ = courtyardNorthWallZ,
+      courtyardLowerPlantingArcEndZ = 4.73,
+      courtyardLowerPlantingArcRadius =
+        courtyardCircleCenterZ - courtyardLowerPlantingArcCenterZ,
+      courtyardLowerPlantingArcEndpointHalfWidth = Math.sqrt(
+        Math.max(
+          0,
+          courtyardLowerPlantingArcRadius ** 2 -
+            (courtyardLowerPlantingArcEndZ - courtyardLowerPlantingArcCenterZ) **
+              2,
+        ),
+      ),
+      courtyardLowerPlantingArcStartAngle =
+        Math.PI -
+        Math.asin(
+          (courtyardLowerPlantingArcEndZ - courtyardLowerPlantingArcCenterZ) /
+            courtyardLowerPlantingArcRadius,
+        ),
+      courtyardNorthPlanterTipZ =
+        courtyardNorthWallZ + courtyardSemicircleRadius,
+      courtyardNorthWest = new THREE.Vector3(-7.2, 0, courtyardNorthWallZ),
+      courtyardNorthEast = new THREE.Vector3(7.2, 0, courtyardNorthWallZ),
       courtyardSouthWest = new THREE.Vector3(-courtyardFacadeHalf, 0, 7.7),
       courtyardSouthEast = new THREE.Vector3(courtyardFacadeHalf, 0, 7.7),
       westDoorTangent = courtyardSouthWest
@@ -4112,12 +4420,10 @@ export default function HospitalScene({
         .normalize(),
       westDoorCentre = courtyardNorthWest
         .clone()
-        .add(courtyardSouthWest)
-        .multiplyScalar(0.5),
+        .addScaledVector(westDoorTangent, 1.58),
       eastDoorCentre = courtyardNorthEast
         .clone()
-        .add(courtyardSouthEast)
-        .multiplyScalar(0.5),
+        .addScaledVector(eastDoorTangent, 1.58),
       westDoorTop = westDoorCentre
         .clone()
         .addScaledVector(westDoorTangent, -courtyardDoorOpening / 2),
@@ -4131,10 +4437,11 @@ export default function HospitalScene({
         .clone()
         .addScaledVector(eastDoorTangent, courtyardDoorOpening / 2);
 
-    const courtyardBaseShape = makeCourtyardOutline(
+    const courtyardFloorColor = 0xebe2d2,
+      courtyardBaseShape = makeCourtyardOutline(
         courtyardFacadeHalf,
-        5.56,
-        8.78,
+        7.2,
+        7.7 - courtyardNorthWallZ,
         0.34,
       ),
       courtyardBaseGeometry = new THREE.ExtrudeGeometry(courtyardBaseShape, {
@@ -4147,83 +4454,16 @@ export default function HospitalScene({
     courtyardBaseGeometry.rotateX(-Math.PI / 2);
     const courtyardBase = new THREE.Mesh(
       courtyardBaseGeometry,
-      material(0xebe2d2, 0.62),
+      material(courtyardFloorColor, 0.82),
     );
-    courtyardBase.position.set(0, 0.07, 3.31);
+    courtyardBase.position.set(0, 0.07, (courtyardNorthWallZ + 7.7) / 2);
     courtyardBase.castShadow = true;
     courtyardBase.receiveShadow = true;
     thirdFloor.add(courtyardBase);
 
-    // The marked circulation area is a cross with a circular pause point at
-    // its centre. Build the full east-west arm as one continuous polygon so
-    // both outer edges are exactly collinear with their diagonal door leaves.
-    const courtyardVerticalPathWidth = 2.54,
-      courtyardHorizontalPathNorthZ = 2.23,
-      courtyardHorizontalPathSouthZ = 4.73,
-      horizontalPathPoints: Array<[number, number]> = [
-        [westDoorTop.x, westDoorTop.z],
-        [-7.2, courtyardHorizontalPathNorthZ],
-        [7.2, courtyardHorizontalPathNorthZ],
-        [eastDoorTop.x, eastDoorTop.z],
-        [eastDoorBottom.x, eastDoorBottom.z],
-        [7.2, courtyardHorizontalPathSouthZ],
-        [-7.2, courtyardHorizontalPathSouthZ],
-        [westDoorBottom.x, westDoorBottom.z],
-      ],
-      horizontalPathShape = new THREE.Shape();
-    horizontalPathShape.moveTo(
-      horizontalPathPoints[0][0],
-      -horizontalPathPoints[0][1],
-    );
-    horizontalPathPoints
-      .slice(1)
-      .forEach(([x, z]) => horizontalPathShape.lineTo(x, -z));
-    horizontalPathShape.closePath();
-    const horizontalPathGeometry = new THREE.ShapeGeometry(
-        horizontalPathShape,
-      ),
-      // All three promenade pieces share one non-depth-writing overlay
-      // material. Their colour can overlap, but their depth buffers can no
-      // longer fight each other or the courtyard base while the camera moves.
-      courtyardPathMaterial = material(0xd7c9aa, 0.62);
-    horizontalPathGeometry.rotateX(-Math.PI / 2);
-    courtyardPathMaterial.side = THREE.DoubleSide;
-    courtyardPathMaterial.depthWrite = false;
-    courtyardPathMaterial.polygonOffset = true;
-    courtyardPathMaterial.polygonOffsetFactor = -3;
-    courtyardPathMaterial.polygonOffsetUnits = -3;
-    const courtyardVerticalPath = new THREE.Mesh(
-        new RoundedBoxGeometry(
-          courtyardVerticalPathWidth,
-          0.004,
-          8.58,
-          8,
-          0.1,
-        ),
-        courtyardPathMaterial,
-      ),
-      courtyardHorizontalPath = new THREE.Mesh(
-        horizontalPathGeometry,
-        courtyardPathMaterial,
-      ),
-      courtyardCirclePath = new THREE.Mesh(
-        new THREE.CylinderGeometry(2.03, 2.03, 0.004, 48),
-        courtyardPathMaterial,
-      );
-    courtyardVerticalPath.position.set(0, 0.081, 3.31);
-    courtyardHorizontalPath.position.y = 0.083;
-    courtyardCirclePath.position.set(0, 0.081, 3.48);
-    courtyardVerticalPath.renderOrder = 4;
-    courtyardHorizontalPath.renderOrder = 4;
-    courtyardCirclePath.renderOrder = 5;
-    courtyardVerticalPath.receiveShadow = true;
-    courtyardHorizontalPath.receiveShadow = true;
-    courtyardCirclePath.receiveShadow = true;
-    thirdFloor.add(
-      courtyardVerticalPath,
-      courtyardHorizontalPath,
-      courtyardCirclePath,
-    );
+    // The courtyard floor is intentionally one uninterrupted colour. The care
+    // module owns the surveyed route predicates, so obsolete invisible path
+    // meshes are not created here.
 
     // Medify sculpture for the circular plaza. The supplied transparent PNG is
     // layered through depth so its exact artwork remains intact while reading
@@ -4446,7 +4686,11 @@ export default function HospitalScene({
     sculptureLogo.position.y = 2.45 + sculpturePedestalIncrease;
     sculptureLogo.rotation.y = 0;
     medifySculpture.add(sculptureLogo);
-    medifySculpture.position.set(0, 0, 3.48);
+    medifySculpture.position.set(
+      0,
+      0.305,
+      courtyardNorthWallZ + (4 * courtyardSemicircleRadius) / (3 * Math.PI),
+    );
     medifySculpture.scale.setScalar(0.5);
     thirdFloor.add(medifySculpture);
 
@@ -4531,8 +4775,18 @@ export default function HospitalScene({
       addPlantingTerrain = (
         points: Array<[number, number]>,
         seed: number,
-        treePoint: [number, number],
+        treePoint: [number, number] | undefined,
+        options: {
+          treePoints?: Array<[number, number]>;
+          openSeatEdgeIndex?: number;
+          plantExclusionPoint?: [number, number];
+          plantExclusionRadius?: number;
+        } = {},
       ) => {
+        const plantingTreePoints = [
+          ...(treePoint === undefined ? [] : [treePoint]),
+          ...(options.treePoints ?? []),
+        ];
         const garden = new THREE.Group(),
           shape = new THREE.Shape();
         shape.moveTo(points[0][0], -points[0][1]);
@@ -4555,6 +4809,7 @@ export default function HospitalScene({
         // A continuous rounded stone seat-wall protects each planting zone.
         // Its broad cap sits at chair height, replacing separate timber benches.
         points.forEach(([startX, startZ], pointIndex) => {
+          if (pointIndex === options.openSeatEdgeIndex) return;
           const [endX, endZ] = points[(pointIndex + 1) % points.length],
             start = new THREE.Vector3(startX, 0, startZ),
             end = new THREE.Vector3(endX, 0, endZ),
@@ -4600,7 +4855,14 @@ export default function HospitalScene({
           if (
             !pointInsideTerrain(x, z, points) ||
             distanceToTerrainEdge(x, z, points) < radius + 0.38 ||
-            Math.hypot(x - treePoint[0], z - treePoint[1]) < 0.72
+            plantingTreePoints.some(
+              (point) => Math.hypot(x - point[0], z - point[1]) < 0.72,
+            ) ||
+            (options.plantExclusionPoint !== undefined &&
+              Math.hypot(
+                x - options.plantExclusionPoint[0],
+                z - options.plantExclusionPoint[1],
+              ) < (options.plantExclusionRadius ?? 0.62))
           )
             continue;
           const shrub = new THREE.Mesh(
@@ -4625,7 +4887,14 @@ export default function HospitalScene({
           if (
             !pointInsideTerrain(x, z, points) ||
             distanceToTerrainEdge(x, z, points) < 0.48 ||
-            Math.hypot(x - treePoint[0], z - treePoint[1]) < 0.58
+            plantingTreePoints.some(
+              (point) => Math.hypot(x - point[0], z - point[1]) < 0.58,
+            ) ||
+            (options.plantExclusionPoint !== undefined &&
+              Math.hypot(
+                x - options.plantExclusionPoint[0],
+                z - options.plantExclusionPoint[1],
+              ) < (options.plantExclusionRadius ?? 0.62))
           )
             continue;
           addCourtyardFlower(
@@ -4638,90 +4907,89 @@ export default function HospitalScene({
           flowerIndex++;
         }
 
-        const trunk = cyl(0.15, 1.48, 0x916441, 14);
-        trunk.position.set(treePoint[0], 1.18, treePoint[1]);
-        trunk.castShadow = true;
-        garden.add(trunk);
-        [
-          [0, 0, 0.62],
-          [-0.38, 0.06, 0.5],
-          [0.38, -0.04, 0.52],
-        ].forEach(([offsetX, offsetZ, radius], index) => {
-          const crown = new THREE.Mesh(
-            new THREE.SphereGeometry(radius, 16, 11),
-            material(index % 2 ? 0x7ea55f : 0x92b96d, 0.7),
-          );
-          crown.position.set(
-            treePoint[0] + offsetX,
-            2.0 + index * 0.08,
-            treePoint[1] + offsetZ,
-          );
-          crown.scale.y = 0.84;
-          crown.castShadow = true;
-          crown.receiveShadow = true;
-          garden.add(crown);
+        plantingTreePoints.forEach((treePoint) => {
+          const trunk = cyl(0.15, 1.48, 0x916441, 14);
+          trunk.position.set(treePoint[0], 1.18, treePoint[1]);
+          trunk.castShadow = true;
+          garden.add(trunk);
+          [
+            [0, 0, 0.62],
+            [-0.38, 0.06, 0.5],
+            [0.38, -0.04, 0.52],
+          ].forEach(([offsetX, offsetZ, radius], index) => {
+            const crown = new THREE.Mesh(
+              new THREE.SphereGeometry(radius, 16, 11),
+              material(index % 2 ? 0x7ea55f : 0x92b96d, 0.7),
+            );
+            crown.position.set(
+              treePoint[0] + offsetX,
+              2.0 + index * 0.08,
+              treePoint[1] + offsetZ,
+            );
+            crown.scale.y = 0.84;
+            crown.castShadow = true;
+            crown.receiveShadow = true;
+            garden.add(crown);
+          });
         });
         thirdFloor.add(garden);
       };
 
-    // Four green terrain polygons fill every area outside the marked path. The
-    // inner corners step around the circular centre instead of covering it.
+    // Replace both northern planting beds with one 3.5 m semicircle. The
+    // curved perimeter remains sit-able; the straight edge meets the glass.
     const courtyardTreePoints: Array<[number, number]> = [
-      [-3.35, 0.48],
-      [3.35, 0.48],
       [-3.7, 5.58],
       [3.7, 5.58],
     ];
-    addPlantingTerrain(
-      [
-        [-5.32, -0.84],
-        [-1.28, -0.84],
-        [-1.28, 1.61],
-        [-1.61, 1.89],
-        [-1.93, courtyardHorizontalPathNorthZ],
-        [westDoorTop.x, westDoorTop.z],
+    const courtyardSemicirclePoints: Array<[number, number]> =
+      Array.from({ length: 25 }, (_, index) => {
+        const angle = Math.PI - (Math.PI * index) / 24;
+        return [
+          Math.cos(angle) * courtyardSemicircleRadius,
+          courtyardNorthWallZ + Math.sin(angle) * courtyardSemicircleRadius,
+        ];
+      });
+    addPlantingTerrain(courtyardSemicirclePoints, 5, undefined, {
+      openSeatEdgeIndex: courtyardSemicirclePoints.length - 1,
+      plantExclusionPoint: [
+        0,
+        courtyardNorthWallZ +
+          (4 * courtyardSemicircleRadius) / (3 * Math.PI),
       ],
-      1,
-      courtyardTreePoints[0],
-    );
-    addPlantingTerrain(
-      [
-        [1.28, -0.84],
-        [5.32, -0.84],
-        [eastDoorTop.x, eastDoorTop.z],
-        [1.93, courtyardHorizontalPathNorthZ],
-        [1.61, 1.89],
-        [1.28, 1.61],
-      ],
-      2,
-      courtyardTreePoints[1],
-    );
+      plantExclusionRadius: 0.68,
+    });
+    const courtyardLowerPlantingArcPoints: Array<[number, number]> =
+      Array.from({ length: 15 }, (_, index) => {
+        const angle =
+          courtyardLowerPlantingArcStartAngle -
+          ((courtyardLowerPlantingArcStartAngle * 2 - Math.PI) * (index + 1)) /
+            16;
+        return [
+          Math.cos(angle) * courtyardLowerPlantingArcRadius,
+          courtyardLowerPlantingArcCenterZ +
+            Math.sin(angle) * courtyardLowerPlantingArcRadius,
+        ];
+      });
     addPlantingTerrain(
       [
         [westDoorBottom.x, westDoorBottom.z],
-        [-1.93, courtyardHorizontalPathSouthZ],
-        [-1.61, 5.07],
-        [-1.28, 5.35],
-        [-1.28, 7.48],
+      [
+          -courtyardLowerPlantingArcEndpointHalfWidth,
+          courtyardLowerPlantingArcEndZ,
+        ],
+        ...courtyardLowerPlantingArcPoints,
+        [courtyardLowerPlantingArcEndpointHalfWidth, courtyardLowerPlantingArcEndZ],
+        [eastDoorBottom.x, eastDoorBottom.z],
+        [10.42, 7.48],
         [-10.42, 7.48],
       ],
       3,
-      courtyardTreePoints[2],
-    );
-    addPlantingTerrain(
-      [
-        [1.93, courtyardHorizontalPathSouthZ],
-        [eastDoorBottom.x, eastDoorBottom.z],
-        [10.42, 7.48],
-        [1.28, 7.48],
-        [1.28, 5.35],
-        [1.61, 5.07],
-      ],
-      4,
-      courtyardTreePoints[3],
+      courtyardTreePoints[0],
+      { treePoints: [courtyardTreePoints[1]] },
     );
 
     type CourtyardAutoDoor = {
+      active: boolean;
       root: THREE.Group;
       tangent: THREE.Vector3;
       leaves: Array<{ mesh: THREE.Mesh; closed: THREE.Vector3; side: number }>;
@@ -4740,15 +5008,6 @@ export default function HospitalScene({
         thickness: 0.08,
         side: THREE.DoubleSide,
         depthWrite: false,
-      }),
-      // Transparent glass should not create an opaque slab on the floor. The
-      // moving automatic-door leaves use alpha-hashed depth at 5%, while the
-      // fixed windows cast no shadow and leave that job to their white frames.
-      courtyardDoorShadowMaterial = new THREE.MeshDepthMaterial({
-        depthPacking: THREE.RGBADepthPacking,
-        opacity: 0.05,
-        alphaHash: true,
-        side: THREE.DoubleSide,
       }),
       // Match the existing 3F facade so the courtyard enclosure and exterior
       // windows merge into one continuous white-frame glazed elevation.
@@ -4802,6 +5061,7 @@ export default function HospitalScene({
         const root = new THREE.Group(),
           yaw = Math.atan2(tangent.x, tangent.z),
           door: CourtyardAutoDoor = {
+            active: true,
             root,
             tangent,
             leaves: [],
@@ -4816,32 +5076,30 @@ export default function HospitalScene({
           courtyardDoorIndex: doorIndex,
           floor: 3,
         };
-        [-1, 1].forEach((side) => {
-          const closed = centre
-              .clone()
-              .addScaledVector(tangent, side * opening / 4),
-            leaf = new THREE.Mesh(
-              new RoundedBoxGeometry(0.09, 2.72, opening / 2 - 0.05, 5, 0.025),
-              new THREE.MeshPhysicalMaterial({
-                color: 0xaedce5,
-                transparent: true,
-                opacity: 0.38,
-                roughness: 0.12,
-                transmission: 0.42,
-                side: THREE.DoubleSide,
-              }),
-            );
-          leaf.position.set(closed.x, 1.56, closed.z);
-          leaf.rotation.y = yaw;
-          leaf.castShadow = true;
-          leaf.customDepthMaterial = courtyardDoorShadowMaterial;
-          leaf.receiveShadow = true;
-          leaf.userData.hitRoot = root;
-          leaf.userData.floor = 3;
-          root.add(leaf);
-          interactive.push(leaf);
-          door.leaves.push({ mesh: leaf, closed: leaf.position.clone(), side });
-        });
+        const closed = centre.clone(),
+          leaf = new THREE.Mesh(
+            new RoundedBoxGeometry(0.09, 2.72, opening - 0.05, 5, 0.025),
+            new THREE.MeshPhysicalMaterial({
+              color: 0xaedce5,
+              transparent: true,
+              opacity: 0.38,
+              roughness: 0.12,
+              transmission: 0.42,
+              side: THREE.DoubleSide,
+            }),
+          );
+        leaf.position.set(closed.x, 1.56, closed.z);
+        leaf.rotation.y = yaw;
+        // Glass leaves do not cast a dark opaque rectangle onto the floor.
+        // Their white frame and rail still provide the architectural shadow.
+        leaf.castShadow = false;
+        leaf.receiveShadow = true;
+        leaf.userData.hitRoot = root;
+        leaf.userData.floor = 3;
+        root.add(leaf);
+        interactive.push(leaf);
+        // A single panel translates along the door's southward tangent.
+        door.leaves.push({ mesh: leaf, closed: leaf.position.clone(), side: 1 });
         const header = box(0.16, 0.24, opening + 0.38, courtyardFrameColor);
         header.position.set(centre.x, 3.12, centre.z);
         header.rotation.y = yaw;
@@ -4885,12 +5143,26 @@ export default function HospitalScene({
         }
       };
 
-    // All three glazed sides and their doors use the same corner coordinates
-    // as the base, planting zones and threshold approaches above.
-    addCourtyardAutomaticDoor(courtyardNorthWest, courtyardNorthEast);
-    addCourtyardAutomaticDoor(courtyardNorthWest, courtyardSouthWest);
+    // The north entrance is now continuous fixed glass. Preserve index zero
+    // as an inactive compatibility record; only the west/east gates operate.
+    addCourtyardGlassSegment(courtyardNorthWest, courtyardNorthEast);
+    courtyardAutoDoors.push({
+      active: false,
+      root: new THREE.Group(),
+      tangent: courtyardNorthEast.clone().sub(courtyardNorthWest).normalize(),
+      leaves: [],
+      opening: courtyardDoorOpening,
+      openAmount: 0,
+      openTarget: 0,
+      closeAt: 0,
+    });
+    addCourtyardGlassSegment(courtyardNorthWest, westDoorTop);
+    addCourtyardAutomaticDoor(westDoorTop, westDoorBottom);
+    addCourtyardGlassSegment(westDoorBottom, courtyardSouthWest);
     addCourtyardRailing(courtyardSouthWest, courtyardSouthEast);
-    addCourtyardAutomaticDoor(courtyardNorthEast, courtyardSouthEast);
+    addCourtyardGlassSegment(courtyardNorthEast, eastDoorTop);
+    addCourtyardAutomaticDoor(eastDoorTop, eastDoorBottom);
+    addCourtyardGlassSegment(eastDoorBottom, courtyardSouthEast);
 
     const {
       inpatientPatients,
@@ -4906,6 +5178,11 @@ export default function HospitalScene({
       wardSwingDoors,
       courtyardAutoDoors,
       courtyardDoorOpening,
+      courtyardSemicircleRadius,
+      courtyardCircleCenterZ,
+      courtyardCirclePathRadius,
+      courtyardLowerPlantingArcCenterZ,
+      courtyardLowerPlantingArcRadius,
       courtyardFacadeHalf,
       courtyardNorthWest,
       courtyardNorthEast,
@@ -5285,50 +5562,111 @@ export default function HospitalScene({
       context.fillRect(0, 0, 1024, 512);
       context.fillStyle = "rgba(255,255,255,.08)";
       context.fillRect(22, 22, 980, 468);
-      context.drawImage(qr, 52, 80, 252, 315);
-      context.fillStyle = "#ffffff";
-      context.textAlign = "center";
-      context.font = "700 25px Arial, sans-serif";
-      context.fillText("術前衛教資訊", 178, 446);
-      context.textAlign = "left";
-      context.font = "800 38px Arial, sans-serif";
-      context.fillText("二樓候診資訊", 350, 72);
-      const rows = [
+      // Give the complete left white QR area to the code; no caption is shown.
+      context.drawImage(qr, 32, 30, 292, 292);
+      // Match the reference layout: the QR stays in the left column, with
+      // waiting information stacked below it. The right column is a clean,
+      // borderless 16:9 video surface.
+      const waitingRows = [
         ["手術室 1", "A021"],
         ["手術室 2", "A018"],
         ["檢查室", "B006"],
       ];
-      rows.forEach(([label, number], index) => {
-        const y = 146 + index * 103;
-        context.fillStyle = index === 0 ? "#f2c968" : "rgba(255,255,255,.12)";
+      waitingRows.forEach(([label, number], index) => {
+        const y = 348 + index * 54;
+        context.fillStyle = "#062b43";
         context.beginPath();
-        context.roundRect(350, y - 42, 610, 78, 18);
+        context.roundRect(32, y, 292, 46, 2);
         context.fill();
-        context.fillStyle = index === 0 ? "#244a62" : "#ffffff";
-        context.font = "700 28px Arial, sans-serif";
-        context.fillText(label, 380, y + 8);
+        context.fillStyle = "#ffffff";
+        context.font = "800 25px Arial, sans-serif";
+        context.fillText(label, 50, y + 32);
+        context.fillStyle = "#f2c968";
         context.textAlign = "right";
-        context.font = "800 43px Arial, sans-serif";
-        context.fillText(number, 925, y + 11);
+        context.font = "800 27px Arial, sans-serif";
+        context.fillText(number, 304, y + 32);
         context.textAlign = "left";
       });
-      context.fillStyle = "rgba(255,255,255,.78)";
-      context.font = "600 20px Arial, sans-serif";
-      context.fillText("請依螢幕號碼前往指定空間", 350, 468);
       const texture = new THREE.CanvasTexture(canvas);
       texture.colorSpace = THREE.SRGBColorSpace;
       return texture;
     };
 
+    const upperInfoTexture = makeUpperInfoTexture();
     const upperInfoScreen = new THREE.Mesh(
         new THREE.PlaneGeometry(7.9, 3.02),
         new THREE.MeshBasicMaterial({
-          map: makeUpperInfoTexture(),
+          map: upperInfoTexture,
           side: THREE.DoubleSide,
         }),
       );
     upperInfoScreen.position.set(0, 1.84, -8.295);
     secondFloor.add(upperInfoScreen);
+
+    // Use the image uploaded for this exact admin QR field when one exists.
+    // The fallback generated above remains available until the upload loads.
+    const upperInfoQrConfig = content.qrCodes.find(
+      (entry) => entry.id === "upper-info-screen",
+    );
+    if (upperInfoQrConfig?.hasCustomImage) {
+      const uploadedQr = new Image();
+      uploadedQr.onload = () => {
+        const canvas = upperInfoTexture.image as HTMLCanvasElement,
+          context = canvas.getContext("2d");
+        if (!context) return;
+        context.fillStyle = "#ffffff";
+        context.fillRect(32, 30, 292, 292);
+        context.drawImage(uploadedQr, 32, 30, 292, 292);
+        upperInfoTexture.needsUpdate = true;
+      };
+      uploadedQr.src = `/api/qr-image/upper-info-screen?v=${upperInfoQrConfig.imageSourceVersion}`;
+    }
+
+    // The upper-right video area shares the exact same HTMLVideoElement as the
+    // two ward TVs. It therefore stays synchronized and muted in the scene;
+    // clicking it uses the existing central player to enable sound.
+    const upperInfoVideoFallback = medifyLogoTexture();
+    const upperInfoVideoMaterial = new THREE.MeshBasicMaterial({
+      map: upperInfoVideoFallback,
+      side: THREE.DoubleSide,
+    });
+    const upperInfoVideoScreen = new THREE.Mesh(
+      // Borderless 16:9 video, filling the right column of the screen.
+      new THREE.PlaneGeometry(5.05, 5.05 * (9 / 16)),
+      upperInfoVideoMaterial,
+    );
+    upperInfoVideoScreen.position.set(1.4, 1.84, -8.235);
+    upperInfoVideoScreen.userData = {
+      interactive: "wardTv",
+      floor: 2,
+    };
+    interactive.push(upperInfoVideoScreen);
+    secondFloor.add(upperInfoVideoScreen);
+    wardTvDisplays.push({
+      group: upperInfoVideoScreen,
+      screenMaterial: upperInfoVideoMaterial,
+      fallbackTexture: upperInfoVideoFallback,
+    });
+    // The QR is painted into the large information screen texture, so give it
+    // a transparent hit area of its own instead of making the whole screen
+    // clickable. The explicit floor tag is required by the shared raycaster.
+    const upperInfoQrHit = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.95, 1.72),
+      new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    upperInfoQrHit.position.set(-2.42, 2.08, -8.24);
+    upperInfoQrHit.userData = {
+      interactive: "qr",
+      qrId: "upper-info-screen",
+      floor: 2,
+    };
+    interactive.push(upperInfoQrHit);
+    secondFloor.add(upperInfoQrHit);
 
     // Four compact waiting islands echo the first-floor furniture language,
     // while sitting closer to the centre aisle. Unlike the two front islands
@@ -5448,6 +5786,7 @@ export default function HospitalScene({
       waitingQrFace.userData = {
         interactive: "qr",
         qrId: `lobby-waiting-${islandIndex + 1}`,
+        floor: 2,
       };
       interactive.push(waitingQrFace);
       waitingQrStand.add(waitingQrFace);
@@ -8686,10 +9025,14 @@ export default function HospitalScene({
       if (root.userData.interactive === "elevator") {
         if (focusedPatient) clearFocusedPatient();
         onElevatorOpen();
+      } else if (root.userData.interactive === "wardTv") {
+        if (wardTvVideo && wardTvVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          if (focusedPatient) clearFocusedPatient();
+          onWardVideoOpen(0);
+        }
       } else if (root.userData.interactive === "qr") {
-        const qrId = root.userData.qrId as string | undefined;
-        if (qrId)
-          window.open(`/qr/${qrId}`, "_blank", "noopener,noreferrer");
+        const qrId = root.userData.qrId as QrId | undefined;
+        if (qrId) onQrCode(qrId);
       } else if (root.userData.interactive === "door") {
         const d = doors.find((v) => v.room === root.userData.room)!,
           closed =
@@ -8811,9 +9154,22 @@ export default function HospitalScene({
         onTalk(root.userData.role, w ? staffInteraction(w) : undefined);
       }
     };
-    const move = (e: PointerEvent) =>
-      (renderer.domElement.style.cursor =
-        birdAtPointer(e) || pointer(e) ? "pointer" : "grab");
+    const move = (e: PointerEvent) => {
+      const hit = pointer(e);
+      qrGlowTargets.forEach((target) => (target.hovered = false));
+      if (hit) {
+        const root = hit.object.userData.hitRoot || hit.object,
+          qrId = root.userData.qrId as QrId | undefined;
+        if (root.userData.interactive === "qr" && qrId) {
+          const target = qrGlowTargets.get(qrId);
+          if (target) target.hovered = true;
+        }
+      }
+      // Keep the scene's four-way move cursor distinct from the hand cursor
+      // reserved for clickable objects.
+      renderer.domElement.style.cursor =
+        birdAtPointer(e) || hit ? "pointer" : "move";
+    };
     renderer.domElement.addEventListener("click", click);
     renderer.domElement.addEventListener("pointermove", move);
 
@@ -11575,6 +11931,12 @@ export default function HospitalScene({
       .forEach(attachPatientMonitor);
     const floorOneWalkerVisibility = new Map<string, boolean>();
     const applyFloor = (floorNumber: 1 | 2 | 3) => {
+      // Keep the same framebuffer resolution on every floor. In particular,
+      // do not silently lower 3F when switching to the courtyard view.
+      renderer.setPixelRatio(defaultPixelRatio);
+      // Keep directional shadows active on every floor. Disabling the sun on
+      // 3F made the courtyard and ward shadows disappear after floor switch.
+      sun.castShadow = true;
       // From 3F, retain the 2F architectural layer while replacing its open
       // clinical sets with closed ceilings and sealed doorway backstops.
       secondFloor.visible = floorNumber >= 2;
@@ -11618,6 +11980,62 @@ export default function HospitalScene({
     };
     applyFloorRef.current = applyFloor;
     applyFloor(activeFloorRef.current);
+    const updateWardTvPlayback = () => {
+      const videoConfig = contentRef.current.video,
+        source = videoConfig.hasCustomVideo
+          ? `/api/video?v=${videoConfig.sourceVersion}`
+          : "";
+      if (!source) {
+        if (!wardTvSource && !wardTvVideo) return;
+        if (wardTvVideo) {
+          wardTvVideo.pause();
+          wardTvVideo.removeAttribute("src");
+          wardTvVideo.load();
+          wardTvVideo = null;
+        }
+        wardTvVideoTexture?.dispose();
+        wardTvVideoTexture = null;
+        wardTvSource = "";
+        wardTvDisplays.forEach(({ screenMaterial, fallbackTexture }) => {
+          screenMaterial.map = fallbackTexture;
+          screenMaterial.needsUpdate = true;
+        });
+        return;
+      }
+      if (wardTvSource === source && wardTvVideo) {
+        if (wardTvVideo.paused) void wardTvVideo.play().catch(() => undefined);
+        return;
+      }
+      wardTvVideo?.pause();
+      wardTvVideo?.removeAttribute("src");
+      wardTvVideo?.load();
+      wardTvVideoTexture?.dispose();
+      const video = document.createElement("video");
+      video.src = source;
+      video.muted = true;
+      video.defaultMuted = true;
+      video.loop = true;
+      video.autoplay = true;
+      video.playsInline = true;
+      video.preload = "auto";
+      const videoTexture = new THREE.VideoTexture(video);
+      videoTexture.colorSpace = THREE.SRGBColorSpace;
+      videoTexture.minFilter = THREE.LinearFilter;
+      videoTexture.magFilter = THREE.LinearFilter;
+      videoTexture.generateMipmaps = false;
+      wardTvVideo = video;
+      wardTvVideoTexture = videoTexture;
+      wardTvSource = source;
+      wardTvDisplays.forEach(({ screenMaterial }) => {
+        screenMaterial.map = videoTexture;
+        screenMaterial.needsUpdate = true;
+      });
+      video.addEventListener("canplay", () => {
+        void video.play().catch(() => undefined);
+      });
+      video.load();
+      void video.play().catch(() => undefined);
+    };
     const clock = new THREE.Clock();
     let raf = 0,
       readyRaf = 0,
@@ -11626,10 +12044,16 @@ export default function HospitalScene({
       lastRenderErrorAt = 0,
       lastReportedPatientCount = -1,
       lastSeatFillAt = -1,
-      characterTime = 0;
+      characterTime = 0,
+      thirdFloorSimulationAccumulator = 0;
+    // Keep actor motion in step with the render cadence. A 30 Hz character
+    // step made positions hold for two 60 Hz frames, which was visible as a
+    // grid-like hop on ward 1/2 doorway curves and even on straight segments.
+    const characterSimulationStep = 1 / 60;
     const render = () => {
       raf = requestAnimationFrame(render);
       try {
+        updateWardTvPlayback();
         const frameDt = Math.min(clock.getDelta(), 0.04),
           frameTime = clock.elapsedTime,
           scaledCharacterDt =
@@ -11639,49 +12063,59 @@ export default function HospitalScene({
           // Advance the simulation through the same small steps used at normal
           // speed.  A faster mode therefore processes more valid path/collision
           // steps instead of moving an actor farther in a single frame.
-          const characterDt = Math.min(remainingCharacterDt, 1 / 30),
+          const characterDt = Math.min(
+              remainingCharacterDt,
+              characterSimulationStep,
+            ),
             dt = characterDt,
             t = characterTime + characterDt;
           characterTime = t;
           remainingCharacterDt -= characterDt;
         if (activeFloorRef.current === 3) {
-          {
-            const dt = characterDt,
-              t = characterTime;
-            updateThirdFloorCare(dt, t);
+          thirdFloorSimulationAccumulator += characterDt;
+          if (thirdFloorSimulationAccumulator >= characterSimulationStep) {
+            thirdFloorSimulationAccumulator -= characterSimulationStep;
+            {
+              const dt = characterSimulationStep,
+                t = characterTime;
+              updateThirdFloorCare(dt, t);
+            }
+            wardSwingDoors.forEach((door) => {
+              if (door.openTarget === 1 && performance.now() >= door.closeAt)
+                door.openTarget = 0;
+              const dt = characterSimulationStep,
+                step = dt * 1.85;
+              door.openAmount = THREE.MathUtils.lerp(
+                door.openAmount,
+                door.openTarget,
+                1 - Math.exp(-step * 4),
+              );
+              door.pivots.forEach(({ pivot, side, closedYaw }) => {
+                pivot.rotation.y =
+                  closedYaw - side * Math.PI * 0.46 * door.openAmount;
+              });
+            });
+            courtyardAutoDoors.forEach((door) => {
+              if (!door.active) return;
+              if (door.openTarget === 1 && performance.now() >= door.closeAt)
+                door.openTarget = 0;
+              const dt = characterSimulationStep,
+                speed = door.openTarget > door.openAmount ? 1.45 : 1.7;
+              door.openAmount = THREE.MathUtils.lerp(
+                door.openAmount,
+                door.openTarget,
+                1 - Math.exp(-dt * speed * 4),
+              );
+              door.leaves.forEach(({ mesh, closed, side }) => {
+                mesh.position
+                  .copy(closed)
+                  .addScaledVector(
+                    door.tangent,
+                    side * door.opening * 0.96 * door.openAmount,
+                  );
+              });
+            });
           }
-          wardSwingDoors.forEach((door) => {
-            if (door.openTarget === 1 && performance.now() >= door.closeAt)
-              door.openTarget = 0;
-            const step = dt * 1.85;
-            door.openAmount = THREE.MathUtils.lerp(
-              door.openAmount,
-              door.openTarget,
-              1 - Math.exp(-step * 4),
-            );
-            door.pivots.forEach(({ pivot, side, closedYaw }) => {
-              pivot.rotation.y =
-                closedYaw - side * Math.PI * 0.46 * door.openAmount;
-            });
-          });
-          courtyardAutoDoors.forEach((door) => {
-            if (door.openTarget === 1 && performance.now() >= door.closeAt)
-              door.openTarget = 0;
-            const speed = door.openTarget > door.openAmount ? 1.45 : 1.7;
-            door.openAmount = THREE.MathUtils.lerp(
-              door.openAmount,
-              door.openTarget,
-              1 - Math.exp(-dt * speed * 4),
-            );
-            door.leaves.forEach(({ mesh, closed, side }) => {
-              mesh.position
-                .copy(closed)
-                .addScaledVector(
-                  door.tangent,
-                  side * door.opening * 0.46 * door.openAmount,
-                );
-            });
-          });
         }
         if (activeFloorRef.current === 2) {
           // Keep the upper-floor automatic doors on the normal clock, while
@@ -12561,7 +12995,7 @@ export default function HospitalScene({
             bird.wings[1].rotation.x = -Math.sin(t * 17) * 0.9;
           }
         });
-        updateThirdFloorCourtyardLife(t);
+        if (activeFloorRef.current === 3) updateThirdFloorCourtyardLife(t);
         streetButterflies.forEach((butterfly, i) => {
           const timing = butterflyTimings[i],
             shiftedTime = t + timing.offset,
@@ -16961,6 +17395,52 @@ export default function HospitalScene({
           }
         }
         updateFocusedPatient(frameTime, frameDt);
+        qrGlowTargets.forEach(({ stars, edge, hovered }) => {
+          const opacityStep = 1 - Math.exp(-frameDt * 12);
+          stars.forEach(({ sprite, phase, baseScale }) => {
+            const cycle = (frameTime * 3.4 + phase) % (Math.PI * 2),
+              burstDuration = 1.9,
+              progress = Math.min(cycle / burstDuration, 1),
+              growth = 1 - Math.pow(1 - progress, 3),
+              starMaterial = sprite.material as THREE.SpriteMaterial,
+              starOpacity =
+                cycle < burstDuration
+                  ? 0.95 * (1 - Math.pow(progress, 1.25))
+                  : 0,
+              starScale =
+                baseScale * (0.38 + growth * 1.95) * (hovered ? 1.12 : 1);
+            starMaterial.opacity = starOpacity;
+            sprite.scale.set(starScale, starScale, 1);
+            sprite.rotation.z = phase * 0.1 + progress * Math.PI * 0.75;
+          });
+          if (edge) {
+            const travelDistance =
+              (frameTime * (0.48 + (hovered ? 0.14 : 0))) % edge.totalLength;
+            edge.runners.forEach((runner, runnerIndex) => {
+              const tailDistance =
+                (travelDistance - runnerIndex * 0.035 + edge.totalLength) %
+                edge.totalLength;
+              let accumulated = 0;
+              let segmentIndex = 0;
+              for (; segmentIndex < edge.segmentLengths.length; segmentIndex++) {
+                const segmentLength = edge.segmentLengths[segmentIndex];
+                if (tailDistance <= accumulated + segmentLength) break;
+                accumulated += segmentLength;
+              }
+              const start = edge.path[segmentIndex],
+                end = edge.path[(segmentIndex + 1) % edge.path.length],
+                segmentProgress =
+                  (tailDistance - accumulated) /
+                  edge.segmentLengths[segmentIndex],
+                point = start.clone().lerp(end, segmentProgress);
+              runner.position.copy(point);
+              runner.rotation.z = 0;
+              runner.material.opacity =
+                (runner.userData.haloOpacity as number) *
+                (hovered ? 1.08 : 1);
+            });
+          }
+        });
         controls.update();
         renderer.render(scene, camera);
         if (!firstFrameReported) {
@@ -17009,6 +17489,10 @@ export default function HospitalScene({
       }
       controls.dispose();
       renderer.dispose();
+      wardTvVideo?.pause();
+      wardTvVideo?.removeAttribute("src");
+      wardTvVideo?.load();
+      wardTvVideoTexture?.dispose();
       cameraRef.current = null;
       controlsRef.current = null;
       cameraTransitionRef.current = null;
@@ -17026,10 +17510,12 @@ export default function HospitalScene({
   }, [
     onReady,
     onTalk,
+    onQrCode,
     onPatientFocus,
     onKnock,
     onPatientCount,
     onElevatorOpen,
+    onWardVideoOpen,
     onThirdFloorTrafficSnapshot,
   ]);
   useEffect(() => {
@@ -17161,17 +17647,10 @@ export default function HospitalScene({
         target: new THREE.Vector3(-12.92, floorY + 1.55, 3.91),
       },
     };
-    const floorDelta = (activeFloor - previousFloor) * 5.35;
-    const preset = floorChanged
-      ? {
-          position: camera.position
-            .clone()
-            .add(new THREE.Vector3(0, floorDelta, 0)),
-          target: controls.target
-            .clone()
-            .add(new THREE.Vector3(0, floorDelta, 0)),
-        }
-      : presets[cameraView];
+    // A floor change is a new viewing context. Always enter it through that
+    // floor's panorama, even if the previous floor was being viewed through
+    // a room, station, courtyard, or other focused preset.
+    const preset = floorChanged ? presets.panorama : presets[cameraView];
     const previousCameraView = previousCameraViewRef.current;
     const pharmacyTransition =
         cameraView === "pharmacy" || previousCameraView === "pharmacy",
