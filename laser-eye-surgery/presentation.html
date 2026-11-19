@@ -61,6 +61,15 @@
   // starts at frame 0. Over http that is '?r=1'; from file:// a query string
   // is not part of the file's identity, so the offline build ships a second
   // physical copy of each gif named '<name>__r1.gif'.
+  // Safari refuses localStorage / sessionStorage on file:// pages, so every
+  // access goes through this shim and falls back to memory for the life of
+  // the page (the tutorial then reappears on the next launch of the offline
+  // copy, but nothing throws and no logic silently changes).
+  var MEM = { localStorage:{}, sessionStorage:{} };
+  function stGet(kind, k){ try { return window[kind].getItem(k); } catch(e){ return MEM[kind][k] || null; } }
+  function stSet(kind, k, v){ try { window[kind].setItem(k, v); } catch(e){ MEM[kind][k] = v; } }
+  function stDel(kind, k){ try { window[kind].removeItem(k); } catch(e){ delete MEM[kind][k]; } }
+
   function isAltGif(src){ return OFFLINE ? /__r1\.gif/.test(src) : src.indexOf('?r=1') > -1; }
   function altGif(baseUrl){ return OFFLINE ? baseUrl.replace(/\.gif$/, '__r1.gif') : baseUrl + '?r=1'; }
   function baseGif(src){
@@ -294,7 +303,7 @@
     if (scene() !== s || onCard) return;                 // already moved on
     if (document.getElementById('__preload') || document.getElementById('__tutorial')) return;
     if (visibleGifCount() > 0){                          // element exists — fine
-      try { sessionStorage.removeItem('__gifReload0'); } catch(e){}  // gifs are alive again
+      stDel('sessionStorage', '__gifReload0');             // gifs are alive again
       return;
     }
     // A gif that is in the DOM but still downloading has offsetWidth 0 and
@@ -319,13 +328,13 @@
     // at one reload per session so a permanently missing gif can't loop.
     if (s === 0){
       var used = false;
-      try { used = sessionStorage.getItem('__gifReload0') === '1'; } catch(e){}
+      used = stGet('sessionStorage', '__gifReload0') === '1';
       if (used){
         console.log('[gif] no gif at #0, reload already used this session');
         setTimeout(function(){ gifNudging = false; }, 2000);   // never leave the latch stuck
         return;
       }
-      try { sessionStorage.setItem('__gifReload0', '1'); } catch(e){}
+      stSet('sessionStorage', '__gifReload0', '1');
       console.log('[gif] no gif element at #0 -> reloading to re-enter forward');
       location.replace(location.pathname + location.search);
       return;
@@ -657,7 +666,7 @@
   // ---- first-run tutorial (once per device, localStorage) ---------------
   var TUTORIAL_KEY = 'mfy_laser_tutorial_seen';   // per deck: localStorage is shared across the whole github.io origin
   function maybeShowTutorial(){
-    try { if (localStorage.getItem(TUTORIAL_KEY)) return; } catch(e){}
+    if (stGet('localStorage', TUTORIAL_KEY)) return;
     var tut = document.createElement('div');
     tut.id = '__tutorial';
     applyStyles(tut, {
@@ -707,7 +716,7 @@
     ['pointerup','click','touchend'].forEach(function(evt){
       tut.addEventListener(evt, function(e){
         e.preventDefault(); e.stopPropagation();
-        try { localStorage.setItem(TUTORIAL_KEY, '1'); } catch(err){}
+        stSet('localStorage', TUTORIAL_KEY, '1');
         tut.style.transition = 'opacity .25s ease';
         tut.style.opacity = '0';
         setTimeout(function(){ tut.parentNode && tut.parentNode.removeChild(tut); }, 270);
