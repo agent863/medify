@@ -42,7 +42,31 @@
   var ZONE_FRACTION = 0.2;
 
   function applyStyles(el, styles){ for (var p in styles){ el.style[p] = styles[p]; } }
-  function scene(){ var m = (location.hash || '').match(/\d+/); return m ? +m[0] : 0; }
+  // Opened straight from the filesystem (the offline copy on a USB stick /
+  // iPad), the player loads .jsonp/.pdfp instead of XHR AND skips
+  // history.replaceState entirely, so location.hash never changes. Measured
+  // on this deck: at every resting point hash === currentSceneIndex + 1, so
+  // the scene number is derived from the controller when there is no hash.
+  var OFFLINE = (location.protocol === 'file:');
+  function scene(){
+    var m = (location.hash || '').match(/\d+/);
+    if (m) return +m[0];
+    try {
+      var sc = window.__UC && window.__UC.currentSceneIndex;
+      if (typeof sc === 'number' && sc >= 0) return sc + 1;
+    } catch(e){}
+    return 0;
+  }
+  // The gif replay trick needs a genuinely DIFFERENT url so the decoder
+  // starts at frame 0. Over http that is '?r=1'; from file:// a query string
+  // is not part of the file's identity, so the offline build ships a second
+  // physical copy of each gif named '<name>__r1.gif'.
+  function isAltGif(src){ return OFFLINE ? /__r1\.gif/.test(src) : src.indexOf('?r=1') > -1; }
+  function altGif(baseUrl){ return OFFLINE ? baseUrl.replace(/\.gif$/, '__r1.gif') : baseUrl + '?r=1'; }
+  function baseGif(src){
+    var u = src.replace(/[?#].*$/, '');
+    return OFFLINE ? u.replace(/__r1\.gif$/, '.gif') : u;
+  }
 
   // ---- background -------------------------------------------------------
   [document.documentElement, document.body, document.getElementById('stageArea')].forEach(function(el){
@@ -345,11 +369,11 @@
       var all = document.querySelectorAll('img');
       var restarted = 0;
       function swap(img){
-        var base = img.src.replace(/[?#].*$/, '');
-        var useAlt = img.src.indexOf('?r=1') < 0;
-        img.src = useAlt ? (base + '?r=1') : base;
+        var base = baseGif(img.src);
+        var useAlt = !isAltGif(img.src);
+        img.src = useAlt ? altGif(base) : base;
         restarted++;
-        console.log('[gif] restart ->', useAlt ? '?r=1' : 'base', base.split('/').pop());
+        console.log('[gif] restart ->', useAlt ? 'alt' : 'base', base.split('/').pop());
       }
       for (var i = 0; i < all.length; i++){
         var img = all[i];
@@ -889,12 +913,13 @@
       im.src = encodeURI(u);
       window.__gifWarm.push(im); // decoded + pinned
     });
-    // Then the ?r=1 alternates used by the ping-pong restart.
+    // Then the alternate urls used by the ping-pong restart.
     GIF_URLS.forEach(function(u){
       var im = new Image();
-      im.src = encodeURI(u) + '?r=1';
+      im.src = altGif(encodeURI(u));
       window.__gifWarm.push(im); // pin in memory
     });
+    if (OFFLINE) return;   // from file:// the player uses .pdfp/.jsonp and fetch() always fails
     var uuids = [
       '6F80DFBD-9A36-44E4-92EE-B3EA7E1CA1E2',
       'FAD1F8D5-3D72-4B24-9EE6-220209CA7A22',
